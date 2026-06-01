@@ -45,6 +45,9 @@ class Settings:
     # Behaviour
     ingest_window_days: int = 7
 
+    # Backup (optional): passphrase to encrypt the weekly pg_dump at rest.
+    backup_passphrase: str = ""
+
     @classmethod
     def load(cls) -> "Settings":
         return cls(
@@ -62,6 +65,7 @@ class Settings:
                 r.strip() for r in os.getenv("REPORT_RECIPIENTS", "").split(",") if r.strip()
             ],
             ingest_window_days=int(os.getenv("INGEST_WINDOW_DAYS", "7")),
+            backup_passphrase=os.getenv("BACKUP_PASSPHRASE", ""),
         )
 
     def require_email(self) -> None:

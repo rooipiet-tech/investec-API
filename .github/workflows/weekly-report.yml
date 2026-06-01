@@ -6,6 +6,9 @@ on:
     - cron: "0 15 * * 5"   # 15:00 UTC (17:00 SAST) every Friday
   workflow_dispatch: {}    # allow manual runs
 
+permissions:
+  contents: write   # for the heartbeat commit that keeps the cron alive
+
 jobs:
   report:
     runs-on: ubuntu-latest
@@ -44,3 +47,34 @@ jobs:
           path: reports/*.xlsx
           if-no-files-found: ignore
         continue-on-error: true
+
+      - name: Database backup (pg_dump → encrypted artifact)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+        run: invespend backup
+
+      - name: Upload backup artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: db-backup
+          path: backups/*
+          retention-days: 30
+          if-no-files-found: ignore
+        continue-on-error: true
+
+      - name: Heartbeat (keep scheduled workflows enabled)
+        if: always()
+        continue-on-error: true
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p .github
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-run.txt
+          git add .github/last-run.txt
+          git commit -m "chore: weekly heartbeat [skip ci]" || exit 0
+          git push
