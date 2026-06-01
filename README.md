@@ -1,0 +1,76 @@
+# invespend — Investec transactions → database → weekly spend report
+
+Pulls your Investec **Programmable Banking** transactions into a Postgres
+database and emails an Excel spend-analysis at the end of every week. Runs
+entirely on **free services** (GitHub Actions + Supabase + Gmail SMTP).
+
+📐 See [`ARCHITECTURE.md`](ARCHITECTURE.md) for the design, security model, and
+build-on-top ideas.
+
+```
+Investec Open API ──(daily cron)──▶ Postgres (Supabase) ──(Fri cron)──▶ Excel ──▶ email
+```
+
+## What you get
+
+- **`invespend ingest`** — idempotent, read-only sync of accounts + transactions.
+- **`invespend report --send`** — multi-sheet `.xlsx` (summary, by category, by
+  account, top merchants, daily trend) emailed to you.
+- Two scheduled GitHub Actions workflows — no server to run.
+
+---
+
+## Setup
+
+### 1. Investec API credentials
+In Investec Online → **Programmable Banking → Enrolled APIs**, generate:
+`client_id`, `client_secret`, and an `x-api-key`. These are **read-only** — they
+cannot move money.
+
+### 2. Database (Supabase free tier)
+1. Create a free project at [supabase.com](https://supabase.com).
+2. Copy the connection string: **Project Settings → Database → Connection
+   string (URI)** — use the pooler URI, keep `sslmode=require`.
+3. Apply the schema:
+   ```bash
+   invespend init-db          # or paste db/migrations/0001_init.sql into the SQL editor
+   ```
+
+### 3. Email (Gmail app password)
+Enable 2-Step Verification on your Google account, then create an **App
+password** (Google Account → Security → App passwords). Use that 16-char value
+as `SMTP_PASSWORD`.
+
+### 4. GitHub Actions secrets
+In the repo: **Settings → Secrets and variables → Actions**, add:
+
+| Secret | Example |
+|--------|---------|
+| `INVESTEC_CLIENT_ID` / `INVESTEC_CLIENT_SECRET` / `INVESTEC_API_KEY` | from Investec |
+| `INVESTEC_BASE_URL` | `https://openapi.investec.com` |
+| `DATABASE_URL` | `postgresql://...@...:6543/postgres?sslmode=require` |
+| `SMTP_HOST` / `SMTP_PORT` | `smtp.gmail.com` / `587` |
+| `SMTP_USER` / `SMTP_PASSWORD` | your Gmail + app password |
+| `REPORT_SENDER` / `REPORT_RECIPIENTS` | sender + comma-separated recipients |
+
+The schedules then run automatically (daily ingest, Friday report). Trigger
+either manually from the **Actions** tab via *Run workflow*.
+
+---
+
+## Local development
+
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install -e ".[dev]"
+cp .env.example .env        # fill in your values (git-ignored)
+
+invespend init-db
+invespend ingest --days 30  # backfill a month
+invespend report --send     # build + email the report
+
+pytest                      # run the unit tests
+```
+
+> **Security:** secrets live only in `.env` (git-ignored) locally and in GitHub
+> encrypted secrets in CI. Never commit credentials.
