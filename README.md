@@ -58,7 +58,20 @@ either manually from the **Actions** tab via *Run workflow*.
 
 ---
 
-## Local development
+## Everything runs in the cloud
+
+You don't need to install or run anything locally:
+
+- **Tests** run on GitHub Actions (`tests.yml`) on every PR and push.
+- **Ingest** and **weekly report** run on their schedules (`ingest.yml`,
+  `weekly-report.yml`), or on demand from the **Actions** tab → *Run workflow*.
+
+To trigger a one-off run (e.g. a 90-day backfill), use *Run workflow* on the
+**ingest** workflow from the Actions tab.
+
+## Optional: local development
+
+Only if you *want* to run it on your machine — not required.
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
