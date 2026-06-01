@@ -1,0 +1,34 @@
+name: ingest
+
+# Daily transaction sync into the database.
+on:
+  schedule:
+    - cron: "0 2 * * *"   # 02:00 UTC (04:00 SAST) every day
+  workflow_dispatch: {}    # allow manual runs
+
+concurrency:
+  group: ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Run ingest
+        env:
+          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+          INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: invespend ingest --days 7

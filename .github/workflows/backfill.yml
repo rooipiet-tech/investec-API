@@ -1,0 +1,42 @@
+name: backfill
+
+# One-off historical backfill. Defaults to 10 years; override the start date
+# via the input below. Run from the Actions tab → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      from_date:
+        description: "Start date YYYY-MM-DD (blank = 10 years ago)"
+        required: false
+        default: ""
+
+jobs:
+  backfill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Resolve start date (default 10 years ago)
+        id: range
+        run: |
+          FROM="${{ github.event.inputs.from_date }}"
+          FROM="${FROM:-$(date -u -d '10 years ago' +%Y-%m-%d)}"
+          echo "from=$FROM" >> "$GITHUB_OUTPUT"
+          echo "Backfilling from $FROM"
+
+      - name: Run backfill
+        env:
+          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+          INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: invespend ingest --from "${{ steps.range.outputs.from }}"

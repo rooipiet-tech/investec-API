@@ -1,0 +1,46 @@
+name: weekly-report
+
+# Builds the Excel spend analysis and emails it at the end of the week.
+on:
+  schedule:
+    - cron: "0 15 * * 5"   # 15:00 UTC (17:00 SAST) every Friday
+  workflow_dispatch: {}    # allow manual runs
+
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Build & email report
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
+          REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
+          # Not needed by the report job, but Settings.load() validates them;
+          # provide harmless placeholders so the report can run on its own.
+          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+        run: invespend report --send
+
+      - name: Upload report artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-spend-report
+          path: reports/*.xlsx
+          if-no-files-found: ignore
+        continue-on-error: true
