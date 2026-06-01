@@ -37,17 +37,47 @@ def init_db(conn: psycopg.Connection) -> None:
             cur.execute(migration.read_text())
 
 
-def transaction_hash(account_id: str, tx: dict) -> str:
-    """Deterministic dedup key — the public API has no stable transaction id."""
+def _group_key(account_id: str, tx: dict) -> tuple:
+    """The identifying fields of a transaction, minus the within-day counter."""
+    return (
+        account_id,
+        str(tx.get("valueDate", "")),
+        str(tx.get("actionDate", "")),
+        str(tx.get("amount", "")),
+        str(tx.get("description", "")),
+    )
+
+
+def assign_day_seq(account_id: str, transactions: list[dict]) -> list[tuple[dict, int]]:
+    """Pair each transaction with a within-day sequence counter.
+
+    The counter increments across otherwise-identical same-day transactions in
+    API order. Because the API returns transactions in a stable order, the same
+    rolling-window re-pull yields the same counters — keeping the hash, and thus
+    the upsert, idempotent (ARCHITECTURE §5.2).
+    """
+    counters: dict[tuple, int] = {}
+    out: list[tuple[dict, int]] = []
+    for tx in transactions:
+        key = _group_key(account_id, tx)
+        seq = counters.get(key, 0)
+        counters[key] = seq + 1
+        out.append((tx, seq))
+    return out
+
+
+def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
+    """Deterministic dedup key — the public API has no stable transaction id.
+
+    sha256(account_id | value_date | action_date | amount | description | day_seq)
+    """
     parts = [
         account_id,
-        str(tx.get("postingDate", "")),
         str(tx.get("valueDate", "")),
+        str(tx.get("actionDate", "")),
         str(tx.get("amount", "")),
-        str(tx.get("type", "")),
-        str(tx.get("transactionType", "")),
         str(tx.get("description", "")),
-        str(tx.get("runningBalance", "")),
+        str(day_seq),
     ]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
@@ -91,7 +121,7 @@ def upsert_account(conn: psycopg.Connection, account: dict) -> None:
 
 
 def upsert_transaction(
-    conn: psycopg.Connection, account_id: str, tx: dict, category: str
+    conn: psycopg.Connection, account_id: str, tx: dict, category: str, day_seq: int = 0
 ) -> bool:
     """Insert a transaction if new. Returns True when a new row was written."""
     signed_amount = float(tx.get("amount", 0))
@@ -106,12 +136,12 @@ def upsert_transaction(
             insert into transactions
                 (transaction_hash, account_id, type, transaction_type, status,
                  description, card_number, posting_date, value_date, action_date,
-                 transaction_date, amount, running_balance, category, raw)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 transaction_date, amount, running_balance, category, day_seq, raw)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (transaction_hash) do nothing;
             """,
             (
-                transaction_hash(account_id, tx),
+                transaction_hash(account_id, tx, day_seq),
                 account_id,
                 tx.get("type"),
                 tx.get("transactionType"),
@@ -125,6 +155,7 @@ def upsert_transaction(
                 signed_amount,
                 tx.get("runningBalance"),
                 category,
+                day_seq,
                 json.dumps(tx),
             ),
         )

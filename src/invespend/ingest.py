@@ -50,9 +50,9 @@ def run_ingest(
                 account_id = account["accountId"]
 
                 transactions = client.get_transactions(account_id, from_date, to_date)
-                for tx in transactions:
+                for tx, day_seq in db.assign_day_seq(account_id, transactions):
                     category = categorize(tx.get("description"), tx.get("transactionType"))
-                    if db.upsert_transaction(conn, account_id, tx, category):
+                    if db.upsert_transaction(conn, account_id, tx, category, day_seq):
                         tx_upserted += 1
                 log.info(
                     "Account %s: %d transactions pulled (%d new)",
