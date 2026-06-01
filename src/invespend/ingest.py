@@ -12,14 +12,21 @@ from .investec_client import InvestecClient
 log = logging.getLogger(__name__)
 
 
-def run_ingest(settings: Settings, window_days: int | None = None) -> dict:
-    """Pull a rolling window of transactions and upsert them.
+def run_ingest(
+    settings: Settings,
+    window_days: int | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
+) -> dict:
+    """Pull transactions and upsert them.
 
-    Returns a small summary dict for logging/observability.
+    By default pulls a rolling window ending today. Pass explicit ``from_date`` /
+    ``to_date`` for a backfill. Returns a small summary dict for observability.
     """
-    window = window_days or settings.ingest_window_days
-    to_date = date.today()
-    from_date = to_date - timedelta(days=window)
+    to_date = to_date or date.today()
+    if from_date is None:
+        window = window_days or settings.ingest_window_days
+        from_date = to_date - timedelta(days=window)
 
     client = InvestecClient(
         client_id=settings.investec_client_id,

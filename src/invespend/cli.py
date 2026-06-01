@@ -4,6 +4,7 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
+from datetime import date
 
 from . import db
 from .config import Settings
@@ -29,7 +30,11 @@ def cmd_init_db(_args: argparse.Namespace) -> int:
 
 def cmd_ingest(args: argparse.Namespace) -> int:
     settings = Settings.load()
-    summary = run_ingest(settings, window_days=args.days)
+    from_date = date.fromisoformat(args.from_date) if args.from_date else None
+    to_date = date.fromisoformat(args.to_date) if args.to_date else None
+    summary = run_ingest(
+        settings, window_days=args.days, from_date=from_date, to_date=to_date
+    )
     print(f"Ingest: {summary}")
     return 0
 
@@ -59,6 +64,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest = sub.add_parser("ingest", help="Pull transactions into the database")
     p_ingest.add_argument("--days", type=int, default=None,
                           help="Days of history to pull (default: INGEST_WINDOW_DAYS)")
+    p_ingest.add_argument("--from", dest="from_date", default=None,
+                          help="Backfill start date YYYY-MM-DD (overrides --days)")
+    p_ingest.add_argument("--to", dest="to_date", default=None,
+                          help="End date YYYY-MM-DD (default: today)")
     p_ingest.set_defaults(func=cmd_ingest)
 
     p_report = sub.add_parser("report", help="Build the weekly Excel report")
