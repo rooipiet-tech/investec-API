@@ -49,3 +49,13 @@ create table if not exists sync_runs (
     status                 text,        -- running / success / error
     error                  text
 );
+
+-- ── Security ────────────────────────────────────────────────────────────────
+-- Lock these tables down. With RLS enabled and NO policies, the Supabase anon /
+-- authenticated roles (i.e. anything using the public API key) cannot read this
+-- banking data. The ingest/report jobs connect with the direct Postgres role,
+-- which bypasses RLS, so they are unaffected. Add explicit policies later only
+-- if you intentionally expose this data to a client app.
+alter table accounts     enable row level security;
+alter table transactions enable row level security;
+alter table sync_runs    enable row level security;
