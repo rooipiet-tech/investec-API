@@ -41,6 +41,30 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
     return df
 
 
+def load_monthly_movement(settings: Settings, months: int = 6) -> pd.DataFrame:
+    """Read the month-over-month movement bridge from the build-layer view.
+
+    Sourced from `monthly_movement` (not the 7-day window) so the report can show
+    a real month-over-month trend per category.
+    """
+    query = """
+        select month, category, total_spend, prev_month_spend, movement
+        from monthly_movement
+        where month >= (date_trunc('month', current_date) - %s::interval)
+        order by month desc, total_spend desc;
+    """
+    with db.connect(settings.database_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (f"{months} months",))
+            rows = cur.fetchall()
+    cols = ["month", "category", "total_spend", "prev_month_spend", "movement"]
+    df = pd.DataFrame(rows, columns=cols)
+    for col in ("total_spend", "prev_month_spend", "movement"):
+        if not df.empty:
+            df[col] = df[col].astype(float)
+    return df
+
+
 def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Turn a transaction DataFrame into the report's sheets.
 
@@ -130,6 +154,12 @@ def generate_weekly_report(settings: Settings, end: date | None = None,
 
     df = load_transactions(settings, start, end)
     sheets = build_spend_summary(df)
+    # Month-over-month trend comes from the build-layer view, which spans more
+    # than the 7-day window the rest of the sheets are built from.
+    try:
+        sheets["Monthly Movement"] = load_monthly_movement(settings)
+    except Exception as exc:  # noqa: BLE001 - report still useful without MoM
+        log.warning("Skipping Monthly Movement sheet: %s", exc)
     filename = f"spend-analysis_{start.isoformat()}_to_{end.isoformat()}.xlsx"
     path = write_workbook(sheets, out_dir / filename)
     log.info("Wrote report %s (%d transactions)", path, len(df))

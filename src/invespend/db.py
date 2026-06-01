@@ -14,7 +14,7 @@ from typing import Iterator
 
 import psycopg
 
-MIGRATION = Path(__file__).resolve().parents[2] / "db" / "migrations" / "0001_init.sql"
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
 
 @contextmanager
@@ -31,10 +31,10 @@ def connect(database_url: str) -> Iterator[psycopg.Connection]:
 
 
 def init_db(conn: psycopg.Connection) -> None:
-    """Apply the schema migration (idempotent)."""
-    sql = MIGRATION.read_text()
+    """Apply every migration in order (each is idempotent)."""
     with conn.cursor() as cur:
-        cur.execute(sql)
+        for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            cur.execute(migration.read_text())
 
 
 def transaction_hash(account_id: str, tx: dict) -> str:
