@@ -30,7 +30,7 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
         where posting_date between %s and %s
         order by posting_date;
     """
-    with db.connect(settings.database_url) as conn:
+    with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:
             cur.execute(query, (start, end))
             rows = cur.fetchall()
@@ -53,7 +53,7 @@ def load_monthly_movement(settings: Settings, months: int = 6) -> pd.DataFrame:
         where month >= (date_trunc('month', current_date) - %s::interval)
         order by month desc, total_spend desc;
     """
-    with db.connect(settings.database_url) as conn:
+    with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:
             cur.execute(query, (f"{months} months",))
             rows = cur.fetchall()
