@@ -15,12 +15,23 @@ load_dotenv()  # no-op in CI where vars are already in the environment
 
 def _require(name: str) -> str:
     value = os.getenv(name)
+    if value is not None:
+        value = value.strip()  # tolerate trailing newlines/spaces from pasted secrets
     if not value:
         raise RuntimeError(
             f"Missing required environment variable: {name}. "
             f"Copy .env.example to .env (local) or set it as a GitHub secret (CI)."
         )
     return value
+
+
+def _opt(name: str, default: str = "") -> str:
+    """Read an optional env var, trimmed of surrounding whitespace."""
+    value = os.getenv(name)
+    if value is None:
+        return default
+    value = value.strip()
+    return value or default
 
 
 @dataclass(frozen=True)
@@ -58,19 +69,21 @@ class Settings:
             investec_client_id=_require("INVESTEC_CLIENT_ID"),
             investec_client_secret=_require("INVESTEC_CLIENT_SECRET"),
             investec_api_key=_require("INVESTEC_API_KEY"),
-            investec_base_url=os.getenv("INVESTEC_BASE_URL", "https://openapi.investec.com"),
+            investec_base_url=_opt("INVESTEC_BASE_URL", "https://openapi.investec.com"),
             database_url=_require("DATABASE_URL"),
-            report_database_url=os.getenv("REPORT_DATABASE_URL", ""),
-            smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com"),
-            smtp_port=int(os.getenv("SMTP_PORT", "587")),
-            smtp_user=os.getenv("SMTP_USER", ""),
-            smtp_password=os.getenv("SMTP_PASSWORD", ""),
-            report_sender=os.getenv("REPORT_SENDER", os.getenv("SMTP_USER", "")),
+            report_database_url=_opt("REPORT_DATABASE_URL"),
+            smtp_host=_opt("SMTP_HOST", "smtp.gmail.com"),
+            smtp_port=int(_opt("SMTP_PORT", "587")),
+            smtp_user=_opt("SMTP_USER"),
+            # Gmail shows app passwords as "abcd efgh ijkl mnop"; the real value
+            # has no spaces, so drop all whitespace rather than just trimming.
+            smtp_password=_opt("SMTP_PASSWORD").replace(" ", ""),
+            report_sender=_opt("REPORT_SENDER", _opt("SMTP_USER")),
             report_recipients=[
                 r.strip() for r in os.getenv("REPORT_RECIPIENTS", "").split(",") if r.strip()
             ],
-            ingest_window_days=int(os.getenv("INGEST_WINDOW_DAYS", "7")),
-            backup_passphrase=os.getenv("BACKUP_PASSPHRASE", ""),
+            ingest_window_days=int(_opt("INGEST_WINDOW_DAYS", "7")),
+            backup_passphrase=_opt("BACKUP_PASSPHRASE"),
         )
 
     @property
