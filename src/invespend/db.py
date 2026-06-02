@@ -194,3 +194,48 @@ def finish_sync_run(
             """,
             (accounts, transactions, status, error, run_id),
         )
+
+
+def backfill_transaction_hashes(conn: psycopg.Connection) -> dict:
+    """Re-key existing rows to the day_seq-aware hash (see migration 0003).
+
+    Older rows were keyed by the previous hash formula. This recomputes the key
+    using the *same* Python functions live ingest uses (``assign_day_seq`` +
+    ``transaction_hash``) on each row's stored ``raw`` payload, so the backfilled
+    keys are byte-identical to what a future re-pull would produce — the
+    rolling-window overlap then dedupes cleanly instead of creating duplicates.
+
+    Idempotent: rows already on the new key are skipped, so it is safe to run
+    repeatedly. Returns a small summary dict.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "select account_id, transaction_hash, raw "
+            "from transactions "
+            "order by account_id, ingested_at, transaction_hash;"
+        )
+        rows = cur.fetchall()
+
+    # Group rows per account, preserving the deterministic fetch order.
+    by_account: dict[str, list[tuple[str, dict]]] = {}
+    for account_id, old_hash, raw in rows:
+        tx = json.loads(raw) if isinstance(raw, str) else raw
+        by_account.setdefault(account_id, []).append((old_hash, tx))
+
+    scanned = 0
+    updated = 0
+    with conn.cursor() as cur:
+        for account_id, items in by_account.items():
+            txs = [tx for _, tx in items]
+            for (old_hash, _), (tx, day_seq) in zip(items, assign_day_seq(account_id, txs)):
+                scanned += 1
+                new_hash = transaction_hash(account_id, tx, day_seq)
+                if new_hash != old_hash:
+                    cur.execute(
+                        "update transactions "
+                        "set transaction_hash = %s, day_seq = %s "
+                        "where transaction_hash = %s;",
+                        (new_hash, day_seq, old_hash),
+                    )
+                    updated += cur.rowcount
+    return {"scanned": scanned, "updated": updated}
