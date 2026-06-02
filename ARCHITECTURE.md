@@ -68,12 +68,15 @@ to patch, no VM to pay for**.
 2. The job authenticates to Investec with the **OAuth2 client-credentials** flow
    (`client_id` + `secret` + `x-api-key`), receiving a short-lived bearer token.
 3. It lists accounts (`GET /za/pb/v1/accounts`) and upserts them.
-4. For each account it pulls transactions for a rolling window
+4. For each account it captures today's balance snapshot
+   (`GET /za/pb/v1/accounts/{id}/balance`) into `balances` — non-fatal, so a
+   balance hiccup never aborts the transaction sync.
+5. For each account it pulls transactions for a rolling window
    (`GET /za/pb/v1/accounts/{id}/transactions?fromDate=&toDate=`).
-5. Each transaction is given a **deterministic hash** (the public API has no stable
+6. Each transaction is given a **deterministic hash** (the public API has no stable
    transaction id), categorised with a rule engine, and **upserted** — so re-running
    is idempotent and a 7-day overlap window self-heals any gaps or late postings.
-6. A row is written to `sync_runs` for observability.
+7. A row is written to `sync_runs` for observability.
 
 ### Reporting (weekly)
 1. GitHub Actions cron triggers `invespend report --send` on Friday.
@@ -159,6 +162,8 @@ Migrations live in [`db/migrations/`](db/migrations/) and are applied in order b
   original payload kept in a `raw jsonb` column (so you never lose fidelity), keyed
   by `transaction_hash` and disambiguated within a day by `day_seq`.
 - **`category_map`** — keyword → category dimension the categorised view joins to.
+- **`balances`** — daily balance snapshot per account (one row per account per day)
+  from `getAccountBalance`, for charting balance-over-time and reconciliation.
 - **`sync_runs`** — ingest audit log.
 
 **Build-layer views** (`0002_views.sql`) — every consumer (Power BI, the weekly
@@ -167,6 +172,8 @@ report, future solutions) reads these, never the raw table:
 - **`transactions_categorized`** — category re-derived from `category_map`.
 - **`spend_by_category`** — spend/income aggregated per category per month.
 - **`monthly_movement`** — month-over-month movement bridge per category.
+- **`balance_reconciliation`** — bank-reported balance vs the running balance on
+  the latest stored transaction, flagged `reconciled` when they agree to the cent.
 
 This schema is intentionally a **clean base to build on**: budgets, alerts, a
 dashboard, ML categorisation, etc. all read from the views.

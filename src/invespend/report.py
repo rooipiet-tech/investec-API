@@ -65,6 +65,23 @@ def load_monthly_movement(settings: Settings, months: int = 6) -> pd.DataFrame:
     return df
 
 
+def load_reconciliation(settings: Settings) -> pd.DataFrame:
+    """Read the bank-balance-vs-transactions reconciliation from the view."""
+    query = """
+        select account_id, as_of_date, api_current_balance,
+               latest_txn_date, latest_txn_running_balance, difference, reconciled
+        from balance_reconciliation
+        order by account_id;
+    """
+    cols = ["account_id", "as_of_date", "api_current_balance", "latest_txn_date",
+            "latest_txn_running_balance", "difference", "reconciled"]
+    with db.connect(settings.reporting_db_url) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            rows = cur.fetchall()
+    return pd.DataFrame(rows, columns=cols)
+
+
 def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Turn a transaction DataFrame into the report's sheets.
 
@@ -160,6 +177,10 @@ def generate_weekly_report(settings: Settings, end: date | None = None,
         sheets["Monthly Movement"] = load_monthly_movement(settings)
     except Exception as exc:  # noqa: BLE001 - report still useful without MoM
         log.warning("Skipping Monthly Movement sheet: %s", exc)
+    try:
+        sheets["Reconciliation"] = load_reconciliation(settings)
+    except Exception as exc:  # noqa: BLE001 - report still useful without it
+        log.warning("Skipping Reconciliation sheet: %s", exc)
     filename = f"spend-analysis_{start.isoformat()}_to_{end.isoformat()}.xlsx"
     path = write_workbook(sheets, out_dir / filename)
     log.info("Wrote report %s (%d transactions)", path, len(df))
