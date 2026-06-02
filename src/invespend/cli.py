@@ -7,6 +7,7 @@ import sys
 from datetime import date
 
 from . import db
+from .backup import run_backup
 from .config import Settings
 from .emailer import send_report
 from .ingest import run_ingest
@@ -55,6 +56,21 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_backup(_args: argparse.Namespace) -> int:
+    settings = Settings.load()
+    path = run_backup(settings)
+    print(f"Backup written: {path}")
+    return 0
+
+
+def cmd_backfill_hashes(_args: argparse.Namespace) -> int:
+    settings = Settings.load()
+    with db.connect(settings.database_url) as conn:
+        summary = db.backfill_transaction_hashes(conn)
+    print(f"Backfill: {summary}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="invespend", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -73,6 +89,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_report = sub.add_parser("report", help="Build the weekly Excel report")
     p_report.add_argument("--send", action="store_true", help="Email the report")
     p_report.set_defaults(func=cmd_report)
+
+    sub.add_parser("backup", help="pg_dump the database to a (gzipped/encrypted) artifact") \
+        .set_defaults(func=cmd_backup)
+
+    sub.add_parser(
+        "backfill-hashes",
+        help="One-off: re-key existing rows to the day_seq-aware hash (idempotent)",
+    ).set_defaults(func=cmd_backfill_hashes)
 
     return parser
 

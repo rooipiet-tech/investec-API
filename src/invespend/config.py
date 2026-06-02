@@ -45,6 +45,13 @@ class Settings:
     # Behaviour
     ingest_window_days: int = 7
 
+    # Optional read-only connection for reporting / Power BI (least privilege).
+    # Falls back to database_url when unset.
+    report_database_url: str = ""
+
+    # Backup (optional): passphrase to encrypt the weekly pg_dump at rest.
+    backup_passphrase: str = ""
+
     @classmethod
     def load(cls) -> "Settings":
         return cls(
@@ -53,6 +60,7 @@ class Settings:
             investec_api_key=_require("INVESTEC_API_KEY"),
             investec_base_url=os.getenv("INVESTEC_BASE_URL", "https://openapi.investec.com"),
             database_url=_require("DATABASE_URL"),
+            report_database_url=os.getenv("REPORT_DATABASE_URL", ""),
             smtp_host=os.getenv("SMTP_HOST", "smtp.gmail.com"),
             smtp_port=int(os.getenv("SMTP_PORT", "587")),
             smtp_user=os.getenv("SMTP_USER", ""),
@@ -62,7 +70,13 @@ class Settings:
                 r.strip() for r in os.getenv("REPORT_RECIPIENTS", "").split(",") if r.strip()
             ],
             ingest_window_days=int(os.getenv("INGEST_WINDOW_DAYS", "7")),
+            backup_passphrase=os.getenv("BACKUP_PASSPHRASE", ""),
         )
+
+    @property
+    def reporting_db_url(self) -> str:
+        """Connection the report uses — the read-only role if configured."""
+        return self.report_database_url or self.database_url
 
     def require_email(self) -> None:
         """Validate email settings only when we actually intend to send."""

@@ -37,6 +37,7 @@ def run_ingest(
 
     accounts_synced = 0
     tx_upserted = 0
+    balances_captured = 0
 
     with db.connect(settings.database_url) as conn:
         db.init_db(conn)
@@ -49,10 +50,19 @@ def run_ingest(
                 accounts_synced += 1
                 account_id = account["accountId"]
 
+                # Capture today's balance snapshot for charting + reconciliation.
+                # A balance hiccup must not abort the transaction sync.
+                try:
+                    balance = client.get_balance(account_id)
+                    db.upsert_balance(conn, account_id, balance)
+                    balances_captured += 1
+                except Exception as exc:  # noqa: BLE001 - non-fatal
+                    log.warning("Balance fetch failed for %s: %s", account_id, exc)
+
                 transactions = client.get_transactions(account_id, from_date, to_date)
-                for tx in transactions:
+                for tx, day_seq in db.assign_day_seq(account_id, transactions):
                     category = categorize(tx.get("description"), tx.get("transactionType"))
-                    if db.upsert_transaction(conn, account_id, tx, category):
+                    if db.upsert_transaction(conn, account_id, tx, category, day_seq):
                         tx_upserted += 1
                 log.info(
                     "Account %s: %d transactions pulled (%d new)",
@@ -82,6 +92,7 @@ def run_ingest(
         "to_date": to_date.isoformat(),
         "accounts": accounts_synced,
         "transactions_upserted": tx_upserted,
+        "balances_captured": balances_captured,
     }
     log.info("Ingest complete: %s", summary)
     return summary

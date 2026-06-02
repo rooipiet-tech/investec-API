@@ -33,8 +33,14 @@ cannot move money.
    string (URI)** — use the pooler URI, keep `sslmode=require`.
 3. Apply the schema:
    ```bash
-   invespend init-db          # or paste db/migrations/0001_init.sql into the SQL editor
+   invespend init-db          # applies every migration in db/migrations/ in order
    ```
+
+> **Already had data before the `day_seq` dedup change?** Run the one-off
+> `invespend backfill-hashes` once after upgrading. It re-keys existing rows to
+> the new hash so the rolling-window re-pull dedupes cleanly instead of
+> inserting duplicates. It is idempotent — safe to run more than once, and a
+> no-op on a fresh database.
 
 ### 3. Email (Gmail app password)
 Enable 2-Step Verification on your Google account, then create an **App

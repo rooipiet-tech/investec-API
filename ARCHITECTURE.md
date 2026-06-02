@@ -68,12 +68,15 @@ to patch, no VM to pay for**.
 2. The job authenticates to Investec with the **OAuth2 client-credentials** flow
    (`client_id` + `secret` + `x-api-key`), receiving a short-lived bearer token.
 3. It lists accounts (`GET /za/pb/v1/accounts`) and upserts them.
-4. For each account it pulls transactions for a rolling window
+4. For each account it captures today's balance snapshot
+   (`GET /za/pb/v1/accounts/{id}/balance`) into `balances` — non-fatal, so a
+   balance hiccup never aborts the transaction sync.
+5. For each account it pulls transactions for a rolling window
    (`GET /za/pb/v1/accounts/{id}/transactions?fromDate=&toDate=`).
-5. Each transaction is given a **deterministic hash** (the public API has no stable
+6. Each transaction is given a **deterministic hash** (the public API has no stable
    transaction id), categorised with a rule engine, and **upserted** — so re-running
    is idempotent and a 7-day overlap window self-heals any gaps or late postings.
-6. A row is written to `sync_runs` for observability.
+7. A row is written to `sync_runs` for observability.
 
 ### Reporting (weekly)
 1. GitHub Actions cron triggers `invespend report --send` on Friday.
@@ -97,10 +100,13 @@ failure.
 - **Least-privilege Investec keys.** The Open API client-credentials grant is
   **read-only** for account/transaction data — it cannot move money. Use a key
   dedicated to this integration so it can be revoked independently.
-- **Least-privilege DB access.** Use the Supabase **connection string for a role
-  scoped to these tables**, not the service-role key. Enable Row Level Security if
-  you later expose the data to a client app; the ingest job uses a direct Postgres
-  connection over TLS.
+- **Least-privilege DB access.** Two roles, not one:
+  - **Ingest** connects with the owner/service role (it must write `transactions`).
+  - **Reporting / Power BI** connect with a **read-only role scoped to the views**
+    (`db/roles.sql`), set as `REPORT_DATABASE_URL`. The report falls back to
+    `DATABASE_URL` only if that is unset.
+  Enable Row Level Security (already on for the base tables); the ingest job uses a
+  direct Postgres connection over TLS.
 - **Email via scoped app password**, never your account password; revocable in one
   click, and rotate periodically.
 - **TLS everywhere** — Investec API, Supabase Postgres (`sslmode=require`), SMTP.
@@ -117,23 +123,64 @@ failure.
 | Leaked Investec key | Read-only scope (cannot transact); revoke + rotate. |
 | Leaked DB string | Scoped role; rotate in Supabase; enable RLS. |
 | Compromised email | App password is revocable and email-only. |
-| Replay / duplicate ingest | Deterministic hash + `ON CONFLICT` upsert. |
+| Replay / duplicate ingest | Deterministic hash (incl. `day_seq`) + `ON CONFLICT` upsert. |
 | Silent failures | `sync_runs` audit table + Actions run history/notifications. |
+
+### Free-tier constraints & mitigations
+
+| Constraint (free tier) | Mitigation |
+|------------------------|-----------|
+| Supabase pauses after 7 days of DB inactivity | The daily ingest writes every day, so the timer never resets — solved by design. |
+| No managed backups on free Supabase | Weekly `invespend backup` runs `pg_dump`, gzips it (and encrypts with `BACKUP_PASSPHRASE` if set), and uploads it as a CI artifact. |
+| GitHub disables cron after ~60 days of repo inactivity | A heartbeat commit in the weekly workflow keeps schedules enabled. |
+| No private networking / IP allowlist on free | Strong secrets + enforced SSL + RLS. Upgrade path: Supabase Pro network restrictions or an Azure private endpoint. |
+| 500 MB DB cap | Transactions are tiny — years of headroom. Monitor `sync_runs` growth. |
+
+### Compliance (POPIA)
+
+- **Data residency.** Free-tier Supabase runs in the AWS region chosen at project
+  creation, likely **not** South Africa — that is cross-border processing of
+  personal/financial data under POPIA.
+- **Scope.** This design is for Canvas Intelligence's **own** banking data. Do
+  **not** extend it to client transaction data on the free tier.
+- **Upgrade trigger.** Before any client data or sensitive scale, migrate storage
+  to a South-Africa-resident option (e.g. Azure Database for PostgreSQL, South
+  Africa North) with private networking and managed backups.
+- This is a technical architecture, not legal advice; confirm POPIA handling with a
+  qualified advisor before processing any data beyond your own.
 
 ---
 
 ## 4. Database schema
 
-See [`db/migrations/0001_init.sql`](db/migrations/0001_init.sql). Core tables:
+Migrations live in [`db/migrations/`](db/migrations/) and are applied in order by
+`invespend init-db`. Core objects:
 
+**Tables**
 - **`accounts`** — one row per Investec account.
-- **`transactions`** — normalised transactions with a derived `category`, the
+- **`transactions`** — the raw landing table: normalised transactions with the
   original payload kept in a `raw jsonb` column (so you never lose fidelity), keyed
-  by `transaction_hash`.
+  by `transaction_hash` and disambiguated within a day by `day_seq`.
+- **`category_map`** — keyword → category dimension the categorised view joins to.
+- **`balances`** — daily balance snapshot per account (one row per account per day)
+  from `getAccountBalance`, for charting balance-over-time and reconciliation.
 - **`sync_runs`** — ingest audit log.
 
+**Build-layer views** (`0002_views.sql`) — every consumer (Power BI, the weekly
+report, future solutions) reads these, never the raw table:
+- **`transactions_normalized`** — typed, trimmed, with an effective date + month.
+- **`transactions_categorized`** — category re-derived from `category_map`.
+- **`spend_by_category`** — spend/income aggregated per category per month.
+- **`monthly_movement`** — month-over-month movement bridge per category.
+- **`balance_reconciliation`** — bank-reported balance vs the running balance on
+  the latest stored transaction, flagged `reconciled` when they agree to the cent.
+
 This schema is intentionally a **clean base to build on**: budgets, alerts, a
-dashboard, ML categorisation, etc. can all read from `transactions`.
+dashboard, ML categorisation, etc. all read from the views.
+
+> **Least-privilege roles:** ingest uses the owner/service connection; reporting and
+> Power BI use a read-only role scoped to the views — see
+> [`db/roles.sql`](db/roles.sql) and set it as `REPORT_DATABASE_URL`.
 
 ---
 

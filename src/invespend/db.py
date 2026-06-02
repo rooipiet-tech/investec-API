@@ -14,7 +14,7 @@ from typing import Iterator
 
 import psycopg
 
-MIGRATION = Path(__file__).resolve().parents[2] / "db" / "migrations" / "0001_init.sql"
+MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
 
 @contextmanager
@@ -31,23 +31,53 @@ def connect(database_url: str) -> Iterator[psycopg.Connection]:
 
 
 def init_db(conn: psycopg.Connection) -> None:
-    """Apply the schema migration (idempotent)."""
-    sql = MIGRATION.read_text()
+    """Apply every migration in order (each is idempotent)."""
     with conn.cursor() as cur:
-        cur.execute(sql)
+        for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            cur.execute(migration.read_text())
 
 
-def transaction_hash(account_id: str, tx: dict) -> str:
-    """Deterministic dedup key — the public API has no stable transaction id."""
+def _group_key(account_id: str, tx: dict) -> tuple:
+    """The identifying fields of a transaction, minus the within-day counter."""
+    return (
+        account_id,
+        str(tx.get("valueDate", "")),
+        str(tx.get("actionDate", "")),
+        str(tx.get("amount", "")),
+        str(tx.get("description", "")),
+    )
+
+
+def assign_day_seq(account_id: str, transactions: list[dict]) -> list[tuple[dict, int]]:
+    """Pair each transaction with a within-day sequence counter.
+
+    The counter increments across otherwise-identical same-day transactions in
+    API order. Because the API returns transactions in a stable order, the same
+    rolling-window re-pull yields the same counters — keeping the hash, and thus
+    the upsert, idempotent (ARCHITECTURE §5.2).
+    """
+    counters: dict[tuple, int] = {}
+    out: list[tuple[dict, int]] = []
+    for tx in transactions:
+        key = _group_key(account_id, tx)
+        seq = counters.get(key, 0)
+        counters[key] = seq + 1
+        out.append((tx, seq))
+    return out
+
+
+def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
+    """Deterministic dedup key — the public API has no stable transaction id.
+
+    sha256(account_id | value_date | action_date | amount | description | day_seq)
+    """
     parts = [
         account_id,
-        str(tx.get("postingDate", "")),
         str(tx.get("valueDate", "")),
+        str(tx.get("actionDate", "")),
         str(tx.get("amount", "")),
-        str(tx.get("type", "")),
-        str(tx.get("transactionType", "")),
         str(tx.get("description", "")),
-        str(tx.get("runningBalance", "")),
+        str(day_seq),
     ]
     return hashlib.sha256("|".join(parts).encode()).hexdigest()
 
@@ -91,7 +121,7 @@ def upsert_account(conn: psycopg.Connection, account: dict) -> None:
 
 
 def upsert_transaction(
-    conn: psycopg.Connection, account_id: str, tx: dict, category: str
+    conn: psycopg.Connection, account_id: str, tx: dict, category: str, day_seq: int = 0
 ) -> bool:
     """Insert a transaction if new. Returns True when a new row was written."""
     signed_amount = float(tx.get("amount", 0))
@@ -106,12 +136,12 @@ def upsert_transaction(
             insert into transactions
                 (transaction_hash, account_id, type, transaction_type, status,
                  description, card_number, posting_date, value_date, action_date,
-                 transaction_date, amount, running_balance, category, raw)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 transaction_date, amount, running_balance, category, day_seq, raw)
+            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             on conflict (transaction_hash) do nothing;
             """,
             (
-                transaction_hash(account_id, tx),
+                transaction_hash(account_id, tx, day_seq),
                 account_id,
                 tx.get("type"),
                 tx.get("transactionType"),
@@ -125,10 +155,63 @@ def upsert_transaction(
                 signed_amount,
                 tx.get("runningBalance"),
                 category,
+                day_seq,
                 json.dumps(tx),
             ),
         )
         return cur.rowcount > 0
+
+
+def extract_balance_fields(balance: dict) -> dict:
+    """Map an Investec balance payload to our column values.
+
+    Pure (no I/O) so it is unit tested without a database.
+    """
+    def num(key: str):
+        value = balance.get(key)
+        return float(value) if value is not None else None
+
+    return {
+        "current_balance": num("currentBalance"),
+        "available_balance": num("availableBalance"),
+        "budget_balance": num("budgetBalance"),
+        "straight_balance": num("straightBalance"),
+        "cash_balance": num("cashBalance"),
+        "currency": balance.get("currency", "ZAR"),
+    }
+
+
+def upsert_balance(conn: psycopg.Connection, account_id: str, balance: dict) -> None:
+    """Record today's balance snapshot (one per account per day; refreshed on re-run)."""
+    fields = extract_balance_fields(balance)
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            insert into balances
+                (account_id, current_balance, available_balance, budget_balance,
+                 straight_balance, cash_balance, currency, raw)
+            values (%s, %s, %s, %s, %s, %s, %s, %s)
+            on conflict (account_id, as_of_date) do update set
+                captured_at       = now(),
+                current_balance   = excluded.current_balance,
+                available_balance = excluded.available_balance,
+                budget_balance    = excluded.budget_balance,
+                straight_balance  = excluded.straight_balance,
+                cash_balance      = excluded.cash_balance,
+                currency          = excluded.currency,
+                raw               = excluded.raw;
+            """,
+            (
+                account_id,
+                fields["current_balance"],
+                fields["available_balance"],
+                fields["budget_balance"],
+                fields["straight_balance"],
+                fields["cash_balance"],
+                fields["currency"],
+                json.dumps(balance),
+            ),
+        )
 
 
 def start_sync_run(conn: psycopg.Connection, from_date: date, to_date: date) -> int:
@@ -163,3 +246,48 @@ def finish_sync_run(
             """,
             (accounts, transactions, status, error, run_id),
         )
+
+
+def backfill_transaction_hashes(conn: psycopg.Connection) -> dict:
+    """Re-key existing rows to the day_seq-aware hash (see migration 0003).
+
+    Older rows were keyed by the previous hash formula. This recomputes the key
+    using the *same* Python functions live ingest uses (``assign_day_seq`` +
+    ``transaction_hash``) on each row's stored ``raw`` payload, so the backfilled
+    keys are byte-identical to what a future re-pull would produce — the
+    rolling-window overlap then dedupes cleanly instead of creating duplicates.
+
+    Idempotent: rows already on the new key are skipped, so it is safe to run
+    repeatedly. Returns a small summary dict.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "select account_id, transaction_hash, raw "
+            "from transactions "
+            "order by account_id, ingested_at, transaction_hash;"
+        )
+        rows = cur.fetchall()
+
+    # Group rows per account, preserving the deterministic fetch order.
+    by_account: dict[str, list[tuple[str, dict]]] = {}
+    for account_id, old_hash, raw in rows:
+        tx = json.loads(raw) if isinstance(raw, str) else raw
+        by_account.setdefault(account_id, []).append((old_hash, tx))
+
+    scanned = 0
+    updated = 0
+    with conn.cursor() as cur:
+        for account_id, items in by_account.items():
+            txs = [tx for _, tx in items]
+            for (old_hash, _), (tx, day_seq) in zip(items, assign_day_seq(account_id, txs)):
+                scanned += 1
+                new_hash = transaction_hash(account_id, tx, day_seq)
+                if new_hash != old_hash:
+                    cur.execute(
+                        "update transactions "
+                        "set transaction_hash = %s, day_seq = %s "
+                        "where transaction_hash = %s;",
+                        (new_hash, day_seq, old_hash),
+                    )
+                    updated += cur.rowcount
+    return {"scanned": scanned, "updated": updated}
