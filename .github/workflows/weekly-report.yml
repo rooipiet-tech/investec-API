@@ -60,9 +60,13 @@ jobs:
             | sudo tee /etc/apt/sources.list.d/pgdg.list
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
-          pg_dump --version
+          # pg_dump on PATH is the runner's v16; force the freshly-installed v17
+          # binary ahead of it for subsequent steps.
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          /usr/lib/postgresql/17/bin/pg_dump --version
 
       - name: Database backup (pg_dump → encrypted artifact)
+        continue-on-error: true   # backup is best-effort; never fail the report job over it
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
