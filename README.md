@@ -15,7 +15,8 @@ Investec Open API ──(daily cron)──▶ Postgres (Supabase) ──(Fri cro
 
 - **`invespend ingest`** — idempotent, read-only sync of accounts + transactions.
 - **`invespend report --send`** — multi-sheet `.xlsx` (summary, by category, by
-  account, top merchants, daily trend) emailed to you.
+  account, top merchants, daily trend) emailed to you. Inter-account transfers
+  are reported as their own money-in/out totals and excluded from spend/income.
 - **`invespend statements --send`** — a **separate** `.xlsx` **per account**,
   each a bank-statement-style transaction listing (newest first) with a running
   balance, covering the account's **full history** by default. Emailed as

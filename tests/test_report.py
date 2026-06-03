@@ -23,9 +23,27 @@ def _sample_df():
 def test_summary_totals():
     sheets = build_spend_summary(_sample_df())
     summary = sheets["Summary"].set_index("Metric")["Value"]
-    assert summary["Total spend"] == 484.5      # 200 + 85.5 + 199
-    assert summary["Total income"] == 15000.0
+    assert summary["Money out (excl. transfers)"] == 484.5      # 200 + 85.5 + 199
+    assert summary["Money in (excl. transfers)"] == 15000.0
     assert summary["Net"] == 15000.0 - 484.5
+
+
+def test_transfers_excluded_from_spend_and_income():
+    df = _sample_df()
+    df.loc[len(df)] = {
+        "posting_date": pd.Timestamp("2026-05-28"),
+        "account_number": "10010000001", "account_name": "Acct One",
+        "type": "DEBIT", "transaction_type": "Transfer",
+        "description": "Transfer to savings", "amount": -1000.0,
+        "category": "Transfers",
+    }
+    summary = build_spend_summary(df)["Summary"].set_index("Metric")["Value"]
+    # The transfer is excluded from money out and reported separately.
+    assert summary["Money out (excl. transfers)"] == 484.5
+    assert summary["Transfers out"] == 1000.0
+    # ...and it does not appear as a spend category.
+    by_cat = build_spend_summary(df)["By Category"]
+    assert "Transfers" not in set(by_cat["category"])
 
 
 def test_by_category_sorted_desc():

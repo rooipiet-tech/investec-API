@@ -145,8 +145,10 @@ def build_account_statement(
             "statement": pd.DataFrame(columns=STATEMENT_COLUMNS),
             "opening_balance": opening_balance,
             "closing_balance": opening_balance,
-            "total_debits": 0.0,
-            "total_credits": 0.0,
+            "money_in": 0.0,
+            "money_out": 0.0,
+            "transfers_in": 0.0,
+            "transfers_out": 0.0,
             "count": 0,
         }
 
@@ -179,8 +181,16 @@ def build_account_statement(
     if opening_balance is None:
         opening_balance = round(balances[0] - float(df["amount"].iloc[0]), 2)
 
-    total_debits = round(float(df.loc[df["amount"] < 0, "amount"].abs().sum()), 2)
-    total_credits = round(float(df.loc[df["amount"] > 0, "amount"].sum()), 2)
+    # Transfers (money moved between accounts) are reported separately from real
+    # spend/income: they net to zero across your own accounts and would otherwise
+    # inflate both money-in and money-out. Classified by the stored category.
+    is_transfer = df.get("category", pd.Series([""] * len(df))).eq("Transfers")
+    outflow = df["amount"] < 0
+    inflow = df["amount"] > 0
+    money_out = round(float(df.loc[outflow & ~is_transfer, "amount"].abs().sum()), 2)
+    money_in = round(float(df.loc[inflow & ~is_transfer, "amount"].sum()), 2)
+    transfers_out = round(float(df.loc[outflow & is_transfer, "amount"].abs().sum()), 2)
+    transfers_in = round(float(df.loc[inflow & is_transfer, "amount"].sum()), 2)
     closing_balance = balances[-1]  # newest balance, before any display reorder
 
     # Newest at the top for display; balances were computed forward above so each
@@ -192,8 +202,10 @@ def build_account_statement(
         "statement": statement,
         "opening_balance": opening_balance,
         "closing_balance": closing_balance,
-        "total_debits": total_debits,
-        "total_credits": total_credits,
+        "money_in": money_in,
+        "money_out": money_out,
+        "transfers_in": transfers_in,
+        "transfers_out": transfers_out,
         "count": len(statement),
     }
 
@@ -217,7 +229,7 @@ def write_statement_workbook(
 
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         sheet_name = "Statement"
-        header_rows = 9  # account/period/balances block before the table
+        header_rows = 11  # account/period/balances block before the table
         body = frame if not frame.empty else pd.DataFrame(
             {"Date": [], "Description": ["No transactions for this period"],
              "Category": [], "Debit": [], "Credit": [], "Balance": []}
@@ -234,8 +246,10 @@ def write_statement_workbook(
             ("Period", f"{start.isoformat()} to {end.isoformat()}"),
             ("Currency", ccy),
             ("Opening balance", statement["opening_balance"]),
-            ("Money in (credits)", statement["total_credits"]),
-            ("Money out (debits)", statement["total_debits"]),
+            ("Money in (excl. transfers)", statement["money_in"]),
+            ("Money out (excl. transfers)", statement["money_out"]),
+            ("Transfers in", statement["transfers_in"]),
+            ("Transfers out", statement["transfers_out"]),
             ("Closing balance", statement["closing_balance"]),
         ]
         for i, (label, value) in enumerate(meta, start=1):

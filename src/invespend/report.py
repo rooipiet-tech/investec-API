@@ -99,18 +99,28 @@ def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         return {"Summary": empty, "By Category": empty, "By Account": empty,
                 "Top Merchants": empty, "Daily Trend": empty, "Transactions": empty}
 
-    spend = df[df["amount"] < 0].copy()
+    # Transfers (money moved between your own accounts) are reported separately
+    # from real spend/income: they net to zero and would otherwise inflate both
+    # money-in and money-out. Everything below excludes them from the spend views.
+    is_transfer = df["category"].eq("Transfers")
+    spend = df[(df["amount"] < 0) & ~is_transfer].copy()
     spend["spend"] = spend["amount"].abs()
-    income = df[df["amount"] > 0]["amount"].sum()
+    income = df.loc[(df["amount"] > 0) & ~is_transfer, "amount"].sum()
+    transfers_out = df.loc[(df["amount"] < 0) & is_transfer, "amount"].abs().sum()
+    transfers_in = df.loc[(df["amount"] > 0) & is_transfer, "amount"].sum()
 
     summary = pd.DataFrame(
         {
             "Metric": [
-                "Total spend", "Total income", "Net", "Transactions", "Categories",
+                "Money out (excl. transfers)", "Money in (excl. transfers)",
+                "Transfers out", "Transfers in",
+                "Net", "Transactions", "Spend categories",
             ],
             "Value": [
                 round(spend["spend"].sum(), 2),
                 round(float(income), 2),
+                round(float(transfers_out), 2),
+                round(float(transfers_in), 2),
                 round(float(df["amount"].sum()), 2),
                 len(df),
                 spend["category"].nunique(),

@@ -28,6 +28,25 @@ def _sample_df():
     )
 
 
+def _sample_df_with_transfers():
+    # Adds an inter-account transfer in and out alongside real spend/income.
+    return pd.DataFrame(
+        {
+            "posting_date": pd.to_datetime(
+                ["2026-05-25", "2026-05-26", "2026-05-26", "2026-05-27"]
+            ),
+            "description": ["Woolworths", "Transfer to savings", "Salary",
+                            "Transfer from savings"],
+            "transaction_type": ["CardPurchases", "Transfer", "Salary", "Transfer"],
+            "type": ["DEBIT", "DEBIT", "CREDIT", "CREDIT"],
+            "amount": [-200.0, -1000.0, 15000.0, 500.0],
+            "running_balance": [800.0, -200.0, 14800.0, 15300.0],
+            "category": ["Groceries", "Transfers", "Income", "Transfers"],
+            "day_seq": [0, 0, 1, 0],
+        }
+    )
+
+
 def test_newest_first_ordering():
     # Default display is newest-first: the latest posting sits on row 0, the
     # earliest at the bottom.
@@ -65,9 +84,21 @@ def test_oldest_first_when_disabled():
 def test_totals_and_opening_passthrough():
     result = build_account_statement(_sample_df(), opening_balance=1000.0)
     assert result["opening_balance"] == 1000.0
-    assert result["total_debits"] == 484.5      # 200 + 85.5 + 199
-    assert result["total_credits"] == 15000.0
+    # No transfers in this sample, so money in/out equal the raw debit/credit sums.
+    assert result["money_out"] == 484.5      # 200 + 85.5 + 199
+    assert result["money_in"] == 15000.0
+    assert result["transfers_out"] == 0.0
+    assert result["transfers_in"] == 0.0
     assert result["count"] == 4
+
+
+def test_transfers_separated_from_money():
+    result = build_account_statement(_sample_df_with_transfers(), opening_balance=1000.0)
+    # Transfers are pulled out of money in/out and reported on their own.
+    assert result["money_out"] == 200.0        # Woolworths only (transfer excluded)
+    assert result["money_in"] == 15000.0       # Salary only (transfer excluded)
+    assert result["transfers_out"] == 1000.0
+    assert result["transfers_in"] == 500.0
 
 
 def test_opening_balance_inferred_when_absent():
@@ -80,7 +111,8 @@ def test_opening_balance_inferred_when_absent():
 def test_empty_df_is_safe():
     result = build_account_statement(pd.DataFrame())
     assert result["count"] == 0
-    assert result["total_debits"] == 0.0
+    assert result["money_out"] == 0.0
+    assert result["transfers_in"] == 0.0
     assert list(result["statement"].columns) == [
         "Date", "Description", "Category", "Debit", "Credit", "Balance",
     ]
@@ -101,12 +133,13 @@ def test_write_statement_workbook(tmp_path):
     ws = wb["Statement"]
     # Header block carries the account number and the closing balance.
     header = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
-              for r in range(1, 10)}
+              for r in range(1, 12)}
     assert header["Account number"] == "10010000001"
     assert header["Closing balance"] == 15515.5
-    # The transaction table header is present below the metadata block.
-    assert ws.cell(row=10, column=1).value == "Date"
-    assert ws.cell(row=10, column=6).value == "Balance"
+    assert header["Transfers in"] == 0.0
+    # The transaction table header is present below the 11-row metadata block.
+    assert ws.cell(row=12, column=1).value == "Date"
+    assert ws.cell(row=12, column=6).value == "Balance"
 
 
 def test_safe_filename():
