@@ -88,14 +88,6 @@ def cmd_statements(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_diagnose_bb(_args: argparse.Namespace) -> int:
-    from .bb import run_bb_diagnostic
-    settings = Settings.load()
-    result = run_bb_diagnostic(settings)
-    print(f"BB diagnostic: {result}")
-    return 0
-
-
 def cmd_backup(_args: argparse.Namespace) -> int:
     settings = Settings.load()
     path = run_backup(settings)
@@ -146,12 +138,6 @@ def build_parser() -> argparse.ArgumentParser:
                          help="Trailing window in days; omit for full history "
                               "(account's first transaction → today, the default)")
     p_stmts.set_defaults(func=cmd_statements)
-
-    sub.add_parser(
-        "diagnose-bb",
-        help="Read-only probe of the Business Banking API (call/cash accounts); "
-             "logs a masked report of account types and transaction shape",
-    ).set_defaults(func=cmd_diagnose_bb)
 
     sub.add_parser("backup", help="pg_dump the database to a (gzipped/encrypted) artifact") \
         .set_defaults(func=cmd_backup)

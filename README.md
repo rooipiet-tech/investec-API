@@ -24,16 +24,11 @@ Investec Open API ──(daily cron)──▶ Postgres (Supabase) ──(Fri cro
   for a trailing window instead.
 - Two scheduled GitHub Actions workflows — no server to run.
 
-### Call / notice / cash-management accounts (Business Banking API)
-
-Private Banking transactional accounts come from `/za/pb/v1/` (what this repo
-ingests). **Call, notice and cash-management accounts live on a separate
-Investec API, Business Banking `/za/bb/v1/`.** Support is scaffolded (a read-only
-`invespend diagnose-bb` probe and a paginated BB client), but it needs an API key
-**enrolled for the Business Banking API** — with the current key `/za/bb/v1/`
-returns `401 Unauthorized`. Once a BB-scoped key is added as the Investec
-secrets, run `diagnose-bb` (or the **bb-diagnose** workflow) to confirm the
-payload shape, then ingestion + backfill can be wired on.
+> **Account coverage:** the `/za/pb/v1/accounts` listing returns every account
+> the API key can see — transactional, plus call / notice / cash-management /
+> savings / loan accounts — and all are ingested. Some deposit accounts report
+> `postingDate` as the capture date and leave `valueDate` null; the reporting
+> layer dates those by `transactionDate` instead so statements read correctly.
 
 ---
 
