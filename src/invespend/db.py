@@ -27,6 +27,10 @@ def connect(database_url: str) -> Iterator[psycopg.Connection]:
     conn = psycopg.connect(
         database_url,
         autocommit=False,
+        # Required for Supabase's transaction pooler (PgBouncer, port 6543):
+        # psycopg3's server-side prepared statements collide on shared pooled
+        # connections ("prepared statement _pg3_0 already exists"). Disable them.
+        prepare_threshold=None,
         options="-c lock_timeout=15000 -c idle_in_transaction_session_timeout=120000",
     )
     try:
