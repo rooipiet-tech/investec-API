@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
+import time
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -14,7 +16,33 @@ from typing import Iterator
 
 import psycopg
 
+log = logging.getLogger(__name__)
+
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
+
+
+def _open(database_url: str, attempts: int = 4) -> psycopg.Connection:
+    """Open a connection, retrying transient pooler timeouts with backoff."""
+    last: Exception | None = None
+    for i in range(attempts):
+        try:
+            return psycopg.connect(
+                database_url,
+                autocommit=False,
+                connect_timeout=15,
+                # Required for Supabase's transaction pooler (PgBouncer, 6543):
+                # psycopg3's server-side prepared statements collide on shared
+                # pooled connections ("prepared statement _pg3_0 already exists").
+                prepare_threshold=None,
+                options="-c lock_timeout=15000 -c idle_in_transaction_session_timeout=120000",
+            )
+        except psycopg.OperationalError as exc:  # incl. ConnectionTimeout
+            last = exc
+            wait = 2 ** i
+            log.warning("DB connect attempt %d/%d failed (%s); retrying in %ds",
+                        i + 1, attempts, exc, wait)
+            time.sleep(wait)
+    raise last  # type: ignore[misc]
 
 
 @contextmanager
@@ -22,17 +50,9 @@ def connect(database_url: str) -> Iterator[psycopg.Connection]:
     # Session guards so a stuck job can never wedge the database:
     #  - lock_timeout: fail fast instead of waiting minutes on a held lock
     #  - idle_in_transaction_session_timeout: the server kills any connection
-    #    left idle mid-transaction, so an abruptly-killed job self-heals (no
-    #    leaked lock for the next run to trip over).
-    conn = psycopg.connect(
-        database_url,
-        autocommit=False,
-        # Required for Supabase's transaction pooler (PgBouncer, port 6543):
-        # psycopg3's server-side prepared statements collide on shared pooled
-        # connections ("prepared statement _pg3_0 already exists"). Disable them.
-        prepare_threshold=None,
-        options="-c lock_timeout=15000 -c idle_in_transaction_session_timeout=120000",
-    )
+    #    left idle mid-transaction, so an abruptly-killed job self-heals.
+    # Transient pooler connection timeouts are retried (see _open).
+    conn = _open(database_url)
     try:
         yield conn
         conn.commit()
