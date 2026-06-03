@@ -62,17 +62,6 @@ def run_ingest(
         from_date = to_date - timedelta(days=window)
 
     url = settings.database_url
-
-    if resume:
-        # Continue from where a previous backfill stopped: end this run just after
-        # the oldest stored transaction (small overlap to heal the boundary) so the
-        # windows march further back into history each run.
-        with db.connect(url) as conn:
-            oldest = db.oldest_posting_date(conn)
-        if oldest:
-            to_date = oldest + timedelta(days=2)
-            log.info("Resume: continuing backfill older than %s (to_date=%s)",
-                     oldest, to_date)
     client = InvestecClient(
         client_id=settings.investec_client_id,
         client_secret=settings.investec_client_secret,
@@ -85,9 +74,22 @@ def run_ingest(
     balances_captured = 0
 
     # Schema first, in its own short transaction (DDL never shares a transaction
-    # with the data load, so it can't lock the tables for the whole run).
+    # with the data load, so it can't lock the tables for the whole run). This
+    # must precede the resume lookup, which reads the transactions table.
     with db.connect(url) as conn:
         db.init_db(conn)
+
+    if resume:
+        # Continue from where a previous backfill stopped: end this run just after
+        # the oldest stored transaction (small overlap to heal the boundary) so the
+        # windows march further back into history each run.
+        with db.connect(url) as conn:
+            oldest = db.oldest_posting_date(conn)
+        if oldest:
+            to_date = oldest + timedelta(days=2)
+            log.info("Resume: continuing backfill older than %s (to_date=%s)",
+                     oldest, to_date)
+
     with db.connect(url) as conn:
         run_id = db.start_sync_run(conn, from_date, to_date)
 
