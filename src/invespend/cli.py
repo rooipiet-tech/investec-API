@@ -9,9 +9,10 @@ from datetime import date
 from . import db
 from .backup import run_backup
 from .config import Settings
-from .emailer import send_report
+from .emailer import send_email, send_report
 from .ingest import run_ingest
 from .report import generate_weekly_report
+from .statements import generate_account_statements
 
 
 def _setup_logging() -> None:
@@ -57,6 +58,35 @@ def cmd_report(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_statements(args: argparse.Namespace) -> int:
+    settings = Settings.load()
+    paths, info = generate_account_statements(settings, days=args.days)
+    print(f"Statements written: {len(paths)} file(s) ({info})")
+    if not paths:
+        print("No accounts had transactions in the window; nothing to email.")
+        return 0
+    if args.send:
+        subject = (
+            f"Weekly account statements: {info['start']} to {info['end']} "
+            f"({info['accounts']} account(s))"
+        )
+        lines = [
+            f"  • {a['account_number']} ({a['account_name']}): "
+            f"{a['transactions']} txns, closing balance {a['closing_balance']}"
+            for a in info["per_account"]
+        ]
+        body = (
+            "Hi,\n\nAttached are your Investec per-account statements for "
+            f"{info['start']} to {info['end']} — one Excel file per account, "
+            "each a full transaction listing with running balance:\n\n"
+            + "\n".join(lines)
+            + "\n\n— invespend"
+        )
+        send_email(settings, paths, subject, body)
+        print("Statements emailed.")
+    return 0
+
+
 def cmd_backup(_args: argparse.Namespace) -> int:
     settings = Settings.load()
     path = run_backup(settings)
@@ -96,6 +126,16 @@ def build_parser() -> argparse.ArgumentParser:
     p_report = sub.add_parser("report", help="Build the weekly Excel report")
     p_report.add_argument("--send", action="store_true", help="Email the report")
     p_report.set_defaults(func=cmd_report)
+
+    p_stmts = sub.add_parser(
+        "statements",
+        help="Build a separate bank-statement Excel file per account (running balance)",
+    )
+    p_stmts.add_argument("--send", action="store_true",
+                         help="Email the statements (one attachment per account)")
+    p_stmts.add_argument("--days", type=int, default=7,
+                         help="Length of the statement window in days (default: 7)")
+    p_stmts.set_defaults(func=cmd_statements)
 
     sub.add_parser("backup", help="pg_dump the database to a (gzipped/encrypted) artifact") \
         .set_defaults(func=cmd_backup)

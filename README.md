@@ -16,6 +16,9 @@ Investec Open API ──(daily cron)──▶ Postgres (Supabase) ──(Fri cro
 - **`invespend ingest`** — idempotent, read-only sync of accounts + transactions.
 - **`invespend report --send`** — multi-sheet `.xlsx` (summary, by category, by
   account, top merchants, daily trend) emailed to you.
+- **`invespend statements --send`** — a **separate** `.xlsx` **per account**,
+  each a bank-statement-style transaction listing with a running balance,
+  emailed as one-attachment-per-account. Runs alongside the weekly report.
 - Two scheduled GitHub Actions workflows — no server to run.
 
 ---
@@ -86,7 +89,8 @@ cp .env.example .env        # fill in your values (git-ignored)
 
 invespend init-db
 invespend ingest --days 30  # backfill a month
-invespend report --send     # build + email the report
+invespend report --send     # build + email the spend analysis
+invespend statements --send # build + email a per-account bank statement each
 
 pytest                      # run the unit tests
 ```

@@ -40,6 +40,21 @@ jobs:
           INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
         run: invespend report --send
 
+      - name: Build & email per-account statements
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REPORT_DATABASE_URL: ${{ secrets.REPORT_DATABASE_URL }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
+          REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
+          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+        run: invespend statements --send
+
       - name: Upload report artifact
         if: always()
         uses: actions/upload-artifact@v4

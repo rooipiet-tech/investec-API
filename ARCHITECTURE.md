@@ -85,6 +85,17 @@ to patch, no VM to pay for**.
    top merchants, and a daily trend.
 4. It emails the workbook as an attachment via Gmail SMTP.
 
+### Per-account statements (weekly)
+1. The same Friday workflow then triggers `invespend statements --send`.
+2. For each account it reads that account's last-7-day transactions in posting
+   order, anchored to the running balance carried forward from before the period.
+3. It writes **one Excel file per account** — a bank-statement-style listing
+   (Date, Description, Category, Debit, Credit, Balance) under a header block of
+   account number, period, and opening/closing balances. The bank's own
+   `running_balance` is used verbatim where present; any gaps are filled
+   arithmetically so the balance column is always complete.
+4. It emails all the per-account files on a single message, one attachment each.
+
 ---
 
 ## 3. Security model
@@ -215,8 +226,9 @@ Because the data lands in plain Postgres, you can layer on:
 │   ├── db.py                  ← Postgres connection + upserts
 │   ├── ingest.py              ← daily ingestion job
 │   ├── report.py              ← Excel spend-analysis builder
-│   ├── emailer.py             ← SMTP sender
-│   └── cli.py                 ← `invespend init-db | ingest | report`
+│   ├── statements.py          ← per-account bank-statement workbooks
+│   ├── emailer.py             ← SMTP sender (one or many attachments)
+│   └── cli.py                 ← `invespend init-db | ingest | report | statements`
 ├── tests/                     ← unit tests for categoriser + aggregation
 └── .github/workflows/
     ├── ingest.yml             ← daily cron
