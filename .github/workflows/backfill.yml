@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
     inputs:
       from_date:
-        description: "Start date YYYY-MM-DD (blank = 10 years ago)"
+        description: "Start date YYYY-MM-DD (blank = 25 years ago, i.e. full history)"
         required: false
         default: ""
 
@@ -26,11 +26,11 @@ jobs:
 
       - run: pip install -e .
 
-      - name: Resolve start date (default 10 years ago)
+      - name: Resolve start date (default 25 years ago = full history)
         id: range
         run: |
           FROM="${{ github.event.inputs.from_date }}"
-          FROM="${FROM:-$(date -u -d '10 years ago' +%Y-%m-%d)}"
+          FROM="${FROM:-$(date -u -d '25 years ago' +%Y-%m-%d)}"
           echo "from=$FROM" >> "$GITHUB_OUTPUT"
           echo "Backfilling from $FROM"
 
