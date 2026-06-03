@@ -34,7 +34,8 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     from_date = date.fromisoformat(args.from_date) if args.from_date else None
     to_date = date.fromisoformat(args.to_date) if args.to_date else None
     summary = run_ingest(
-        settings, window_days=args.days, from_date=from_date, to_date=to_date
+        settings, window_days=args.days, from_date=from_date, to_date=to_date,
+        resume=args.resume,
     )
     print(f"Ingest: {summary}")
     return 0
@@ -84,6 +85,9 @@ def build_parser() -> argparse.ArgumentParser:
                           help="Backfill start date YYYY-MM-DD (overrides --days)")
     p_ingest.add_argument("--to", dest="to_date", default=None,
                           help="End date YYYY-MM-DD (default: today)")
+    p_ingest.add_argument("--resume", action="store_true",
+                          help="Backfill: continue older than the oldest stored "
+                               "transaction instead of re-pulling recent windows")
     p_ingest.set_defaults(func=cmd_ingest)
 
     p_report = sub.add_parser("report", help="Build the weekly Excel report")
