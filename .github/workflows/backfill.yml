@@ -1,9 +1,10 @@
 name: backfill
 
-# Historical backfill. Defaults to 10 years; override the start date via the
-# input below. Resumable: each run continues *older* than the data already
-# stored, so if the API rate limit cuts a run short, just run it again until it
-# stops finding older history. Run from the Actions tab → Run workflow.
+# Historical backfill of every accessible account, newest window first, stopping
+# once history is exhausted (an empty-window streak across all accounts). Does a
+# full re-pull to today — NOT --resume — so newly-granted accounts (e.g. call /
+# cash-management) get their recent history, not just windows older than what is
+# already stored. Run from the Actions tab → Run workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -41,4 +42,4 @@ jobs:
           INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
           INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: invespend ingest --from "${{ steps.range.outputs.from }}" --resume --full
+        run: invespend ingest --from "${{ steps.range.outputs.from }}"
