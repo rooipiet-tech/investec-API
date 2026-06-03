@@ -47,6 +47,7 @@ def run_ingest(
     to_date: date | None = None,
     chunk_days: int = CHUNK_DAYS,
     resume: bool = False,
+    full: bool = False,
 ) -> dict:
     """Pull transactions and upsert them.
 
@@ -114,7 +115,10 @@ def run_ingest(
 
         # Transactions: walk date windows newest→oldest. Fetch each window with no
         # transaction open, then write it in a short one.
-        is_backfill = (to_date - from_date).days > chunk_days
+        # full=True walks every window down to from_date (no early-stop), to
+        # *prove* there is no older history rather than inferring it from a run
+        # of empty windows.
+        is_backfill = (to_date - from_date).days > chunk_days and not full
         empty_streak = 0
         for chunk_start, chunk_end in _date_chunks(from_date, to_date, chunk_days):
             chunk_total = 0

@@ -41,4 +41,4 @@ jobs:
           INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
           INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: invespend ingest --from "${{ steps.range.outputs.from }}" --resume
+        run: invespend ingest --from "${{ steps.range.outputs.from }}" --resume --full
