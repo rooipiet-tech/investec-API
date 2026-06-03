@@ -27,15 +27,16 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
     Joins the accounts table so the report shows the human-readable account
     number (and name) instead of the opaque Investec account_id.
     """
-    query = """
-        select t.posting_date,
+    eff = db.EFFECTIVE_DATE_SQL
+    query = f"""
+        select {eff} as posting_date,
                coalesce(a.account_number, t.account_id) as account_number,
                coalesce(a.account_name, '')             as account_name,
                t.type, t.transaction_type, t.description, t.amount, t.category
         from transactions t
         left join accounts a on a.account_id = t.account_id
-        where t.posting_date between %s and %s
-        order by t.posting_date;
+        where {eff} between %s and %s
+        order by {eff};
     """
     with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:

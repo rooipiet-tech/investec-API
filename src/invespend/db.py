@@ -20,6 +20,17 @@ log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
+# Effective transaction date for reporting/statements (assumes the transactions
+# table is aliased ``t``). Transactional accounts (Private Bank/Business) populate
+# value_date and a reliable posting_date. Deposit/call/notice accounts (Cash
+# Management, PrimeSaver, etc.) leave value_date NULL and report posting_date as
+# the capture date (always "today"); their real date lives in transaction_date.
+# So: trust posting_date when value_date is present, else fall back.
+EFFECTIVE_DATE_SQL = (
+    "case when t.value_date is not null then t.posting_date "
+    "else coalesce(t.transaction_date, t.action_date, t.posting_date) end"
+)
+
 
 def _open(database_url: str, attempts: int = 4) -> psycopg.Connection:
     """Open a connection, retrying transient pooler timeouts with backoff."""

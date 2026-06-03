@@ -72,17 +72,18 @@ def load_account_transactions(
     the order the running balance was computed in. (Display order, newest-first,
     is applied later in :func:`build_account_statement`.)
     """
+    eff = db.EFFECTIVE_DATE_SQL
     params: list = [account_id, end]
     lower_bound = ""
     if start is not None:
-        lower_bound = "and t.posting_date >= %s"
+        lower_bound = f"and {eff} >= %s"
         params.append(start)
     query = f"""
-        select t.posting_date, t.description, t.transaction_type, t.type,
+        select {eff} as posting_date, t.description, t.transaction_type, t.type,
                t.amount, t.running_balance, t.category, t.day_seq
         from transactions t
-        where t.account_id = %s and t.posting_date <= %s {lower_bound}
-        order by t.posting_date, t.day_seq, t.ingested_at;
+        where t.account_id = %s and {eff} <= %s {lower_bound}
+        order by {eff}, t.day_seq, t.ingested_at;
     """
     cols = ["posting_date", "description", "transaction_type", "type",
             "amount", "running_balance", "category", "day_seq"]
@@ -105,12 +106,13 @@ def load_opening_balance(settings: Settings, account_id: str, start: date) -> fl
     prints above the first line. ``None`` when there is no prior balance to
     anchor to (the period contains the account's earliest data).
     """
-    query = """
+    eff = db.EFFECTIVE_DATE_SQL
+    query = f"""
         select t.running_balance
         from transactions t
-        where t.account_id = %s and t.posting_date < %s
+        where t.account_id = %s and {eff} < %s
           and t.running_balance is not null
-        order by t.posting_date desc, t.day_seq desc, t.ingested_at desc
+        order by {eff} desc, t.day_seq desc, t.ingested_at desc
         limit 1;
     """
     with db.connect(settings.reporting_db_url) as conn:
