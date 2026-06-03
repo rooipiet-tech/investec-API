@@ -66,8 +66,8 @@ def _infer_sign_convention(rows: list[dict]) -> str:
             f"{comparable} pairs); a separate indicator sets direction")
 
 
-def run_bb_diagnostic(settings: Settings, sample_days: int = 45,
-                      sample_rows: int = 6) -> dict:
+def run_bb_diagnostic(settings: Settings, sample_days: int = 365,
+                      sample_rows: int = 8) -> dict:
     """Probe the live BB API and log a masked report. Read-only; writes nothing."""
     client = InvestecClient(
         client_id=settings.investec_client_id,

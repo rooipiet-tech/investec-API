@@ -34,11 +34,11 @@ jobs:
           echo "from=$FROM" >> "$GITHUB_OUTPUT"
           echo "Backfilling from $FROM"
 
-      - name: Run backfill
+      - name: Run BB diagnostic (read-only, masked) [temporary]
         env:
           INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
           INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
           INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
           INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: invespend ingest --from "${{ steps.range.outputs.from }}" --resume --full
+        run: invespend diagnose-bb
