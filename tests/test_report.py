@@ -9,7 +9,8 @@ def _sample_df():
             "posting_date": pd.to_datetime(
                 ["2026-05-25", "2026-05-26", "2026-05-26", "2026-05-27"]
             ),
-            "account_id": ["A1", "A1", "A1", "A2"],
+            "account_number": ["10010000001", "10010000001", "10010000001", "10010000002"],
+            "account_name": ["Acct One", "Acct One", "Acct One", "Acct Two"],
             "type": ["DEBIT", "DEBIT", "CREDIT", "DEBIT"],
             "transaction_type": ["CardPurchases"] * 4,
             "description": ["Woolworths", "Uber", "Salary", "Netflix"],
@@ -39,6 +40,14 @@ def test_empty_df_produces_all_sheets():
         "Summary", "By Category", "By Account",
         "Top Merchants", "Daily Trend", "Transactions",
     }
+
+
+def test_by_account_uses_account_number(tmp_path):
+    by_acct = build_spend_summary(_sample_df())["By Account"]
+    assert "account_number" in by_acct.columns
+    assert "account_id" not in by_acct.columns
+    # Acct One has the most spend (200 + 85.5) and sorts first.
+    assert list(by_acct["account_number"])[0] == "10010000001"
 
 
 def test_write_workbook(tmp_path):

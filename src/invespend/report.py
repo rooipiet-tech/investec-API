@@ -17,18 +17,25 @@ from .config import Settings
 
 log = logging.getLogger(__name__)
 
-COLUMNS = ["posting_date", "account_id", "type", "transaction_type",
-           "description", "amount", "category"]
+COLUMNS = ["posting_date", "account_number", "account_name", "type",
+           "transaction_type", "description", "amount", "category"]
 
 
 def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFrame:
-    """Read transactions in [start, end] into a DataFrame."""
+    """Read transactions in [start, end] into a DataFrame.
+
+    Joins the accounts table so the report shows the human-readable account
+    number (and name) instead of the opaque Investec account_id.
+    """
     query = """
-        select posting_date, account_id, type, transaction_type,
-               description, amount, category
-        from transactions
-        where posting_date between %s and %s
-        order by posting_date;
+        select t.posting_date,
+               coalesce(a.account_number, t.account_id) as account_number,
+               coalesce(a.account_name, '')             as account_name,
+               t.type, t.transaction_type, t.description, t.amount, t.category
+        from transactions t
+        left join accounts a on a.account_id = t.account_id
+        where t.posting_date between %s and %s
+        order by t.posting_date;
     """
     with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:
@@ -119,7 +126,7 @@ def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     )
 
     by_account = (
-        spend.groupby("account_id")["spend"].sum()
+        spend.groupby(["account_number", "account_name"])["spend"].sum()
         .rename("total_spend").sort_values(ascending=False).reset_index()
     )
 
