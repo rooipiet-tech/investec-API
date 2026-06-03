@@ -98,3 +98,43 @@ class InvestecClient:
             },
         )
         return data.get("data", {}).get("transactions", [])
+
+    # ── Business Banking / CIB (call, notice, cash-management accounts) ─────────
+    # A separate API (/za/bb/v1) from Private Banking (/za/pb/v1). Same OAuth /
+    # x-api-key auth. Payloads use PascalCase, embed balances in the accounts
+    # response, and paginate transactions. These reads are also money-can't-move.
+    def get_bb_accounts(self) -> list[dict]:
+        return self._get("/za/bb/v1/accounts").get("data", {}).get("accounts", [])
+
+    def get_bb_transactions(
+        self,
+        account_id: str,
+        from_date: date | None = None,
+        to_date: date | None = None,
+        max_pages: int = 100,
+    ) -> list[dict]:
+        """All transactions for a BB account, following pagination.
+
+        ``fromDate``/``toDate`` default (server-side) to the last 180 days; pass
+        them for a backfill window. ``max_pages`` is a safety bound.
+        """
+        params: dict = {}
+        if from_date is not None:
+            params["fromDate"] = from_date.isoformat()
+        if to_date is not None:
+            params["toDate"] = to_date.isoformat()
+
+        out: list[dict] = []
+        page = 1
+        while page <= max_pages:
+            data = self._get(
+                f"/za/bb/v1/accounts/{account_id}/transactions",
+                params={**params, "page": page},
+            )
+            batch = data.get("data", {}).get("transactions", [])
+            out.extend(batch)
+            total_pages = (data.get("meta") or {}).get("totalPages")
+            if not batch or not total_pages or page >= int(total_pages):
+                break
+            page += 1
+        return out

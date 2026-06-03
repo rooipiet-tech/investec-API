@@ -1,0 +1,32 @@
+name: bb-diagnose
+
+# One-off, read-only probe of the Investec Business Banking API (/za/bb/v1) used
+# by call / notice / cash-management accounts. Logs a MASKED report (account
+# numbers truncated, descriptions never printed) so the ingest normaliser can be
+# written against the real payload shape. Run from the Actions tab → Run workflow.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Probe Business Banking API (read-only, masked)
+        env:
+          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+          INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
+          # Settings.load() validates these though the probe never touches the DB.
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: invespend diagnose-bb
