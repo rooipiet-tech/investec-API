@@ -1,7 +1,9 @@
 name: backfill
 
-# One-off historical backfill. Defaults to 10 years; override the start date
-# via the input below. Run from the Actions tab → Run workflow.
+# Historical backfill. Defaults to 10 years; override the start date via the
+# input below. Resumable: each run continues *older* than the data already
+# stored, so if the API rate limit cuts a run short, just run it again until it
+# stops finding older history. Run from the Actions tab → Run workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -13,7 +15,7 @@ on:
 jobs:
   backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
 
@@ -39,4 +41,4 @@ jobs:
           INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
           INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
-        run: invespend ingest --from "${{ steps.range.outputs.from }}"
+        run: invespend ingest --from "${{ steps.range.outputs.from }}" --resume

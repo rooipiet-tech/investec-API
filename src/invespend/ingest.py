@@ -46,11 +46,15 @@ def run_ingest(
     from_date: date | None = None,
     to_date: date | None = None,
     chunk_days: int = CHUNK_DAYS,
+    resume: bool = False,
 ) -> dict:
     """Pull transactions and upsert them.
 
     By default pulls a rolling window ending today. Pass explicit ``from_date`` /
-    ``to_date`` for a backfill. Returns a small summary dict for observability.
+    ``to_date`` for a backfill. With ``resume=True`` a backfill that was cut short
+    (e.g. by a CI time limit) continues *older* than the data already stored,
+    instead of re-pulling the recent windows every run. Returns a small summary
+    dict for observability.
     """
     to_date = to_date or date.today()
     if from_date is None:
@@ -58,6 +62,17 @@ def run_ingest(
         from_date = to_date - timedelta(days=window)
 
     url = settings.database_url
+
+    if resume:
+        # Continue from where a previous backfill stopped: end this run just after
+        # the oldest stored transaction (small overlap to heal the boundary) so the
+        # windows march further back into history each run.
+        with db.connect(url) as conn:
+            oldest = db.oldest_posting_date(conn)
+        if oldest:
+            to_date = oldest + timedelta(days=2)
+            log.info("Resume: continuing backfill older than %s (to_date=%s)",
+                     oldest, to_date)
     client = InvestecClient(
         client_id=settings.investec_client_id,
         client_secret=settings.investec_client_secret,

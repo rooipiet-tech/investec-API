@@ -50,6 +50,13 @@ def init_db(conn: psycopg.Connection) -> None:
             cur.execute(migration.read_text())
 
 
+def oldest_posting_date(conn: psycopg.Connection) -> date | None:
+    """The earliest posting_date stored, or None if there are no transactions."""
+    with conn.cursor() as cur:
+        cur.execute("select min(posting_date) from transactions;")
+        return cur.fetchone()[0]
+
+
 def _group_key(account_id: str, tx: dict) -> tuple:
     """The identifying fields of a transaction, minus the within-day counter."""
     return (
