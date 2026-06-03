@@ -17,8 +17,10 @@ Investec Open API ──(daily cron)──▶ Postgres (Supabase) ──(Fri cro
 - **`invespend report --send`** — multi-sheet `.xlsx` (summary, by category, by
   account, top merchants, daily trend) emailed to you.
 - **`invespend statements --send`** — a **separate** `.xlsx` **per account**,
-  each a bank-statement-style transaction listing with a running balance,
-  emailed as one-attachment-per-account. Runs alongside the weekly report.
+  each a bank-statement-style transaction listing (newest first) with a running
+  balance, covering the account's **full history** by default. Emailed as
+  one-attachment-per-account and regenerated on each weekly run. Pass `--days N`
+  for a trailing window instead.
 - Two scheduled GitHub Actions workflows — no server to run.
 
 ---

@@ -28,21 +28,38 @@ def _sample_df():
     )
 
 
+def test_newest_first_ordering():
+    # Default display is newest-first: the latest posting sits on row 0, the
+    # earliest at the bottom.
+    stmt = build_account_statement(_sample_df(), opening_balance=1000.0)["statement"]
+    assert stmt.loc[0, "Description"] == "Netflix"      # 2026-05-27, newest
+    assert stmt.loc[3, "Description"] == "Woolworths"   # 2026-05-25, oldest
+
+
 def test_debit_credit_split():
     stmt = build_account_statement(_sample_df(), opening_balance=1000.0)["statement"]
     # Debits populate Debit (positive), leave Credit empty, and vice versa.
-    assert stmt.loc[0, "Debit"] == 200.0 and pd.isna(stmt.loc[0, "Credit"])
-    assert stmt.loc[2, "Credit"] == 15000.0 and pd.isna(stmt.loc[2, "Debit"])
+    # (Rows are newest-first, so Woolworths — the oldest — is the last row.)
+    assert stmt.loc[3, "Debit"] == 200.0 and pd.isna(stmt.loc[3, "Credit"])
+    assert stmt.loc[1, "Credit"] == 15000.0 and pd.isna(stmt.loc[1, "Debit"])
 
 
 def test_uses_bank_running_balance_and_fills_gaps():
     result = build_account_statement(_sample_df(), opening_balance=1000.0)
     stmt = result["statement"]
-    # Stored running balances are used verbatim where present...
-    assert list(stmt["Balance"])[:3] == [800.0, 714.5, 15714.5]
-    # ...and the NULL final balance is filled: 15714.5 + (-199.0).
-    assert stmt.loc[3, "Balance"] == 15515.5
+    # Balances are computed forward then displayed newest-first. The NULL final
+    # balance is filled (15714.5 + -199.0 = 15515.5) and lands on the top row;
+    # the stored balances follow below in reverse chronological order.
+    assert list(stmt["Balance"]) == [15515.5, 15714.5, 714.5, 800.0]
     assert result["closing_balance"] == 15515.5
+
+
+def test_oldest_first_when_disabled():
+    stmt = build_account_statement(
+        _sample_df(), opening_balance=1000.0, newest_first=False
+    )["statement"]
+    assert list(stmt["Balance"]) == [800.0, 714.5, 15714.5, 15515.5]
+    assert stmt.loc[0, "Description"] == "Woolworths"
 
 
 def test_totals_and_opening_passthrough():

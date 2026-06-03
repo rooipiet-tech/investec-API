@@ -66,9 +66,10 @@ def cmd_statements(args: argparse.Namespace) -> int:
         print("No accounts had transactions in the window; nothing to email.")
         return 0
     if args.send:
+        span = "full history" if info.get("full_history") else f"{info['start']} to {info['end']}"
         subject = (
-            f"Weekly account statements: {info['start']} to {info['end']} "
-            f"({info['accounts']} account(s))"
+            f"Account statements ({span}) as at {info['end']} "
+            f"— {info['accounts']} account(s)"
         )
         lines = [
             f"  • {a['account_number']} ({a['account_name']}): "
@@ -76,9 +77,9 @@ def cmd_statements(args: argparse.Namespace) -> int:
             for a in info["per_account"]
         ]
         body = (
-            "Hi,\n\nAttached are your Investec per-account statements for "
-            f"{info['start']} to {info['end']} — one Excel file per account, "
-            "each a full transaction listing with running balance:\n\n"
+            "Hi,\n\nAttached are your Investec per-account statements — one Excel "
+            "file per account, each a full transaction listing (newest first) with "
+            f"a running balance, covering {info['start']} to {info['end']}:\n\n"
             + "\n".join(lines)
             + "\n\n— invespend"
         )
@@ -133,8 +134,9 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_stmts.add_argument("--send", action="store_true",
                          help="Email the statements (one attachment per account)")
-    p_stmts.add_argument("--days", type=int, default=7,
-                         help="Length of the statement window in days (default: 7)")
+    p_stmts.add_argument("--days", type=int, default=None,
+                         help="Trailing window in days; omit for full history "
+                              "(account's first transaction → today, the default)")
     p_stmts.set_defaults(func=cmd_statements)
 
     sub.add_parser("backup", help="pg_dump the database to a (gzipped/encrypted) artifact") \

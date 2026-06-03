@@ -87,13 +87,16 @@ to patch, no VM to pay for**.
 
 ### Per-account statements (weekly)
 1. The same Friday workflow then triggers `invespend statements --send`.
-2. For each account it reads that account's last-7-day transactions in posting
-   order, anchored to the running balance carried forward from before the period.
+2. For each account it reads that account's **full transaction history** (first
+   stored transaction → today) in posting order. The running balance is computed
+   forward, then the rows are displayed **newest-first**.
 3. It writes **one Excel file per account** — a bank-statement-style listing
    (Date, Description, Category, Debit, Credit, Balance) under a header block of
    account number, period, and opening/closing balances. The bank's own
    `running_balance` is used verbatim where present; any gaps are filled
-   arithmetically so the balance column is always complete.
+   arithmetically so the balance column is always complete. Each weekly run
+   regenerates the complete statement, so it stays current. (Pass `--days N` to
+   limit to a trailing window.)
 4. It emails all the per-account files on a single message, one attachment each.
 
 ---

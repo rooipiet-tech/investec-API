@@ -62,25 +62,33 @@ def load_accounts(settings: Settings) -> list[Account]:
 
 
 def load_account_transactions(
-    settings: Settings, account_id: str, start: date, end: date
+    settings: Settings, account_id: str, start: date | None, end: date
 ) -> pd.DataFrame:
-    """Read one account's transactions in [start, end], in statement order.
+    """Read one account's transactions up to ``end``, in statement order.
 
-    Ordered by posting_date then ``day_seq`` so same-day postings keep the API's
-    stable order — which is also the order the running balance was computed in.
+    ``start`` bounds the period below; pass ``None`` for the full history (from
+    the account's first transaction). Ordered ascending by posting_date then
+    ``day_seq`` so same-day postings keep the API's stable order — which is also
+    the order the running balance was computed in. (Display order, newest-first,
+    is applied later in :func:`build_account_statement`.)
     """
-    query = """
+    params: list = [account_id, end]
+    lower_bound = ""
+    if start is not None:
+        lower_bound = "and t.posting_date >= %s"
+        params.append(start)
+    query = f"""
         select t.posting_date, t.description, t.transaction_type, t.type,
                t.amount, t.running_balance, t.category, t.day_seq
         from transactions t
-        where t.account_id = %s and t.posting_date between %s and %s
+        where t.account_id = %s and t.posting_date <= %s {lower_bound}
         order by t.posting_date, t.day_seq, t.ingested_at;
     """
     cols = ["posting_date", "description", "transaction_type", "type",
             "amount", "running_balance", "category", "day_seq"]
     with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:
-            cur.execute(query, (account_id, start, end))
+            cur.execute(query, tuple(params))
             rows = cur.fetchall()
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:
@@ -113,7 +121,9 @@ def load_opening_balance(settings: Settings, account_id: str, start: date) -> fl
 
 
 def build_account_statement(
-    df: pd.DataFrame, opening_balance: float | None = None
+    df: pd.DataFrame,
+    opening_balance: float | None = None,
+    newest_first: bool = True,
 ) -> dict:
     """Turn one account's transactions into a bank-statement DataFrame + totals.
 
@@ -122,6 +132,11 @@ def build_account_statement(
     ``running_balance`` is authoritative and used as-is when present; any gaps
     are filled arithmetically (previous balance + signed amount) so the column is
     always complete and internally consistent.
+
+    The running balance is always computed forward (oldest → newest); when
+    ``newest_first`` is true the finished rows are then reversed for display so
+    the most recent transaction sits at the top, the way a bank statement reads.
+    Each row keeps its own balance regardless of display order.
 
     Pure (no I/O) so it is unit tested without a database.
     """
@@ -166,11 +181,17 @@ def build_account_statement(
 
     total_debits = round(float(df.loc[df["amount"] < 0, "amount"].abs().sum()), 2)
     total_credits = round(float(df.loc[df["amount"] > 0, "amount"].sum()), 2)
+    closing_balance = balances[-1]  # newest balance, before any display reorder
+
+    # Newest at the top for display; balances were computed forward above so each
+    # row already carries the correct figure.
+    if newest_first:
+        statement = statement.iloc[::-1].reset_index(drop=True)
 
     return {
         "statement": statement,
         "opening_balance": opening_balance,
-        "closing_balance": balances[-1],
+        "closing_balance": closing_balance,
         "total_debits": total_debits,
         "total_credits": total_credits,
         "count": len(statement),
@@ -259,32 +280,43 @@ def generate_account_statements(
     settings: Settings,
     end: date | None = None,
     out_dir: Path | None = None,
-    days: int = 7,
+    days: int | None = None,
 ) -> tuple[list[Path], dict]:
-    """Build one bank-statement workbook per account for the trailing window.
+    """Build one bank-statement workbook per account up to ``end``.
 
-    Returns ``(paths, info)``. Accounts with no transactions in the window are
-    skipped so the weekly email only carries statements that have activity.
+    By default (``days`` is ``None``) each statement spans the account's **full
+    history** — its first stored transaction through ``end`` — so the weekly run
+    regenerates a complete, up-to-date statement each time. Pass ``days`` to
+    limit it to a trailing window instead. Rows are newest-first.
+
+    Returns ``(paths, info)``. Accounts with no transactions are skipped so the
+    email only carries statements that have activity.
     """
     end = end or date.today()
-    start = end - timedelta(days=days - 1)
+    start = None if days is None else end - timedelta(days=days - 1)
     out_dir = out_dir or Path("reports")
 
     paths: list[Path] = []
     per_account: list[dict] = []
+    earliest: date | None = None
     for account in load_accounts(settings):
         df = load_account_transactions(settings, account.account_id, start, end)
         if df.empty:
-            log.info("No transactions for %s in window; skipping statement",
+            log.info("No transactions for %s; skipping statement",
                      account.account_number)
             continue
-        opening = load_opening_balance(settings, account.account_id, start)
+        # Full-history statements start at the account's own first transaction.
+        period_start = start if start is not None else df["posting_date"].min().date()
+        earliest = period_start if earliest is None else min(earliest, period_start)
+        opening = load_opening_balance(settings, account.account_id, period_start)
         statement = build_account_statement(df, opening)
         filename = (
             f"statement_{_safe_filename(account.account_number)}_"
-            f"{start.isoformat()}_to_{end.isoformat()}.xlsx"
+            f"{period_start.isoformat()}_to_{end.isoformat()}.xlsx"
         )
-        path = write_statement_workbook(statement, account, start, end, out_dir / filename)
+        path = write_statement_workbook(
+            statement, account, period_start, end, out_dir / filename
+        )
         paths.append(path)
         per_account.append(
             {
@@ -297,9 +329,10 @@ def generate_account_statements(
         log.info("Wrote statement %s (%d transactions)", path, statement["count"])
 
     info = {
-        "start": start.isoformat(),
+        "start": earliest.isoformat() if earliest else end.isoformat(),
         "end": end.isoformat(),
         "accounts": len(paths),
+        "full_history": days is None,
         "per_account": per_account,
     }
     return paths, info
