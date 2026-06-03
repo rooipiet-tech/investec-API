@@ -19,7 +19,16 @@ MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
 
 @contextmanager
 def connect(database_url: str) -> Iterator[psycopg.Connection]:
-    conn = psycopg.connect(database_url, autocommit=False)
+    # Session guards so a stuck job can never wedge the database:
+    #  - lock_timeout: fail fast instead of waiting minutes on a held lock
+    #  - idle_in_transaction_session_timeout: the server kills any connection
+    #    left idle mid-transaction, so an abruptly-killed job self-heals (no
+    #    leaked lock for the next run to trip over).
+    conn = psycopg.connect(
+        database_url,
+        autocommit=False,
+        options="-c lock_timeout=15000 -c idle_in_transaction_session_timeout=120000",
+    )
     try:
         yield conn
         conn.commit()
