@@ -171,46 +171,83 @@ def upsert_account(conn: psycopg.Connection, account: dict) -> None:
         )
 
 
-def upsert_transaction(
-    conn: psycopg.Connection, account_id: str, tx: dict, category: str, day_seq: int = 0
-) -> bool:
-    """Insert a transaction if new. Returns True when a new row was written."""
+_TX_COLUMNS = (
+    "transaction_hash, account_id, type, transaction_type, status, description, "
+    "card_number, posting_date, value_date, action_date, transaction_date, amount, "
+    "running_balance, category, day_seq, raw"
+)
+
+
+def _tx_params(account_id: str, tx: dict, category: str, day_seq: int) -> tuple:
+    """The 16 column values for one transaction row (order matches _TX_COLUMNS)."""
     signed_amount = float(tx.get("amount", 0))
     if str(tx.get("type", "")).upper() == "DEBIT":
         signed_amount = -abs(signed_amount)
     else:
         signed_amount = abs(signed_amount)
+    return (
+        transaction_hash(account_id, tx, day_seq),
+        account_id,
+        tx.get("type"),
+        tx.get("transactionType"),
+        tx.get("status"),
+        tx.get("description"),
+        tx.get("cardNumber"),
+        _parse_date(tx.get("postingDate")),
+        _parse_date(tx.get("valueDate")),
+        _parse_date(tx.get("actionDate")),
+        _parse_date(tx.get("transactionDate")),
+        signed_amount,
+        tx.get("runningBalance"),
+        category,
+        day_seq,
+        json.dumps(tx),
+    )
 
+
+def upsert_transaction(
+    conn: psycopg.Connection, account_id: str, tx: dict, category: str, day_seq: int = 0
+) -> bool:
+    """Insert a transaction if new. Returns True when a new row was written."""
     with conn.cursor() as cur:
         cur.execute(
-            """
-            insert into transactions
-                (transaction_hash, account_id, type, transaction_type, status,
-                 description, card_number, posting_date, value_date, action_date,
-                 transaction_date, amount, running_balance, category, day_seq, raw)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            on conflict (transaction_hash) do nothing;
-            """,
-            (
-                transaction_hash(account_id, tx, day_seq),
-                account_id,
-                tx.get("type"),
-                tx.get("transactionType"),
-                tx.get("status"),
-                tx.get("description"),
-                tx.get("cardNumber"),
-                _parse_date(tx.get("postingDate")),
-                _parse_date(tx.get("valueDate")),
-                _parse_date(tx.get("actionDate")),
-                _parse_date(tx.get("transactionDate")),
-                signed_amount,
-                tx.get("runningBalance"),
-                category,
-                day_seq,
-                json.dumps(tx),
-            ),
+            f"insert into transactions ({_TX_COLUMNS}) "
+            f"values ({', '.join(['%s'] * 16)}) "
+            "on conflict (transaction_hash) do nothing;",
+            _tx_params(account_id, tx, category, day_seq),
         )
         return cur.rowcount > 0
+
+
+def upsert_transactions(
+    conn: psycopg.Connection,
+    account_id: str,
+    items: list[tuple[dict, str, int]],
+    batch_size: int = 500,
+) -> int:
+    """Batch-insert ``(tx, category, day_seq)`` rows; returns new rows written.
+
+    One multi-row INSERT per batch instead of a round-trip per row — the
+    difference between a backfill finishing in minutes vs hours when re-walking
+    large histories. Idempotent via ``on conflict do nothing``; ``cur.rowcount``
+    counts only the rows that were actually inserted. Batched to stay well under
+    Postgres's parameter limit (500 × 16 = 8000 params).
+    """
+    new_rows = 0
+    row_ph = "(" + ", ".join(["%s"] * 16) + ")"
+    for i in range(0, len(items), batch_size):
+        chunk = items[i:i + batch_size]
+        flat = [v for tx, category, day_seq in chunk
+                for v in _tx_params(account_id, tx, category, day_seq)]
+        with conn.cursor() as cur:
+            cur.execute(
+                f"insert into transactions ({_TX_COLUMNS}) values "
+                + ", ".join([row_ph] * len(chunk))
+                + " on conflict (transaction_hash) do nothing;",
+                flat,
+            )
+            new_rows += cur.rowcount
+    return new_rows
 
 
 def extract_balance_fields(balance: dict) -> dict:
