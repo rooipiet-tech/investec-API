@@ -17,28 +17,30 @@ from .config import Settings
 
 log = logging.getLogger(__name__)
 
-COLUMNS = ["posting_date", "account_number", "account_name", "type",
+COLUMNS = ["effective_date", "account_number", "account_name", "type",
            "transaction_type", "description", "amount", "category", "flow_type"]
 
 
 def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFrame:
     """Read transactions in [start, end] into a DataFrame.
 
-    Reads the build-layer ``transactions_flow`` view so each row carries its
-    ``flow_type`` (internal_transfer / external_inflow / external_outflow), and
-    joins accounts for the human-readable account number (and name) instead of
-    the opaque Investec account_id.
+    Windows on ``effective_date`` (when the transaction economically happened —
+    transaction/action/value date, falling back to posting date) rather than the
+    bank's posting date, which can lag by months and would otherwise sweep a
+    backlog of late-posted items into a single week. Reads the build-layer
+    ``transactions_flow`` view so each row carries its ``flow_type``, and joins
+    accounts for the human-readable account number (and name).
     """
     query = """
-        select f.posting_date,
+        select f.effective_date,
                coalesce(a.account_number, f.account_id) as account_number,
                coalesce(a.account_name, '')             as account_name,
                f.type, f.transaction_type, f.description, f.amount,
                f.category, f.flow_type
         from transactions_flow f
         left join accounts a on a.account_id = f.account_id
-        where f.posting_date between %s and %s
-        order by f.posting_date;
+        where f.effective_date between %s and %s
+        order by f.effective_date;
     """
     with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:
@@ -47,7 +49,7 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
         df["amount"] = df["amount"].astype(float)
-        df["posting_date"] = pd.to_datetime(df["posting_date"])
+        df["effective_date"] = pd.to_datetime(df["effective_date"])
     return df
 
 
@@ -155,12 +157,12 @@ def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     )
 
     daily = (
-        spend.groupby(spend["posting_date"].dt.date)["spend"].sum()
-        .rename("total_spend").reset_index().rename(columns={"posting_date": "date"})
+        spend.groupby(spend["effective_date"].dt.date)["spend"].sum()
+        .rename("total_spend").reset_index().rename(columns={"effective_date": "date"})
     )
 
-    internal_sheet = internal.sort_values("posting_date").reset_index(drop=True)
-    transactions = df.sort_values("posting_date").reset_index(drop=True)
+    internal_sheet = internal.sort_values("effective_date").reset_index(drop=True)
+    transactions = df.sort_values("effective_date").reset_index(drop=True)
 
     return {
         "Summary": summary,

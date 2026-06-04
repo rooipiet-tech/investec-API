@@ -6,7 +6,7 @@ from invespend.report import build_spend_summary, write_workbook
 def _sample_df():
     return pd.DataFrame(
         {
-            "posting_date": pd.to_datetime(
+            "effective_date": pd.to_datetime(
                 ["2026-05-25", "2026-05-26", "2026-05-26", "2026-05-27"]
             ),
             "account_number": ["10010000001", "10010000001", "10010000001", "10010000002"],
@@ -46,7 +46,7 @@ def _flow_df():
     """Two external rows plus a matched internal-transfer pair (debit + credit)."""
     return pd.DataFrame(
         {
-            "posting_date": pd.to_datetime(
+            "effective_date": pd.to_datetime(
                 ["2026-05-25", "2026-05-26", "2026-05-27", "2026-05-27"]
             ),
             "account_number": ["10010000001"] * 3 + ["10010000002"],
