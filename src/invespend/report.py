@@ -17,25 +17,30 @@ from .config import Settings
 
 log = logging.getLogger(__name__)
 
-COLUMNS = ["posting_date", "account_number", "account_name", "type",
-           "transaction_type", "description", "amount", "category"]
+COLUMNS = ["effective_date", "account_number", "account_name", "type",
+           "transaction_type", "description", "amount", "category", "flow_type"]
 
 
 def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFrame:
     """Read transactions in [start, end] into a DataFrame.
 
-    Joins the accounts table so the report shows the human-readable account
-    number (and name) instead of the opaque Investec account_id.
+    Windows on ``effective_date`` (when the transaction economically happened —
+    transaction/action/value date, falling back to posting date) rather than the
+    bank's posting date, which can lag by months and would otherwise sweep a
+    backlog of late-posted items into a single week. Reads the build-layer
+    ``transactions_flow`` view so each row carries its ``flow_type``, and joins
+    accounts for the human-readable account number (and name).
     """
     query = """
-        select t.posting_date,
-               coalesce(a.account_number, t.account_id) as account_number,
+        select f.effective_date,
+               coalesce(a.account_number, f.account_id) as account_number,
                coalesce(a.account_name, '')             as account_name,
-               t.type, t.transaction_type, t.description, t.amount, t.category
-        from transactions t
-        left join accounts a on a.account_id = t.account_id
-        where t.posting_date between %s and %s
-        order by t.posting_date;
+               f.type, f.transaction_type, f.description, f.amount,
+               f.category, f.flow_type
+        from transactions_flow f
+        left join accounts a on a.account_id = f.account_id
+        where f.effective_date between %s and %s
+        order by f.effective_date;
     """
     with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:
@@ -44,7 +49,7 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
         df["amount"] = df["amount"].astype(float)
-        df["posting_date"] = pd.to_datetime(df["posting_date"])
+        df["effective_date"] = pd.to_datetime(df["effective_date"])
     return df
 
 
@@ -92,28 +97,44 @@ def load_reconciliation(settings: Settings) -> pd.DataFrame:
 def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     """Turn a transaction DataFrame into the report's sheets.
 
-    Spend = outflows (negative amounts). Income = inflows (positive amounts).
+    Spend = external outflows (negative amounts). Income = external inflows
+    (positive amounts). Internal transfers — money moving between your own
+    accounts — are excluded from every spend/income figure so they are not
+    double-counted as both an outflow and an inflow; they get their own sheet.
     """
     if df.empty:
         empty = pd.DataFrame()
         return {"Summary": empty, "By Category": empty, "By Account": empty,
-                "Top Merchants": empty, "Daily Trend": empty, "Transactions": empty}
+                "Top Merchants": empty, "Daily Trend": empty,
+                "Internal Transfers": empty, "Transactions": empty}
 
-    spend = df[df["amount"] < 0].copy()
+    # External flows only drive the spend/income analysis. Tolerate a frame
+    # without flow_type (e.g. legacy callers/tests) by treating all as external.
+    if "flow_type" in df.columns:
+        external = df[df["flow_type"] != "internal_transfer"]
+        internal = df[df["flow_type"] == "internal_transfer"]
+    else:
+        external = df
+        internal = df.iloc[0:0]
+
+    spend = external[external["amount"] < 0].copy()
     spend["spend"] = spend["amount"].abs()
-    income = df[df["amount"] > 0]["amount"].sum()
+    income = external[external["amount"] > 0]["amount"].sum()
 
     summary = pd.DataFrame(
         {
             "Metric": [
                 "Total spend", "Total income", "Net", "Transactions", "Categories",
+                "Internal transfers (excluded)", "Internal transfer volume",
             ],
             "Value": [
                 round(spend["spend"].sum(), 2),
                 round(float(income), 2),
-                round(float(df["amount"].sum()), 2),
+                round(float(external["amount"].sum()), 2),
                 len(df),
                 spend["category"].nunique(),
+                len(internal),
+                round(float(internal[internal["amount"] > 0]["amount"].sum()), 2),
             ],
         }
     )
@@ -136,11 +157,12 @@ def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
     )
 
     daily = (
-        spend.groupby(spend["posting_date"].dt.date)["spend"].sum()
-        .rename("total_spend").reset_index().rename(columns={"posting_date": "date"})
+        spend.groupby(spend["effective_date"].dt.date)["spend"].sum()
+        .rename("total_spend").reset_index().rename(columns={"effective_date": "date"})
     )
 
-    transactions = df.sort_values("posting_date").reset_index(drop=True)
+    internal_sheet = internal.sort_values("effective_date").reset_index(drop=True)
+    transactions = df.sort_values("effective_date").reset_index(drop=True)
 
     return {
         "Summary": summary,
@@ -148,6 +170,7 @@ def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
         "By Account": by_account,
         "Top Merchants": top_merchants,
         "Daily Trend": daily,
+        "Internal Transfers": internal_sheet,
         "Transactions": transactions,
     }
 

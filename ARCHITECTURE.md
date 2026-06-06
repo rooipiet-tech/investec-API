@@ -170,7 +170,16 @@ Migrations live in [`db/migrations/`](db/migrations/) and are applied in order b
 report, future solutions) reads these, never the raw table:
 - **`transactions_normalized`** — typed, trimmed, with an effective date + month.
 - **`transactions_categorized`** — category re-derived from `category_map`.
-- **`spend_by_category`** — spend/income aggregated per category per month.
+- **`transactions_flow`** — labels each transaction `internal_transfer` /
+  `external_inflow` / `external_outflow`. The `accounts` table is the authoritative
+  list of owned accounts; a transaction is an internal transfer when its
+  counterparty resolves to another owned account via a layered signal (own account
+  number in the description → own holder name → a guarded equal-and-opposite
+  matched leg on the same value date). `flow_signal` records which tier fired.
+- **`spend_by_category`** — spend/income aggregated per category per month
+  (**excludes** `internal_transfer` so own-account movements aren't double-counted).
+- **`monthly_flows`** — per month: external inflow vs outflow vs internal-transfer
+  volume — the headline internal-vs-external view.
 - **`monthly_movement`** — month-over-month movement bridge per category.
 - **`balance_reconciliation`** — bank-reported balance vs the running balance on
   the latest stored transaction, flagged `reconciled` when they agree to the cent.

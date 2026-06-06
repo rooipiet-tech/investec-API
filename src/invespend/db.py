@@ -64,8 +64,19 @@ def connect(database_url: str) -> Iterator[psycopg.Connection]:
 
 
 def init_db(conn: psycopg.Connection) -> None:
-    """Apply every migration in order (each is idempotent)."""
+    """Apply every migration in order (each is idempotent).
+
+    Migrations include DDL (``alter table … enable row level security``,
+    ``create or replace view``) that needs an AccessExclusive lock. If another
+    session holds a conflicting lock — e.g. a leaked ``pg_dump`` left idle in
+    transaction — the default behaviour is to wait until the server statement
+    timeout (~2 min) and then fail the whole ingest. A short ``lock_timeout``
+    makes that fail fast with a clear "lock timeout" error instead of hanging,
+    so a transient lock costs seconds and the next run recovers. SET LOCAL keeps
+    it scoped to this transaction (and works through transaction pooling).
+    """
     with conn.cursor() as cur:
+        cur.execute("SET LOCAL lock_timeout = '15s'")
         for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
             cur.execute(migration.read_text())
 
