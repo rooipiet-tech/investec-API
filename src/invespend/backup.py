@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+import os
 import shutil
 import subprocess
 from datetime import date
@@ -17,6 +18,14 @@ from pathlib import Path
 from .config import Settings
 
 log = logging.getLogger(__name__)
+
+# Guard against a leaked dump session wedging the database: if this pg_dump's
+# connection is ever left idle in a transaction (e.g. the runner is killed
+# mid-dump), the server reaps it after this timeout instead of letting it hold
+# AccessShare locks on every table for days — which would otherwise block the
+# nightly ingest's DDL. pg_dump is only briefly idle between COPYs on this small
+# DB, so a healthy run is never affected.
+_DUMP_PGOPTIONS = "-c idle_in_transaction_session_timeout=300000"
 
 
 def run_backup(settings: Settings, out_dir: Path | None = None) -> Path:
@@ -34,6 +43,7 @@ def run_backup(settings: Settings, out_dir: Path | None = None) -> Path:
         ["pg_dump", "--no-owner", "--no-privileges", settings.database_url],
         stdout=subprocess.PIPE,
         check=True,
+        env={**os.environ, "PGOPTIONS": _DUMP_PGOPTIONS},
     )
     with gzip.open(gz_path, "wb") as fh:
         fh.write(dump.stdout)
