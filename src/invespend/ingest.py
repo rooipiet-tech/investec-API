@@ -57,6 +57,7 @@ def run_ingest(
     instead of re-pulling the recent windows every run. Returns a small summary
     dict for observability.
     """
+    settings.require_investec()  # only ingest needs the API credentials
     to_date = to_date or date.today()
     if from_date is None:
         window = window_days or settings.ingest_window_days
