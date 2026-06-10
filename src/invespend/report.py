@@ -27,18 +27,18 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
     Windows on ``effective_date`` (when the transaction economically happened —
     transaction/action/value date, falling back to posting date) rather than the
     bank's posting date, which can lag by months and would otherwise sweep a
-    backlog of late-posted items into a single week. Reads the build-layer
-    ``transactions_flow`` view so each row carries its ``flow_type``, and joins
-    accounts for the human-readable account number (and name).
+    backlog of late-posted items into a single week. Reads only the build-layer
+    ``transactions_flow`` view, which carries ``flow_type`` plus the
+    human-readable account number/name — no base-table join, so the query works
+    for the read-only report role (RLS blanks the base tables for it).
     """
     query = """
         select f.effective_date,
-               coalesce(a.account_number, f.account_id) as account_number,
-               coalesce(a.account_name, '')             as account_name,
+               coalesce(f.account_number, f.account_id) as account_number,
+               coalesce(f.account_name, '')             as account_name,
                f.type, f.transaction_type, f.description, f.amount,
                f.category, f.flow_type
         from transactions_flow f
-        left join accounts a on a.account_id = f.account_id
         where f.effective_date between %s and %s
         order by f.effective_date;
     """
