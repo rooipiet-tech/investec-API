@@ -33,7 +33,7 @@ cannot move money.
    string (URI)** — use the pooler URI, keep `sslmode=require`.
 3. Apply the schema:
    ```bash
-   invespend init-db          # applies every migration in db/migrations/ in order
+   invespend init-db          # applies pending migrations (tracked in schema_migrations)
    ```
 
 > **Already had data before the `day_seq` dedup change?** Run the one-off

@@ -64,21 +64,60 @@ def connect(database_url: str) -> Iterator[psycopg.Connection]:
 
 
 def init_db(conn: psycopg.Connection) -> None:
-    """Apply every migration in order (each is idempotent).
+    """Apply pending migrations exactly once, tracked in ``schema_migrations``.
 
-    Migrations include DDL (``alter table … enable row level security``,
-    ``create or replace view``) that needs an AccessExclusive lock. If another
-    session holds a conflicting lock — e.g. a leaked ``pg_dump`` left idle in
-    transaction — the default behaviour is to wait until the server statement
-    timeout (~2 min) and then fail the whole ingest. A short ``lock_timeout``
-    makes that fail fast with a clear "lock timeout" error instead of hanging,
-    so a transient lock costs seconds and the next run recovers. SET LOCAL keeps
-    it scoped to this transaction (and works through transaction pooling).
+    Previously every migration re-ran on every ingest, and the DDL they contain
+    (``alter table … enable row level security``, ``create or replace view``)
+    takes AccessExclusive locks — the root cause of the recurring lock-wait
+    failures. Tracking applied filenames makes the nightly init a no-op in the
+    steady state (one SELECT, no locks) and also lets future migrations be
+    non-idempotent (data fixes, column renames) safely.
+
+    On a database created before tracking existed, the first run re-applies
+    every migration once (they are all idempotent) and records them.
+
+    A short ``lock_timeout`` is still set so that when a migration *does* run,
+    a conflicting lock (e.g. a leaked ``pg_dump`` left idle in transaction)
+    fails fast with a clear error instead of hanging for minutes. SET LOCAL
+    keeps it scoped to this transaction (and works through transaction pooling).
     """
     with conn.cursor() as cur:
         cur.execute("SET LOCAL lock_timeout = '15s'")
+        cur.execute(
+            """
+            create table if not exists schema_migrations (
+                filename   text primary key,
+                applied_at timestamptz not null default now()
+            );
+            """
+        )
+        # Lock it down like every other table (anon/authenticated see nothing).
+        # Guarded so the ALTER (and its AccessExclusive lock) runs only once.
+        cur.execute(
+            "select coalesce((select relrowsecurity from pg_class "
+            "where relname = 'schema_migrations' "
+            "and relnamespace = 'public'::regnamespace), false);"
+        )
+        if not cur.fetchone()[0]:
+            cur.execute("alter table schema_migrations enable row level security;")
+
+        cur.execute("select filename from schema_migrations;")
+        applied = {row[0] for row in cur.fetchall()}
         for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            if migration.name in applied:
+                continue
+            log.info("Applying migration %s", migration.name)
             cur.execute(migration.read_text())
+            cur.execute(
+                "insert into schema_migrations (filename) values (%s);",
+                (migration.name,),
+            )
+
+        # Keep the read-only reporting role's grants in sync with the build
+        # layer (no-op until the operator creates the role — see db/roles.sql).
+        grants = MIGRATIONS_DIR.parent / "grants.sql"
+        if grants.exists():
+            cur.execute(grants.read_text())
 
 
 def oldest_posting_date(conn: psycopg.Connection) -> date | None:

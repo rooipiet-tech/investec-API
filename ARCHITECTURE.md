@@ -154,7 +154,9 @@ failure.
 ## 4. Database schema
 
 Migrations live in [`db/migrations/`](db/migrations/) and are applied in order by
-`invespend init-db`. Core objects:
+`invespend init-db`, which records each applied file in `schema_migrations` so a
+migration runs exactly once — the nightly init is a lock-free no-op in the steady
+state. Core objects:
 
 **Tables**
 - **`accounts`** — one row per Investec account.

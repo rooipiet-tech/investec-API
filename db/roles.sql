@@ -1,28 +1,22 @@
--- Least-privilege reporting role (ARCHITECTURE §7).
+-- Least-privilege reporting role (ARCHITECTURE §3).
 --
 -- The ingest job connects with the owner/service role (it must write
 -- transactions). Reporting and Power BI should connect with a role that can
--- only SELECT the build-layer views — never the raw tables. Run this once in
--- the Supabase SQL editor. It lives outside db/migrations/ on purpose, so
--- `invespend init-db` does not try to apply it — role/password creation is an
--- operator step, not part of the idempotent app migrations.
+-- only SELECT the build-layer views — never the raw tables. Role/password
+-- creation is an operator step, done once in the Supabase SQL editor; it lives
+-- outside db/migrations/ on purpose so `invespend init-db` never tries to
+-- create credentials.
 --
--- 1. Create the role (choose a strong password, store it as REPORT_DATABASE_URL):
+-- 1. Create the role (choose a strong password):
 --
 --      create role report_readonly login password '<strong-password>';
 --
--- 2. Grant read-only access to the analytical views only:
+-- 2. Grants are applied automatically: `invespend init-db` (which the nightly
+--    ingest runs) applies db/grants.sql on every run, which grants SELECT on
+--    all build-layer views to this role as soon as it exists — and keeps the
+--    grant list in sync when later migrations add views. Nothing to run by
+--    hand; to apply immediately instead of waiting for the nightly run,
+--    trigger the ingest workflow or run `invespend init-db` yourself.
 --
---      grant usage on schema public to report_readonly;
---      grant select on
---          transactions_normalized,
---          transactions_categorized,
---          spend_by_category,
---          monthly_movement,
---          category_map
---      to report_readonly;
---
--- 3. Point reporting at it:  REPORT_DATABASE_URL=postgresql://report_readonly:...@host:6543/postgres?sslmode=require
---
--- Left as commented documentation on purpose: role/password creation is an
--- operator step, not something to bake into an idempotent app migration.
+-- 3. Point reporting at it:
+--      REPORT_DATABASE_URL=postgresql://report_readonly:...@host:6543/postgres?sslmode=require
