@@ -210,46 +210,60 @@ def upsert_account(conn: psycopg.Connection, account: dict) -> None:
         )
 
 
-def upsert_transaction(
-    conn: psycopg.Connection, account_id: str, tx: dict, category: str, day_seq: int = 0
-) -> bool:
-    """Insert a transaction if new. Returns True when a new row was written."""
+_INSERT_TRANSACTION_SQL = """
+    insert into transactions
+        (transaction_hash, account_id, type, transaction_type, status,
+         description, card_number, posting_date, value_date, action_date,
+         transaction_date, amount, running_balance, category, day_seq, raw)
+    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    on conflict (transaction_hash) do nothing;
+"""
+
+
+def _transaction_row(account_id: str, tx: dict, category: str, day_seq: int) -> tuple:
     signed_amount = float(tx.get("amount", 0))
     if str(tx.get("type", "")).upper() == "DEBIT":
         signed_amount = -abs(signed_amount)
     else:
         signed_amount = abs(signed_amount)
+    return (
+        transaction_hash(account_id, tx, day_seq),
+        account_id,
+        tx.get("type"),
+        tx.get("transactionType"),
+        tx.get("status"),
+        tx.get("description"),
+        tx.get("cardNumber"),
+        _parse_date(tx.get("postingDate")),
+        _parse_date(tx.get("valueDate")),
+        _parse_date(tx.get("actionDate")),
+        _parse_date(tx.get("transactionDate")),
+        signed_amount,
+        tx.get("runningBalance"),
+        category,
+        day_seq,
+        json.dumps(tx),
+    )
 
+
+def upsert_transactions(
+    conn: psycopg.Connection, account_id: str, rows: list[tuple[dict, str, int]]
+) -> int:
+    """Bulk-insert transactions; returns how many NEW rows were written.
+
+    ``rows`` is ``[(tx, category, day_seq), ...]``. One ``executemany`` batch
+    per call (psycopg pipelines it) instead of a round trip per row — which is
+    what dominates a backfill over a TLS pooler connection. Idempotency is
+    unchanged: ``ON CONFLICT DO NOTHING`` on the deterministic hash, and
+    ``rowcount`` aggregates only the rows actually inserted.
+    """
+    if not rows:
+        return 0
+    params = [_transaction_row(account_id, tx, category, day_seq)
+              for tx, category, day_seq in rows]
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            insert into transactions
-                (transaction_hash, account_id, type, transaction_type, status,
-                 description, card_number, posting_date, value_date, action_date,
-                 transaction_date, amount, running_balance, category, day_seq, raw)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            on conflict (transaction_hash) do nothing;
-            """,
-            (
-                transaction_hash(account_id, tx, day_seq),
-                account_id,
-                tx.get("type"),
-                tx.get("transactionType"),
-                tx.get("status"),
-                tx.get("description"),
-                tx.get("cardNumber"),
-                _parse_date(tx.get("postingDate")),
-                _parse_date(tx.get("valueDate")),
-                _parse_date(tx.get("actionDate")),
-                _parse_date(tx.get("transactionDate")),
-                signed_amount,
-                tx.get("runningBalance"),
-                category,
-                day_seq,
-                json.dumps(tx),
-            ),
-        )
-        return cur.rowcount > 0
+        cur.executemany(_INSERT_TRANSACTION_SQL, params)
+        return max(cur.rowcount, 0)
 
 
 def extract_balance_fields(balance: dict) -> dict:
