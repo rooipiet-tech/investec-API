@@ -7,6 +7,10 @@ on:
     branches: [main]
   workflow_dispatch: {}
 
+# The token only checks out code; nothing in this job writes to the repo.
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest

@@ -6,8 +6,15 @@ on:
     - cron: "0 2 * * *"   # 02:00 UTC (04:00 SAST) every day
   workflow_dispatch: {}    # allow manual runs
 
+# The token only checks out code; nothing in this job writes to the repo.
+permissions:
+  contents: read
+
+# One shared `database` group across ingest, backfill and weekly-report
+# serializes every job that touches Postgres — a manual backfill can no longer
+# overlap the nightly ingest or the weekly backup and fight over locks.
 concurrency:
-  group: ingest
+  group: database
   cancel-in-progress: false
 
 jobs:

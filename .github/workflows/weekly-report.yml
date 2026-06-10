@@ -9,6 +9,13 @@ on:
 permissions:
   contents: write   # for the heartbeat commit that keeps the cron alive
 
+# Shared with ingest.yml and backfill.yml: serializes every job that touches
+# Postgres, so the report/backup never runs while an ingest or backfill holds
+# locks (pg_dump in particular conflicts with migration DDL).
+concurrency:
+  group: database
+  cancel-in-progress: false
+
 jobs:
   report:
     runs-on: ubuntu-latest
