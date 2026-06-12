@@ -1,6 +1,7 @@
 name: weekly-report
 
-# Builds the Excel spend analysis and emails it at the end of the week.
+# Builds the Excel spend analysis and the per-account bank statements, and
+# emails them at the end of the week.
 on:
   schedule:
     - cron: "0 15 * * 5"   # 15:00 UTC (17:00 SAST) every Friday
@@ -13,6 +14,20 @@ jobs:
   report:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      REPORT_DATABASE_URL: ${{ secrets.REPORT_DATABASE_URL }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
+      REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
+      # Not needed by the report/statement jobs, but Settings.load() validates
+      # them; provide harmless placeholders so they can run on their own.
+      INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+      INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+      INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,21 +39,10 @@ jobs:
       - run: pip install -e .
 
       - name: Build & email report
-        env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
-          REPORT_DATABASE_URL: ${{ secrets.REPORT_DATABASE_URL }}
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USER: ${{ secrets.SMTP_USER }}
-          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
-          REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
-          # Not needed by the report job, but Settings.load() validates them;
-          # provide harmless placeholders so the report can run on its own.
-          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
-          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
-          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
         run: invespend report --send
+
+      - name: Build & email per-account statements
+        run: invespend statements --send
 
       - name: Upload report artifact
         if: always()
@@ -68,11 +72,7 @@ jobs:
       - name: Database backup (pg_dump → encrypted artifact)
         continue-on-error: true   # backup is best-effort; never fail the report job over it
         env:
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
-          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
-          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
-          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
         run: invespend backup
 
       - name: Upload backup artifact
