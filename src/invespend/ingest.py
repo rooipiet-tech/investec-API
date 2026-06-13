@@ -129,11 +129,12 @@ def run_ingest(
                 if not transactions:
                     continue
                 rows = db.assign_day_seq(account_id, transactions)
+                items = [
+                    (tx, categorize(tx.get("description"), tx.get("transactionType")), day_seq)
+                    for tx, day_seq in rows
+                ]
                 with db.connect(url) as conn:
-                    for tx, day_seq in rows:
-                        category = categorize(tx.get("description"), tx.get("transactionType"))
-                        if db.upsert_transaction(conn, account_id, tx, category, day_seq):
-                            tx_upserted += 1
+                    tx_upserted += db.upsert_transactions(conn, account_id, items)
             log.info(
                 "Window %s..%s: %d transactions (%d new so far)",
                 chunk_start, chunk_end, chunk_total, tx_upserted,

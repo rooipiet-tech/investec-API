@@ -85,6 +85,23 @@ to patch, no VM to pay for**.
    top merchants, and a daily trend.
 4. It emails the workbook as an attachment via Gmail SMTP.
 
+### Per-account statements (weekly)
+1. The same Friday workflow then triggers `invespend statements --send`.
+2. For each account it reads that account's **full transaction history** (first
+   stored transaction → today) from the build-layer `transactions_flow` view, in
+   posting order, so it shares the `effective_date` and internal-transfer
+   classification used by the spend report. The running balance is computed
+   forward, then the rows are displayed **newest-first**.
+3. It writes **one Excel file per account** — a bank-statement-style listing
+   (Date, Description, Category, Debit, Credit, Balance) under a header block of
+   account number, period, and opening/closing balances. The bank's own
+   `running_balance` is used verbatim where present; gaps are filled
+   arithmetically from the previous balance, and rows before the first
+   bank-reported balance are left blank rather than guessed. Each weekly run
+   regenerates the complete statement, so it stays current. (Pass `--days N` to
+   limit to a trailing window.)
+4. It emails all the per-account files on a single message, one attachment each.
+
 ---
 
 ## 3. Security model
@@ -224,8 +241,9 @@ Because the data lands in plain Postgres, you can layer on:
 │   ├── db.py                  ← Postgres connection + upserts
 │   ├── ingest.py              ← daily ingestion job
 │   ├── report.py              ← Excel spend-analysis builder
-│   ├── emailer.py             ← SMTP sender
-│   └── cli.py                 ← `invespend init-db | ingest | report`
+│   ├── statements.py          ← per-account bank-statement workbooks
+│   ├── emailer.py             ← SMTP sender (one or many attachments)
+│   └── cli.py                 ← `invespend init-db | ingest | report | statements`
 ├── tests/                     ← unit tests for categoriser + aggregation
 └── .github/workflows/
     ├── ingest.yml             ← daily cron
