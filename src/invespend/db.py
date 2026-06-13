@@ -9,11 +9,11 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Iterator
 
 import psycopg
 
@@ -35,6 +35,18 @@ def _money(value: object) -> Decimal | None:
         return Decimal(str(value))
     except (InvalidOperation, ValueError):
         return None
+
+
+def _scalar(cur: psycopg.Cursor):
+    """First column of the next row; raises if the query returned nothing.
+
+    Used for queries that always yield exactly one row (aggregates, ``RETURNING``,
+    existence checks) — it makes that assumption explicit instead of indexing a
+    possibly-``None`` ``fetchone()`` result."""
+    row = cur.fetchone()
+    if row is None:
+        raise RuntimeError("query returned no rows where one was expected")
+    return row[0]
 
 
 def _open(database_url: str, attempts: int = 4) -> psycopg.Connection:
@@ -114,7 +126,7 @@ def init_db(conn: psycopg.Connection) -> None:
             "where relname = 'schema_migrations' "
             "and relnamespace = 'public'::regnamespace), false);"
         )
-        if not cur.fetchone()[0]:
+        if not _scalar(cur):
             cur.execute("alter table schema_migrations enable row level security;")
 
         cur.execute("select filename from schema_migrations;")
@@ -140,7 +152,7 @@ def oldest_posting_date(conn: psycopg.Connection) -> date | None:
     """The earliest posting_date stored, or None if there are no transactions."""
     with conn.cursor() as cur:
         cur.execute("select min(posting_date) from transactions;")
-        return cur.fetchone()[0]
+        return _scalar(cur)
 
 
 def _group_key(account_id: str, tx: dict) -> tuple:
@@ -337,7 +349,7 @@ def start_sync_run(conn: psycopg.Connection, from_date: date, to_date: date) -> 
             "values (%s, %s, 'running') returning id;",
             (from_date, to_date),
         )
-        return cur.fetchone()[0]
+        return _scalar(cur)
 
 
 def finish_sync_run(
@@ -395,7 +407,9 @@ def backfill_transaction_hashes(conn: psycopg.Connection) -> dict:
     with conn.cursor() as cur:
         for account_id, items in by_account.items():
             txs = [tx for _, tx in items]
-            for (old_hash, _), (tx, day_seq) in zip(items, assign_day_seq(account_id, txs)):
+            for (old_hash, _), (tx, day_seq) in zip(
+                items, assign_day_seq(account_id, txs), strict=True
+            ):
                 scanned += 1
                 new_hash = transaction_hash(account_id, tx, day_seq)
                 if new_hash != old_hash:

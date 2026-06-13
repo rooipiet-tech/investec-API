@@ -64,7 +64,7 @@ class Settings:
     backup_passphrase: str = ""
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         return cls(
             # Validated lazily via require_investec(): only ingest talks to the
             # API, so the report/backup jobs never need the banking credentials

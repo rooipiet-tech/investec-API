@@ -88,8 +88,16 @@ invespend init-db
 invespend ingest --days 30  # backfill a month
 invespend report --send     # build + email the report
 
-pytest                      # run the unit tests
+pytest                      # unit tests (DB integration tests skip without a DB)
+ruff check src/ tests/      # lint + import order
+mypy                        # type check
+
+# To also run the integration tests, point them at a throwaway Postgres:
+TEST_DATABASE_URL=postgresql://localhost/invespend_test pytest
 ```
+
+> CI (`tests.yml`) runs ruff, mypy, and the full suite — including the
+> integration tests against a Postgres service container — on every PR.
 
 > **Security:** secrets live only in `.env` (git-ignored) locally and in GitHub
 > encrypted secrets in CI. Never commit credentials.

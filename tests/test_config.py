@@ -3,7 +3,6 @@ import importlib
 import pytest
 
 import invespend.config as config_module
-from invespend.config import Settings
 
 
 def _reload_with_env(monkeypatch, **env):

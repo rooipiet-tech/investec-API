@@ -42,10 +42,9 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
         where f.effective_date between %s and %s
         order by f.effective_date;
     """
-    with db.connect(settings.reporting_db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (start, end))
-            rows = cur.fetchall()
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query, (start, end))
+        rows = cur.fetchall()
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
         df["amount"] = df["amount"].astype(float)
@@ -65,10 +64,9 @@ def load_monthly_movement(settings: Settings, months: int = 6) -> pd.DataFrame:
         where month >= (date_trunc('month', current_date) - %s::interval)
         order by month desc, total_spend desc;
     """
-    with db.connect(settings.reporting_db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (f"{months} months",))
-            rows = cur.fetchall()
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query, (f"{months} months",))
+        rows = cur.fetchall()
     cols = ["month", "category", "total_spend", "prev_month_spend", "movement"]
     df = pd.DataFrame(rows, columns=cols)
     for col in ("total_spend", "prev_month_spend", "movement"):
@@ -87,10 +85,9 @@ def load_reconciliation(settings: Settings) -> pd.DataFrame:
     """
     cols = ["account_id", "as_of_date", "api_current_balance", "latest_txn_date",
             "latest_txn_running_balance", "difference", "reconciled"]
-    with db.connect(settings.reporting_db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            rows = cur.fetchall()
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query)
+        rows = cur.fetchall()
     return pd.DataFrame(rows, columns=cols)
 
 
@@ -107,10 +104,9 @@ def load_sync_health(settings: Settings, recent: int = 14) -> pd.DataFrame:
     """
     cols = ["id", "started_at", "finished_at", "status",
             "accounts_synced", "transactions_upserted", "error"]
-    with db.connect(settings.reporting_db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (recent,))
-            rows = cur.fetchall()
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query, (recent,))
+        rows = cur.fetchall()
     df = pd.DataFrame(rows, columns=cols)
     if not df.empty:
         df["started_at"] = pd.to_datetime(df["started_at"], utc=True)

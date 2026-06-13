@@ -85,7 +85,7 @@ def _run_pipeline(stages: list[list[str]], out_path: Path, env: dict[str, str]) 
             procs.append(proc)
         for proc in procs:
             proc.wait()
-    for cmd, proc in zip(stages, procs):
+    for cmd, proc in zip(stages, procs, strict=True):
         if proc.returncode:
             raise subprocess.CalledProcessError(proc.returncode, cmd)
 

@@ -217,23 +217,29 @@ Because the data lands in plain Postgres, you can layer on:
 .
 ├── ARCHITECTURE.md            ← this file
 ├── README.md                  ← setup & run instructions
-├── pyproject.toml             ← package + `invespend` CLI entry point
-├── requirements.txt
+├── pyproject.toml             ← package, CLI entry point, ruff/mypy/pytest config
 ├── .env.example               ← copy to .env (git-ignored) for local runs
-├── db/migrations/0001_init.sql
+├── db/
+│   ├── migrations/            ← 0001…0008, applied once each (schema_migrations)
+│   ├── grants.sql             ← read-only report-role grants (applied by init-db)
+│   └── roles.sql              ← operator step: create the report_readonly role
 ├── src/invespend/
-│   ├── config.py              ← env-driven settings
+│   ├── config.py              ← env-driven settings (lazy per-command validation)
 │   ├── investec_client.py     ← OAuth2 client + API calls (read-only)
 │   ├── categorize.py          ← rule-based spend categoriser
-│   ├── db.py                  ← Postgres connection + upserts
-│   ├── ingest.py              ← daily ingestion job
+│   ├── db.py                  ← Postgres connection, migrations + upserts
+│   ├── ingest.py              ← daily ingestion / backfill job
 │   ├── report.py              ← Excel spend-analysis builder
+│   ├── backup.py              ← streamed pg_dump → gzip/encrypted artifact
 │   ├── emailer.py             ← SMTP sender
-│   └── cli.py                 ← `invespend init-db | ingest | report`
-├── tests/                     ← unit tests for categoriser + aggregation
+│   └── cli.py                 ← init-db | ingest | report | backup | backfill-hashes
+├── tests/                     ← unit tests + DB integration tests (TEST_DATABASE_URL)
 └── .github/workflows/
     ├── ingest.yml             ← daily cron
-    └── weekly-report.yml      ← Friday cron
+    ├── weekly-report.yml      ← Friday cron (report + backup)
+    ├── backfill.yml           ← manual historical backfill
+    ├── heartbeat.yml          ← weekly keep-alive (dedicated branch)
+    └── tests.yml              ← lint + type-check + unit/integration tests
 ```
 
 See **README.md** for the step-by-step setup.
