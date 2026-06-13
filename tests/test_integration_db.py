@@ -115,6 +115,44 @@ def test_flow_view_classifies_salary_external_and_transfer_internal(clean_db: st
         assert cur.fetchone() == ("internal_transfer", "counterparty_name")
 
 
+def test_category_map_is_synced_from_python_rules(initialized_db: str):
+    from invespend.categorize import category_map_rows
+    expected = {(kw, cat) for kw, cat, _ in category_map_rows()}
+    with db.connect(initialized_db) as conn, conn.cursor() as cur:
+        cur.execute("select keyword, category from category_map;")
+        actual = set(cur.fetchall())
+    assert actual == expected  # table is an exact projection of the rules
+
+
+def test_init_db_prunes_stray_category_keywords(initialized_db: str):
+    # A keyword not in the Python rules must be removed on the next init_db,
+    # so the table can never drift from the single source of truth.
+    with db.connect(initialized_db) as conn, conn.cursor() as cur:
+        cur.execute(
+            "insert into category_map (keyword, category, priority) "
+            "values ('zzz-not-a-rule', 'Bogus', 9999) on conflict do nothing;"
+        )
+    with db.connect(initialized_db) as conn:
+        db.init_db(conn)
+    with db.connect(initialized_db) as conn, conn.cursor() as cur:
+        cur.execute("select count(*) from category_map where keyword = 'zzz-not-a-rule';")
+        assert cur.fetchone()[0] == 0
+
+
+def test_categorized_view_matches_python(clean_db: str):
+    from invespend.categorize import categorize
+    with db.connect(clean_db) as conn:
+        db.upsert_account(conn, {"accountId": "A1", "accountNumber": "10010900709"})
+        db.upsert_transactions(conn, "A1", [
+            (_tx("DEBIT", "200.00", "WOOLWORTHS SANDTON"), "ignored-at-ingest", 0),
+            (_tx("DEBIT", "85.00", "Uber trip"), "ignored-at-ingest", 0),
+        ])
+    with db.connect(clean_db) as conn, conn.cursor() as cur:
+        cur.execute("select description, category from transactions_categorized order by description;")
+        for desc, category in cur.fetchall():
+            assert category == categorize(desc)  # view agrees with the engine
+
+
 def test_sync_health_view_reports_runs(clean_db: str):
     with db.connect(clean_db) as conn:
         rid = db.start_sync_run(conn, date(2026, 6, 1), date(2026, 6, 13))

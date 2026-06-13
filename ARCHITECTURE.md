@@ -163,7 +163,10 @@ state. Core objects:
 - **`transactions`** — the raw landing table: normalised transactions with the
   original payload kept in a `raw jsonb` column (so you never lose fidelity), keyed
   by `transaction_hash` and disambiguated within a day by `day_seq`.
-- **`category_map`** — keyword → category dimension the categorised view joins to.
+- **`category_map`** — keyword → category dimension the categorised view joins
+  to. It is an exact projection of the canonical Python rules in `categorize.py`,
+  re-synced on every `init-db` (and pruned of stale keywords), so categories have
+  one source of truth: edit `categorize.py`, never the table.
 - **`balances`** — daily balance snapshot per account (one row per account per day)
   from `getAccountBalance`, for charting balance-over-time and reconciliation.
 - **`sync_runs`** — ingest audit log (exposed to the reporting role through the

@@ -17,6 +17,8 @@ from pathlib import Path
 
 import psycopg
 
+from .categorize import category_map_rows
+
 log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
@@ -141,11 +143,34 @@ def init_db(conn: psycopg.Connection) -> None:
                 (migration.name,),
             )
 
+        # Project the canonical Python category rules into category_map so the
+        # SQL views categorise identically — one source of truth (categorize.py).
+        _sync_category_map(cur)
+
         # Keep the read-only reporting role's grants in sync with the build
         # layer (no-op until the operator creates the role — see db/roles.sql).
         grants = MIGRATIONS_DIR.parent / "grants.sql"
         if grants.exists():
             cur.execute(grants.read_text())
+
+
+def _sync_category_map(cur: psycopg.Cursor) -> None:
+    """Make category_map an exact projection of categorize.CATEGORY_RULES.
+
+    Upserts every canonical (keyword, category, priority) and prunes any keyword
+    that is no longer in the rules, so editing categorize.py is the only place
+    categories change — the table never drifts and is never hand-edited."""
+    rows = category_map_rows()
+    cur.executemany(
+        "insert into category_map (keyword, category, priority) values (%s, %s, %s) "
+        "on conflict (keyword) do update set "
+        "category = excluded.category, priority = excluded.priority;",
+        rows,
+    )
+    cur.execute(
+        "delete from category_map where keyword <> all(%s);",
+        ([keyword for keyword, _, _ in rows],),
+    )
 
 
 def oldest_posting_date(conn: psycopg.Connection) -> date | None:
@@ -184,11 +209,33 @@ def assign_day_seq(account_id: str, transactions: list[dict]) -> list[tuple[dict
     return out
 
 
-def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
-    """Deterministic dedup key — the public API has no stable transaction id.
+# Stable per-transaction identifiers some Investec responses now carry. When one
+# is present it is the most reliable dedup key — unlike the field hash it does
+# not change when a pending transaction later posts (description/dates/balance
+# get revised), so the same row upserts instead of duplicating.
+_STABLE_ID_FIELDS = ("uuid", "id", "transactionId")
 
-    sha256(account_id | value_date | action_date | amount | description | day_seq)
+
+def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
+    """Deterministic dedup key for a transaction.
+
+    Prefers a stable id from the payload (``uuid`` / ``id`` / ``transactionId``)
+    when present: ``sha256(account_id | <id>)``. The public API historically
+    exposes none, so we fall back to a content hash —
+    ``sha256(account_id | value_date | action_date | amount | description |
+    day_seq)`` — with ``day_seq`` disambiguating genuinely identical same-day
+    transactions.
+
+    Note: the content-hash fallback still changes if a pending row's description
+    or dates are revised when it posts, which can leave the pre-post row behind;
+    a stable id avoids that entirely. If a database keyed on the old content hash
+    later starts receiving ids, run ``invespend backfill-hashes`` once to re-key.
     """
+    for field in _STABLE_ID_FIELDS:
+        value = tx.get(field)
+        if value:
+            return hashlib.sha256(f"{account_id}|{value}".encode()).hexdigest()
+
     parts = [
         account_id,
         str(tx.get("valueDate", "")),
