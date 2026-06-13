@@ -11,6 +11,7 @@ import logging
 import time
 from contextlib import contextmanager
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Iterator
 
@@ -19,6 +20,21 @@ import psycopg
 log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
+
+
+def _money(value: object) -> Decimal | None:
+    """Parse a monetary value into an exact Decimal (None if absent/unparseable).
+
+    Money is kept as Decimal, never float: the amount/running_balance columns are
+    numeric(18,2) and reconciliation compares them to the cent, so binary
+    floating point must never enter the pipeline. Parsing via ``str`` keeps the
+    exact decimal digits Investec sent (``Decimal(0.1)`` would not)."""
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _open(database_url: str, attempts: int = 4) -> psycopg.Connection:
@@ -221,7 +237,7 @@ _INSERT_TRANSACTION_SQL = """
 
 
 def _transaction_row(account_id: str, tx: dict, category: str, day_seq: int) -> tuple:
-    signed_amount = float(tx.get("amount", 0))
+    signed_amount = _money(tx.get("amount")) or Decimal("0")
     if str(tx.get("type", "")).upper() == "DEBIT":
         signed_amount = -abs(signed_amount)
     else:
@@ -239,7 +255,7 @@ def _transaction_row(account_id: str, tx: dict, category: str, day_seq: int) -> 
         _parse_date(tx.get("actionDate")),
         _parse_date(tx.get("transactionDate")),
         signed_amount,
-        tx.get("runningBalance"),
+        _money(tx.get("runningBalance")),
         category,
         day_seq,
         json.dumps(tx),
@@ -271,16 +287,12 @@ def extract_balance_fields(balance: dict) -> dict:
 
     Pure (no I/O) so it is unit tested without a database.
     """
-    def num(key: str):
-        value = balance.get(key)
-        return float(value) if value is not None else None
-
     return {
-        "current_balance": num("currentBalance"),
-        "available_balance": num("availableBalance"),
-        "budget_balance": num("budgetBalance"),
-        "straight_balance": num("straightBalance"),
-        "cash_balance": num("cashBalance"),
+        "current_balance": _money(balance.get("currentBalance")),
+        "available_balance": _money(balance.get("availableBalance")),
+        "budget_balance": _money(balance.get("budgetBalance")),
+        "straight_balance": _money(balance.get("straightBalance")),
+        "cash_balance": _money(balance.get("cashBalance")),
         "currency": balance.get("currency", "ZAR"),
     }
 
