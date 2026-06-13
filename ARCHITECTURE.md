@@ -124,7 +124,7 @@ failure.
 | Leaked DB string | Scoped role; rotate in Supabase; enable RLS. |
 | Compromised email | App password is revocable and email-only. |
 | Replay / duplicate ingest | Deterministic hash (incl. `day_seq`) + `ON CONFLICT` upsert. |
-| Silent failures | `sync_runs` audit table + Actions run history/notifications. |
+| Silent failures | `sync_runs` audit table, surfaced as a **Sync Health** sheet (via the `sync_health` view) in the weekly report; a failed scheduled run also opens/updates a GitHub issue. |
 
 ### Free-tier constraints & mitigations
 
@@ -132,7 +132,7 @@ failure.
 |------------------------|-----------|
 | Supabase pauses after 7 days of DB inactivity | The daily ingest writes every day, so the timer never resets — solved by design. |
 | No managed backups on free Supabase | Weekly `invespend backup` runs `pg_dump`, gzips it (and encrypts with `BACKUP_PASSPHRASE` if set), and uploads it as a CI artifact. |
-| GitHub disables cron after ~60 days of repo inactivity | A heartbeat commit in the weekly workflow keeps schedules enabled. |
+| GitHub disables cron after ~60 days of repo inactivity | A weekly `heartbeat` workflow commits to a dedicated `heartbeat` branch (keeping `main` history clean) and best-effort re-enables the scheduled workflows. |
 | No private networking / IP allowlist on free | Strong secrets + enforced SSL + RLS. Upgrade path: Supabase Pro network restrictions or an Azure private endpoint. |
 | 500 MB DB cap | Transactions are tiny — years of headroom. Monitor `sync_runs` growth. |
 
@@ -166,7 +166,8 @@ state. Core objects:
 - **`category_map`** — keyword → category dimension the categorised view joins to.
 - **`balances`** — daily balance snapshot per account (one row per account per day)
   from `getAccountBalance`, for charting balance-over-time and reconciliation.
-- **`sync_runs`** — ingest audit log.
+- **`sync_runs`** — ingest audit log (exposed to the reporting role through the
+  `sync_health` view, which the weekly report condenses into a Sync Health sheet).
 
 **Build-layer views** (`0002_views.sql`) — every consumer (Power BI, the weekly
 report, future solutions) reads these, never the raw table:

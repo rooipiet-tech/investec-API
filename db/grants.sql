@@ -13,11 +13,15 @@
 -- blanks the base tables for every other role — which is the point.
 do $$
 begin
+    -- The guard lists one view per migration that adds views, so a newly added
+    -- view (here sync_health) is detected as not-yet-granted and the idempotent
+    -- GRANT re-runs to pick it up; once everything is granted it is skipped.
     if exists (select 1 from pg_roles where rolname = 'report_readonly')
        and not (
             has_table_privilege('report_readonly', 'public.transactions_flow', 'select')
         and has_table_privilege('report_readonly', 'public.monthly_flows', 'select')
         and has_table_privilege('report_readonly', 'public.balance_reconciliation', 'select')
+        and has_table_privilege('report_readonly', 'public.sync_health', 'select')
        )
     then
         grant usage on schema public to report_readonly;
@@ -28,7 +32,8 @@ begin
             public.spend_by_category,
             public.monthly_movement,
             public.monthly_flows,
-            public.balance_reconciliation
+            public.balance_reconciliation,
+            public.sync_health
         to report_readonly;
     end if;
 end $$;

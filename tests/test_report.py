@@ -1,6 +1,10 @@
 import pandas as pd
 
-from invespend.report import build_spend_summary, write_workbook
+from invespend.report import (
+    build_spend_summary,
+    summarize_sync_health,
+    write_workbook,
+)
 
 
 def _sample_df():
@@ -80,6 +84,38 @@ def test_by_account_uses_account_number(tmp_path):
     assert "account_id" not in by_acct.columns
     # Acct One has the most spend (200 + 85.5) and sorts first.
     assert list(by_acct["account_number"])[0] == "10010000001"
+
+
+def test_sync_health_summary_flags_staleness():
+    now = pd.Timestamp.now(tz="UTC")
+    df = pd.DataFrame({
+        "started_at": [now, now - pd.Timedelta(days=3), now - pd.Timedelta(days=4)],
+        "status": ["error", "error", "success"],
+        "accounts_synced": [0, 0, 2],
+        "transactions_upserted": [0, 0, 10],
+        "error": ["boom", "boom", None],
+    })
+    summary = summarize_sync_health(df).set_index("Metric")["Value"]
+    # Latest run failed; last success was 4 days ago; two failures in the window.
+    assert summary["Last sync status"] == "error"
+    assert summary["Days since last success"] == 4
+    assert summary["Failed runs (recent window)"] == 2
+
+
+def test_sync_health_summary_handles_no_runs():
+    summary = summarize_sync_health(pd.DataFrame())
+    assert summary.iloc[0]["Value"] == "none recorded"
+
+
+def test_sync_health_summary_never_succeeded():
+    now = pd.Timestamp.now(tz="UTC")
+    df = pd.DataFrame({
+        "started_at": [now], "status": ["error"],
+        "accounts_synced": [0], "transactions_upserted": [0], "error": ["x"],
+    })
+    summary = summarize_sync_health(df).set_index("Metric")["Value"]
+    assert summary["Last successful sync (UTC)"] == "never"
+    assert summary["Days since last success"] == "n/a"
 
 
 def test_write_workbook(tmp_path):
