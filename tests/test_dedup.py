@@ -34,3 +34,32 @@ def test_different_accounts_do_not_share_seq():
     a = assign_day_seq("ACC1", [_txn("10.00", "X")])
     b = assign_day_seq("ACC2", [_txn("10.00", "X")])
     assert transaction_hash("ACC1", a[0][0], a[0][1]) != transaction_hash("ACC2", b[0][0], b[0][1])
+
+
+def test_stable_id_survives_pending_to_posted_revision():
+    # A pending row that later posts gets revised description/dates/balance. With
+    # a stable id the dedup key is unchanged, so it upserts instead of duplicating.
+    pending = {**_txn("250.00", "PENDING AUTH SHOP"), "status": "PENDING", "uuid": "abc-123"}
+    posted = {**_txn("250.00", "SHOP FINAL NAME", value_date="2026-05-27"),
+              "status": "POSTED", "uuid": "abc-123", "runningBalance": "1000.00"}
+    assert transaction_hash("ACC1", pending, 0) == transaction_hash("ACC1", posted, 0)
+
+
+def test_stable_id_ignores_day_seq():
+    tx = {**_txn("45.00", "COFFEE"), "uuid": "u-1"}
+    assert transaction_hash("ACC1", tx, 0) == transaction_hash("ACC1", tx, 5)
+
+
+def test_falls_back_to_content_hash_without_id():
+    # No id field → unchanged content-hash behaviour (id-less public API).
+    a = _txn("45.00", "COFFEE")
+    b = _txn("45.00", "COFFEE DIFFERENT")
+    assert transaction_hash("ACC1", a, 0) != transaction_hash("ACC1", b, 0)
+
+
+def test_id_field_precedence():
+    # uuid preferred over id/transactionId; any one keys deterministically.
+    assert transaction_hash("ACC1", {"id": "x"}, 0) == transaction_hash("ACC1", {"id": "x"}, 0)
+    uuid_keyed = transaction_hash("ACC1", {"uuid": "x", "id": "y"}, 0)
+    id_keyed = transaction_hash("ACC1", {"id": "x"}, 0)
+    assert uuid_keyed == id_keyed  # both reduce to account|x

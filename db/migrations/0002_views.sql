@@ -6,8 +6,11 @@
 
 -- ── Category dimension ───────────────────────────────────────────────────────
 -- Keyword → category map. `priority` ascending = first match wins, mirroring the
--- ordered rule engine in categorize.py. Editing a category here re-categorises
--- history on the next view read — no re-ingest required.
+-- ordered rule engine in categorize.py. This table is a synced PROJECTION of
+-- those rules: `invespend init-db` re-derives it from categorize.CATEGORY_RULES
+-- (and prunes stale keywords) on every run, so edit categorize.py — not this
+-- table. The seed below only bootstraps a brand-new database before the first
+-- sync; categorisation re-derives on the next view read, no re-ingest required.
 create table if not exists category_map (
     id        bigserial primary key,
     keyword   text not null,

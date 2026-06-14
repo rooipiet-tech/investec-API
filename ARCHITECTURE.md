@@ -124,7 +124,7 @@ failure.
 | Leaked DB string | Scoped role; rotate in Supabase; enable RLS. |
 | Compromised email | App password is revocable and email-only. |
 | Replay / duplicate ingest | Deterministic hash (incl. `day_seq`) + `ON CONFLICT` upsert. |
-| Silent failures | `sync_runs` audit table + Actions run history/notifications. |
+| Silent failures | `sync_runs` audit table, surfaced as a **Sync Health** sheet (via the `sync_health` view) in the weekly report; a failed scheduled run also opens/updates a GitHub issue. |
 
 ### Free-tier constraints & mitigations
 
@@ -132,7 +132,7 @@ failure.
 |------------------------|-----------|
 | Supabase pauses after 7 days of DB inactivity | The daily ingest writes every day, so the timer never resets — solved by design. |
 | No managed backups on free Supabase | Weekly `invespend backup` runs `pg_dump`, gzips it (and encrypts with `BACKUP_PASSPHRASE` if set), and uploads it as a CI artifact. |
-| GitHub disables cron after ~60 days of repo inactivity | A heartbeat commit in the weekly workflow keeps schedules enabled. |
+| GitHub disables cron after ~60 days of repo inactivity | A weekly `heartbeat` workflow commits to a dedicated `heartbeat` branch (keeping `main` history clean) and best-effort re-enables the scheduled workflows. |
 | No private networking / IP allowlist on free | Strong secrets + enforced SSL + RLS. Upgrade path: Supabase Pro network restrictions or an Azure private endpoint. |
 | 500 MB DB cap | Transactions are tiny — years of headroom. Monitor `sync_runs` growth. |
 
@@ -154,17 +154,23 @@ failure.
 ## 4. Database schema
 
 Migrations live in [`db/migrations/`](db/migrations/) and are applied in order by
-`invespend init-db`. Core objects:
+`invespend init-db`, which records each applied file in `schema_migrations` so a
+migration runs exactly once — the nightly init is a lock-free no-op in the steady
+state. Core objects:
 
 **Tables**
 - **`accounts`** — one row per Investec account.
 - **`transactions`** — the raw landing table: normalised transactions with the
   original payload kept in a `raw jsonb` column (so you never lose fidelity), keyed
   by `transaction_hash` and disambiguated within a day by `day_seq`.
-- **`category_map`** — keyword → category dimension the categorised view joins to.
+- **`category_map`** — keyword → category dimension the categorised view joins
+  to. It is an exact projection of the canonical Python rules in `categorize.py`,
+  re-synced on every `init-db` (and pruned of stale keywords), so categories have
+  one source of truth: edit `categorize.py`, never the table.
 - **`balances`** — daily balance snapshot per account (one row per account per day)
   from `getAccountBalance`, for charting balance-over-time and reconciliation.
-- **`sync_runs`** — ingest audit log.
+- **`sync_runs`** — ingest audit log (exposed to the reporting role through the
+  `sync_health` view, which the weekly report condenses into a Sync Health sheet).
 
 **Build-layer views** (`0002_views.sql`) — every consumer (Power BI, the weekly
 report, future solutions) reads these, never the raw table:
@@ -174,8 +180,9 @@ report, future solutions) reads these, never the raw table:
   `external_inflow` / `external_outflow`. The `accounts` table is the authoritative
   list of owned accounts; a transaction is an internal transfer when its
   counterparty resolves to another owned account via a layered signal (own account
-  number in the description → own holder name → a guarded equal-and-opposite
-  matched leg on the same value date). `flow_signal` records which tier fired.
+  number in the description → own holder name *with transfer context*, so a salary
+  that mentions your name stays external → a guarded equal-and-opposite matched
+  leg on the same value date). `flow_signal` records which tier fired.
 - **`spend_by_category`** — spend/income aggregated per category per month
   (**excludes** `internal_transfer` so own-account movements aren't double-counted).
 - **`monthly_flows`** — per month: external inflow vs outflow vs internal-transfer
@@ -213,23 +220,29 @@ Because the data lands in plain Postgres, you can layer on:
 .
 ├── ARCHITECTURE.md            ← this file
 ├── README.md                  ← setup & run instructions
-├── pyproject.toml             ← package + `invespend` CLI entry point
-├── requirements.txt
+├── pyproject.toml             ← package, CLI entry point, ruff/mypy/pytest config
 ├── .env.example               ← copy to .env (git-ignored) for local runs
-├── db/migrations/0001_init.sql
+├── db/
+│   ├── migrations/            ← 0001…0008, applied once each (schema_migrations)
+│   ├── grants.sql             ← read-only report-role grants (applied by init-db)
+│   └── roles.sql              ← operator step: create the report_readonly role
 ├── src/invespend/
-│   ├── config.py              ← env-driven settings
+│   ├── config.py              ← env-driven settings (lazy per-command validation)
 │   ├── investec_client.py     ← OAuth2 client + API calls (read-only)
 │   ├── categorize.py          ← rule-based spend categoriser
-│   ├── db.py                  ← Postgres connection + upserts
-│   ├── ingest.py              ← daily ingestion job
+│   ├── db.py                  ← Postgres connection, migrations + upserts
+│   ├── ingest.py              ← daily ingestion / backfill job
 │   ├── report.py              ← Excel spend-analysis builder
+│   ├── backup.py              ← streamed pg_dump → gzip/encrypted artifact
 │   ├── emailer.py             ← SMTP sender
-│   └── cli.py                 ← `invespend init-db | ingest | report`
-├── tests/                     ← unit tests for categoriser + aggregation
+│   └── cli.py                 ← init-db | ingest | report | backup | backfill-hashes
+├── tests/                     ← unit tests + DB integration tests (TEST_DATABASE_URL)
 └── .github/workflows/
     ├── ingest.yml             ← daily cron
-    └── weekly-report.yml      ← Friday cron
+    ├── weekly-report.yml      ← Friday cron (report + backup)
+    ├── backfill.yml           ← manual historical backfill
+    ├── heartbeat.yml          ← weekly keep-alive (dedicated branch)
+    └── tests.yml              ← lint + type-check + unit/integration tests
 ```
 
 See **README.md** for the step-by-step setup.

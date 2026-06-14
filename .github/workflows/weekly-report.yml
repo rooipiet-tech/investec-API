@@ -6,8 +6,18 @@ on:
     - cron: "0 15 * * 5"   # 15:00 UTC (17:00 SAST) every Friday
   workflow_dispatch: {}    # allow manual runs
 
+# Checks out code (read) and, on a failed scheduled run, files an alert issue.
+# The heartbeat that keeps crons alive now lives in heartbeat.yml.
 permissions:
-  contents: write   # for the heartbeat commit that keeps the cron alive
+  contents: read
+  issues: write
+
+# Shared with ingest.yml and backfill.yml: serializes every job that touches
+# Postgres, so the report/backup never runs while an ingest or backfill holds
+# locks (pg_dump in particular conflicts with migration DDL).
+concurrency:
+  group: database
+  cancel-in-progress: false
 
 jobs:
   report:
@@ -33,11 +43,6 @@ jobs:
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
           REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
           REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
-          # Not needed by the report job, but Settings.load() validates them;
-          # provide harmless placeholders so the report can run on its own.
-          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
-          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
-          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
         run: invespend report --send
 
       - name: Upload report artifact
@@ -70,9 +75,6 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
-          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
-          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
-          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
         run: invespend backup
 
       - name: Upload backup artifact
@@ -85,14 +87,19 @@ jobs:
           if-no-files-found: ignore
         continue-on-error: true
 
-      - name: Heartbeat (keep scheduled workflows enabled)
-        if: always()
-        continue-on-error: true
+      - name: Alert on scheduled failure (open or append an issue)
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          mkdir -p .github
-          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-run.txt
-          git add .github/last-run.txt
-          git commit -m "chore: weekly heartbeat [skip ci]" || exit 0
-          git push
+          title="🔴 Scheduled weekly report is failing"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          num=$(gh issue list --state open --search "in:title $title" \
+                  --json number,title \
+                  --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Another failed run: $run_url ($(date -u +%FT%TZ))"
+          else
+            gh issue create --title "$title" \
+              --body "The scheduled \`weekly-report\` workflow failed. Latest run: $run_url"
+          fi

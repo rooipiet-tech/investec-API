@@ -13,8 +13,8 @@ means:
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from datetime import date, timedelta
-from typing import Iterator
 
 from . import db
 from .categorize import categorize
@@ -57,6 +57,7 @@ def run_ingest(
     instead of re-pulling the recent windows every run. Returns a small summary
     dict for observability.
     """
+    settings.require_investec()  # only ingest needs the API credentials
     to_date = to_date or date.today()
     if from_date is None:
         window = window_days or settings.ingest_window_days
@@ -128,12 +129,12 @@ def run_ingest(
                 chunk_total += len(transactions)
                 if not transactions:
                     continue
-                rows = db.assign_day_seq(account_id, transactions)
+                batch = [
+                    (tx, categorize(tx.get("description"), tx.get("transactionType")), day_seq)
+                    for tx, day_seq in db.assign_day_seq(account_id, transactions)
+                ]
                 with db.connect(url) as conn:
-                    for tx, day_seq in rows:
-                        category = categorize(tx.get("description"), tx.get("transactionType"))
-                        if db.upsert_transaction(conn, account_id, tx, category, day_seq):
-                            tx_upserted += 1
+                    tx_upserted += db.upsert_transactions(conn, account_id, batch)
             log.info(
                 "Window %s..%s: %d transactions (%d new so far)",
                 chunk_start, chunk_end, chunk_total, tx_upserted,

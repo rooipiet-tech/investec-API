@@ -11,7 +11,7 @@ def test_chunks_cover_range_newest_first():
     assert chunks[-1][0] == date(2024, 1, 1)
     # Windows are contiguous and non-overlapping (each starts the day after the
     # previous one ended).
-    for newer, older in zip(chunks, chunks[1:]):
+    for newer, older in zip(chunks, chunks[1:], strict=False):
         assert older[1] == newer[0] - __import__("datetime").timedelta(days=1)
 
 

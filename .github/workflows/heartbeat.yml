@@ -1,0 +1,56 @@
+name: heartbeat
+
+# Keeps the scheduled workflows (ingest, weekly-report) from being auto-disabled
+# after 60 days of repository inactivity.
+#
+# GitHub measures that inactivity by repository commits, so a periodic commit is
+# what actually resets the clock — an API "enable" call only re-enables an
+# already-disabled workflow, it does not prevent the disable. To keep main's
+# history clean, the heartbeat commit lands on a dedicated `heartbeat` branch
+# (nothing ever merges from it); as belt-and-suspenders we also best-effort
+# re-enable the scheduled workflows in case they were ever disabled.
+on:
+  schedule:
+    - cron: "0 6 * * 1"   # 06:00 UTC every Monday
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # push the heartbeat commit to the heartbeat branch
+  actions: write    # re-enable scheduled workflows (best effort)
+
+concurrency:
+  group: heartbeat
+  cancel-in-progress: false
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Commit heartbeat to the dedicated branch
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Isolate the heartbeat on its own branch so main history stays clean.
+          if git fetch origin heartbeat 2>/dev/null; then
+            git checkout -B heartbeat origin/heartbeat
+          else
+            git checkout -B heartbeat
+          fi
+          mkdir -p .github
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > .github/last-run.txt
+          git add .github/last-run.txt
+          git commit -m "chore: heartbeat [skip ci]" || exit 0
+          git push origin heartbeat
+
+      - name: Re-enable scheduled workflows if disabled (best effort)
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in ingest.yml weekly-report.yml; do
+            gh workflow enable "$wf" || true
+          done

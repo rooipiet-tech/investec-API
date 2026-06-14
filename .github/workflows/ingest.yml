@@ -6,8 +6,16 @@ on:
     - cron: "0 2 * * *"   # 02:00 UTC (04:00 SAST) every day
   workflow_dispatch: {}    # allow manual runs
 
+# Checks out code (read) and, on a failed scheduled run, files an alert issue.
+permissions:
+  contents: read
+  issues: write
+
+# One shared `database` group across ingest, backfill and weekly-report
+# serializes every job that touches Postgres — a manual backfill can no longer
+# overlap the nightly ingest or the weekly backup and fight over locks.
 concurrency:
-  group: ingest
+  group: database
   cancel-in-progress: false
 
 jobs:
@@ -32,3 +40,20 @@ jobs:
           INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: invespend ingest --days 7
+
+      - name: Alert on scheduled failure (open or append an issue)
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="🔴 Scheduled ingest is failing"
+          run_url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          num=$(gh issue list --state open --search "in:title $title" \
+                  --json number,title \
+                  --jq "map(select(.title == \"$title\")) | .[0].number // empty")
+          if [ -n "$num" ]; then
+            gh issue comment "$num" --body "Another failed run: $run_url ($(date -u +%FT%TZ))"
+          else
+            gh issue create --title "$title" \
+              --body "The scheduled \`ingest\` workflow failed. Latest run: $run_url"
+          fi

@@ -12,6 +12,17 @@ on:
         required: false
         default: ""
 
+# The token only checks out code; nothing in this job writes to the repo.
+permissions:
+  contents: read
+
+# Shared with ingest.yml and weekly-report.yml: serializes every job that
+# touches Postgres so a long backfill never overlaps the nightly ingest or the
+# weekly backup and fights over locks.
+concurrency:
+  group: database
+  cancel-in-progress: false
+
 jobs:
   backfill:
     runs-on: ubuntu-latest

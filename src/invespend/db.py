@@ -9,16 +9,46 @@ import hashlib
 import json
 import logging
 import time
+from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
-from typing import Iterator
 
 import psycopg
+
+from .categorize import category_map_rows
 
 log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).resolve().parents[2] / "db" / "migrations"
+
+
+def _money(value: object) -> Decimal | None:
+    """Parse a monetary value into an exact Decimal (None if absent/unparseable).
+
+    Money is kept as Decimal, never float: the amount/running_balance columns are
+    numeric(18,2) and reconciliation compares them to the cent, so binary
+    floating point must never enter the pipeline. Parsing via ``str`` keeps the
+    exact decimal digits Investec sent (``Decimal(0.1)`` would not)."""
+    if value is None or value == "":
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+
+
+def _scalar(cur: psycopg.Cursor):
+    """First column of the next row; raises if the query returned nothing.
+
+    Used for queries that always yield exactly one row (aggregates, ``RETURNING``,
+    existence checks) — it makes that assumption explicit instead of indexing a
+    possibly-``None`` ``fetchone()`` result."""
+    row = cur.fetchone()
+    if row is None:
+        raise RuntimeError("query returned no rows where one was expected")
+    return row[0]
 
 
 def _open(database_url: str, attempts: int = 4) -> psycopg.Connection:
@@ -64,28 +94,90 @@ def connect(database_url: str) -> Iterator[psycopg.Connection]:
 
 
 def init_db(conn: psycopg.Connection) -> None:
-    """Apply every migration in order (each is idempotent).
+    """Apply pending migrations exactly once, tracked in ``schema_migrations``.
 
-    Migrations include DDL (``alter table … enable row level security``,
-    ``create or replace view``) that needs an AccessExclusive lock. If another
-    session holds a conflicting lock — e.g. a leaked ``pg_dump`` left idle in
-    transaction — the default behaviour is to wait until the server statement
-    timeout (~2 min) and then fail the whole ingest. A short ``lock_timeout``
-    makes that fail fast with a clear "lock timeout" error instead of hanging,
-    so a transient lock costs seconds and the next run recovers. SET LOCAL keeps
-    it scoped to this transaction (and works through transaction pooling).
+    Previously every migration re-ran on every ingest, and the DDL they contain
+    (``alter table … enable row level security``, ``create or replace view``)
+    takes AccessExclusive locks — the root cause of the recurring lock-wait
+    failures. Tracking applied filenames makes the nightly init a no-op in the
+    steady state (one SELECT, no locks) and also lets future migrations be
+    non-idempotent (data fixes, column renames) safely.
+
+    On a database created before tracking existed, the first run re-applies
+    every migration once (they are all idempotent) and records them.
+
+    A short ``lock_timeout`` is still set so that when a migration *does* run,
+    a conflicting lock (e.g. a leaked ``pg_dump`` left idle in transaction)
+    fails fast with a clear error instead of hanging for minutes. SET LOCAL
+    keeps it scoped to this transaction (and works through transaction pooling).
     """
     with conn.cursor() as cur:
         cur.execute("SET LOCAL lock_timeout = '15s'")
+        cur.execute(
+            """
+            create table if not exists schema_migrations (
+                filename   text primary key,
+                applied_at timestamptz not null default now()
+            );
+            """
+        )
+        # Lock it down like every other table (anon/authenticated see nothing).
+        # Guarded so the ALTER (and its AccessExclusive lock) runs only once.
+        cur.execute(
+            "select coalesce((select relrowsecurity from pg_class "
+            "where relname = 'schema_migrations' "
+            "and relnamespace = 'public'::regnamespace), false);"
+        )
+        if not _scalar(cur):
+            cur.execute("alter table schema_migrations enable row level security;")
+
+        cur.execute("select filename from schema_migrations;")
+        applied = {row[0] for row in cur.fetchall()}
         for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
+            if migration.name in applied:
+                continue
+            log.info("Applying migration %s", migration.name)
             cur.execute(migration.read_text())
+            cur.execute(
+                "insert into schema_migrations (filename) values (%s);",
+                (migration.name,),
+            )
+
+        # Project the canonical Python category rules into category_map so the
+        # SQL views categorise identically — one source of truth (categorize.py).
+        _sync_category_map(cur)
+
+        # Keep the read-only reporting role's grants in sync with the build
+        # layer (no-op until the operator creates the role — see db/roles.sql).
+        grants = MIGRATIONS_DIR.parent / "grants.sql"
+        if grants.exists():
+            cur.execute(grants.read_text())
+
+
+def _sync_category_map(cur: psycopg.Cursor) -> None:
+    """Make category_map an exact projection of categorize.CATEGORY_RULES.
+
+    Upserts every canonical (keyword, category, priority) and prunes any keyword
+    that is no longer in the rules, so editing categorize.py is the only place
+    categories change — the table never drifts and is never hand-edited."""
+    rows = category_map_rows()
+    cur.executemany(
+        "insert into category_map (keyword, category, priority) values (%s, %s, %s) "
+        "on conflict (keyword) do update set "
+        "category = excluded.category, priority = excluded.priority;",
+        rows,
+    )
+    cur.execute(
+        "delete from category_map where keyword <> all(%s);",
+        ([keyword for keyword, _, _ in rows],),
+    )
 
 
 def oldest_posting_date(conn: psycopg.Connection) -> date | None:
     """The earliest posting_date stored, or None if there are no transactions."""
     with conn.cursor() as cur:
         cur.execute("select min(posting_date) from transactions;")
-        return cur.fetchone()[0]
+        return _scalar(cur)
 
 
 def _group_key(account_id: str, tx: dict) -> tuple:
@@ -117,11 +209,33 @@ def assign_day_seq(account_id: str, transactions: list[dict]) -> list[tuple[dict
     return out
 
 
-def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
-    """Deterministic dedup key — the public API has no stable transaction id.
+# Stable per-transaction identifiers some Investec responses now carry. When one
+# is present it is the most reliable dedup key — unlike the field hash it does
+# not change when a pending transaction later posts (description/dates/balance
+# get revised), so the same row upserts instead of duplicating.
+_STABLE_ID_FIELDS = ("uuid", "id", "transactionId")
 
-    sha256(account_id | value_date | action_date | amount | description | day_seq)
+
+def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
+    """Deterministic dedup key for a transaction.
+
+    Prefers a stable id from the payload (``uuid`` / ``id`` / ``transactionId``)
+    when present: ``sha256(account_id | <id>)``. The public API historically
+    exposes none, so we fall back to a content hash —
+    ``sha256(account_id | value_date | action_date | amount | description |
+    day_seq)`` — with ``day_seq`` disambiguating genuinely identical same-day
+    transactions.
+
+    Note: the content-hash fallback still changes if a pending row's description
+    or dates are revised when it posts, which can leave the pre-post row behind;
+    a stable id avoids that entirely. If a database keyed on the old content hash
+    later starts receiving ids, run ``invespend backfill-hashes`` once to re-key.
     """
+    for field in _STABLE_ID_FIELDS:
+        value = tx.get(field)
+        if value:
+            return hashlib.sha256(f"{account_id}|{value}".encode()).hexdigest()
+
     parts = [
         account_id,
         str(tx.get("valueDate", "")),
@@ -171,46 +285,60 @@ def upsert_account(conn: psycopg.Connection, account: dict) -> None:
         )
 
 
-def upsert_transaction(
-    conn: psycopg.Connection, account_id: str, tx: dict, category: str, day_seq: int = 0
-) -> bool:
-    """Insert a transaction if new. Returns True when a new row was written."""
-    signed_amount = float(tx.get("amount", 0))
+_INSERT_TRANSACTION_SQL = """
+    insert into transactions
+        (transaction_hash, account_id, type, transaction_type, status,
+         description, card_number, posting_date, value_date, action_date,
+         transaction_date, amount, running_balance, category, day_seq, raw)
+    values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+    on conflict (transaction_hash) do nothing;
+"""
+
+
+def _transaction_row(account_id: str, tx: dict, category: str, day_seq: int) -> tuple:
+    signed_amount = _money(tx.get("amount")) or Decimal("0")
     if str(tx.get("type", "")).upper() == "DEBIT":
         signed_amount = -abs(signed_amount)
     else:
         signed_amount = abs(signed_amount)
+    return (
+        transaction_hash(account_id, tx, day_seq),
+        account_id,
+        tx.get("type"),
+        tx.get("transactionType"),
+        tx.get("status"),
+        tx.get("description"),
+        tx.get("cardNumber"),
+        _parse_date(tx.get("postingDate")),
+        _parse_date(tx.get("valueDate")),
+        _parse_date(tx.get("actionDate")),
+        _parse_date(tx.get("transactionDate")),
+        signed_amount,
+        _money(tx.get("runningBalance")),
+        category,
+        day_seq,
+        json.dumps(tx),
+    )
 
+
+def upsert_transactions(
+    conn: psycopg.Connection, account_id: str, rows: list[tuple[dict, str, int]]
+) -> int:
+    """Bulk-insert transactions; returns how many NEW rows were written.
+
+    ``rows`` is ``[(tx, category, day_seq), ...]``. One ``executemany`` batch
+    per call (psycopg pipelines it) instead of a round trip per row — which is
+    what dominates a backfill over a TLS pooler connection. Idempotency is
+    unchanged: ``ON CONFLICT DO NOTHING`` on the deterministic hash, and
+    ``rowcount`` aggregates only the rows actually inserted.
+    """
+    if not rows:
+        return 0
+    params = [_transaction_row(account_id, tx, category, day_seq)
+              for tx, category, day_seq in rows]
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            insert into transactions
-                (transaction_hash, account_id, type, transaction_type, status,
-                 description, card_number, posting_date, value_date, action_date,
-                 transaction_date, amount, running_balance, category, day_seq, raw)
-            values (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            on conflict (transaction_hash) do nothing;
-            """,
-            (
-                transaction_hash(account_id, tx, day_seq),
-                account_id,
-                tx.get("type"),
-                tx.get("transactionType"),
-                tx.get("status"),
-                tx.get("description"),
-                tx.get("cardNumber"),
-                _parse_date(tx.get("postingDate")),
-                _parse_date(tx.get("valueDate")),
-                _parse_date(tx.get("actionDate")),
-                _parse_date(tx.get("transactionDate")),
-                signed_amount,
-                tx.get("runningBalance"),
-                category,
-                day_seq,
-                json.dumps(tx),
-            ),
-        )
-        return cur.rowcount > 0
+        cur.executemany(_INSERT_TRANSACTION_SQL, params)
+        return max(cur.rowcount, 0)
 
 
 def extract_balance_fields(balance: dict) -> dict:
@@ -218,16 +346,12 @@ def extract_balance_fields(balance: dict) -> dict:
 
     Pure (no I/O) so it is unit tested without a database.
     """
-    def num(key: str):
-        value = balance.get(key)
-        return float(value) if value is not None else None
-
     return {
-        "current_balance": num("currentBalance"),
-        "available_balance": num("availableBalance"),
-        "budget_balance": num("budgetBalance"),
-        "straight_balance": num("straightBalance"),
-        "cash_balance": num("cashBalance"),
+        "current_balance": _money(balance.get("currentBalance")),
+        "available_balance": _money(balance.get("availableBalance")),
+        "budget_balance": _money(balance.get("budgetBalance")),
+        "straight_balance": _money(balance.get("straightBalance")),
+        "cash_balance": _money(balance.get("cashBalance")),
         "currency": balance.get("currency", "ZAR"),
     }
 
@@ -272,7 +396,7 @@ def start_sync_run(conn: psycopg.Connection, from_date: date, to_date: date) -> 
             "values (%s, %s, 'running') returning id;",
             (from_date, to_date),
         )
-        return cur.fetchone()[0]
+        return _scalar(cur)
 
 
 def finish_sync_run(
@@ -330,7 +454,9 @@ def backfill_transaction_hashes(conn: psycopg.Connection) -> dict:
     with conn.cursor() as cur:
         for account_id, items in by_account.items():
             txs = [tx for _, tx in items]
-            for (old_hash, _), (tx, day_seq) in zip(items, assign_day_seq(account_id, txs)):
+            for (old_hash, _), (tx, day_seq) in zip(
+                items, assign_day_seq(account_id, txs), strict=True
+            ):
                 scanned += 1
                 new_hash = transaction_hash(account_id, tx, day_seq)
                 if new_hash != old_hash:

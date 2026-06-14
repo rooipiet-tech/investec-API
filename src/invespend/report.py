@@ -27,25 +27,24 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
     Windows on ``effective_date`` (when the transaction economically happened —
     transaction/action/value date, falling back to posting date) rather than the
     bank's posting date, which can lag by months and would otherwise sweep a
-    backlog of late-posted items into a single week. Reads the build-layer
-    ``transactions_flow`` view so each row carries its ``flow_type``, and joins
-    accounts for the human-readable account number (and name).
+    backlog of late-posted items into a single week. Reads only the build-layer
+    ``transactions_flow`` view, which carries ``flow_type`` plus the
+    human-readable account number/name — no base-table join, so the query works
+    for the read-only report role (RLS blanks the base tables for it).
     """
     query = """
         select f.effective_date,
-               coalesce(a.account_number, f.account_id) as account_number,
-               coalesce(a.account_name, '')             as account_name,
+               coalesce(f.account_number, f.account_id) as account_number,
+               coalesce(f.account_name, '')             as account_name,
                f.type, f.transaction_type, f.description, f.amount,
                f.category, f.flow_type
         from transactions_flow f
-        left join accounts a on a.account_id = f.account_id
         where f.effective_date between %s and %s
         order by f.effective_date;
     """
-    with db.connect(settings.reporting_db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (start, end))
-            rows = cur.fetchall()
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query, (start, end))
+        rows = cur.fetchall()
     df = pd.DataFrame(rows, columns=COLUMNS)
     if not df.empty:
         df["amount"] = df["amount"].astype(float)
@@ -65,10 +64,9 @@ def load_monthly_movement(settings: Settings, months: int = 6) -> pd.DataFrame:
         where month >= (date_trunc('month', current_date) - %s::interval)
         order by month desc, total_spend desc;
     """
-    with db.connect(settings.reporting_db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (f"{months} months",))
-            rows = cur.fetchall()
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query, (f"{months} months",))
+        rows = cur.fetchall()
     cols = ["month", "category", "total_spend", "prev_month_spend", "movement"]
     df = pd.DataFrame(rows, columns=cols)
     for col in ("total_spend", "prev_month_spend", "movement"):
@@ -87,11 +85,66 @@ def load_reconciliation(settings: Settings) -> pd.DataFrame:
     """
     cols = ["account_id", "as_of_date", "api_current_balance", "latest_txn_date",
             "latest_txn_running_balance", "difference", "reconciled"]
-    with db.connect(settings.reporting_db_url) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query)
-            rows = cur.fetchall()
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query)
+        rows = cur.fetchall()
     return pd.DataFrame(rows, columns=cols)
+
+
+def load_sync_health(settings: Settings, recent: int = 14) -> pd.DataFrame:
+    """Read the most recent ingest runs from the build-layer ``sync_health`` view.
+
+    Sourced from a view, not the ``sync_runs`` base table, so it works for the
+    read-only report role (RLS blanks the base table for it)."""
+    query = """
+        select id, started_at, finished_at, status,
+               accounts_synced, transactions_upserted, error
+        from sync_health
+        limit %s;
+    """
+    cols = ["id", "started_at", "finished_at", "status",
+            "accounts_synced", "transactions_upserted", "error"]
+    with db.connect(settings.reporting_db_url) as conn, conn.cursor() as cur:
+        cur.execute(query, (recent,))
+        rows = cur.fetchall()
+    df = pd.DataFrame(rows, columns=cols)
+    if not df.empty:
+        df["started_at"] = pd.to_datetime(df["started_at"], utc=True)
+    return df
+
+
+def summarize_sync_health(df: pd.DataFrame) -> pd.DataFrame:
+    """Condense recent ingest runs into a glanceable Metric/Value sheet.
+
+    Pure (frame in → frame out) so it is unit tested without a database. The
+    headline is "Days since last success": if ingest has silently stalled, that
+    number climbs even while the report itself keeps arriving."""
+    if df.empty:
+        return pd.DataFrame({"Metric": ["Sync runs"], "Value": ["none recorded"]})
+
+    df = df.sort_values("started_at", ascending=False)
+    last = df.iloc[0]
+    successes = df[df["status"] == "success"]
+    last_success = successes["started_at"].max() if not successes.empty else None
+    days_since = (
+        (pd.Timestamp.now(tz="UTC") - last_success).days
+        if last_success is not None and pd.notna(last_success)
+        else None
+    )
+    failed = int((df["status"] == "error").sum())
+    return pd.DataFrame({
+        "Metric": [
+            "Last sync (UTC)", "Last sync status", "Last successful sync (UTC)",
+            "Days since last success", "Failed runs (recent window)",
+        ],
+        "Value": [
+            last["started_at"],
+            last["status"],
+            last_success if last_success is not None else "never",
+            days_since if days_since is not None else "n/a",
+            failed,
+        ],
+    })
 
 
 def build_spend_summary(df: pd.DataFrame) -> dict[str, pd.DataFrame]:
@@ -211,6 +264,10 @@ def generate_weekly_report(settings: Settings, end: date | None = None,
         sheets["Reconciliation"] = load_reconciliation(settings)
     except Exception as exc:  # noqa: BLE001 - report still useful without it
         log.warning("Skipping Reconciliation sheet: %s", exc)
+    try:
+        sheets["Sync Health"] = summarize_sync_health(load_sync_health(settings))
+    except Exception as exc:  # noqa: BLE001 - report still useful without it
+        log.warning("Skipping Sync Health sheet: %s", exc)
     filename = f"spend-analysis_{start.isoformat()}_to_{end.isoformat()}.xlsx"
     path = write_workbook(sheets, out_dir / filename)
     log.info("Wrote report %s (%d transactions)", path, len(df))

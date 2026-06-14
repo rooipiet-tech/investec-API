@@ -16,10 +16,36 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=7.4"]
+dev = [
+    "pytest>=7.4",
+    "ruff>=0.6",
+    "mypy>=1.8",
+    "types-requests",
+]
 
 [project.scripts]
 invespend = "invespend.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "C4", "SIM"]
+# SQL/data literals read better unwrapped than chopped to fit a column limit.
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/invespend"]
+ignore_missing_imports = true
+# psycopg/pandas results are dynamically typed; we annotate our own seams and
+# keep the checker pragmatic rather than strict over third-party returns.
+check_untyped_defs = true
+
+[tool.pytest.ini_options]
+# Integration tests that need a real Postgres are marked `integration` and
+# skipped unless TEST_DATABASE_URL is set (see tests/test_integration_db.py).
+markers = ["integration: requires a live Postgres (TEST_DATABASE_URL)"]

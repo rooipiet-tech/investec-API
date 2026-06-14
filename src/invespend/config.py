@@ -64,11 +64,14 @@ class Settings:
     backup_passphrase: str = ""
 
     @classmethod
-    def load(cls) -> "Settings":
+    def load(cls) -> Settings:
         return cls(
-            investec_client_id=_require("INVESTEC_CLIENT_ID"),
-            investec_client_secret=_require("INVESTEC_CLIENT_SECRET"),
-            investec_api_key=_require("INVESTEC_API_KEY"),
+            # Validated lazily via require_investec(): only ingest talks to the
+            # API, so the report/backup jobs never need the banking credentials
+            # injected at all (least privilege).
+            investec_client_id=_opt("INVESTEC_CLIENT_ID"),
+            investec_client_secret=_opt("INVESTEC_CLIENT_SECRET"),
+            investec_api_key=_opt("INVESTEC_API_KEY"),
             investec_base_url=_opt("INVESTEC_BASE_URL", "https://openapi.investec.com"),
             database_url=_require("DATABASE_URL"),
             report_database_url=_opt("REPORT_DATABASE_URL"),
@@ -90,6 +93,21 @@ class Settings:
     def reporting_db_url(self) -> str:
         """Connection the report uses — the read-only role if configured."""
         return self.report_database_url or self.database_url
+
+    def require_investec(self) -> None:
+        """Validate Investec credentials only when a command will call the API."""
+        missing = [
+            n for n, v in (
+                ("INVESTEC_CLIENT_ID", self.investec_client_id),
+                ("INVESTEC_CLIENT_SECRET", self.investec_client_secret),
+                ("INVESTEC_API_KEY", self.investec_api_key),
+            ) if not v
+        ]
+        if missing:
+            raise RuntimeError(
+                f"Missing Investec API settings: {', '.join(missing)}. "
+                f"Copy .env.example to .env (local) or set them as GitHub secrets (CI)."
+            )
 
     def require_email(self) -> None:
         """Validate email settings only when we actually intend to send."""
