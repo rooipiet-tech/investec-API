@@ -34,6 +34,42 @@ def _opt(name: str, default: str = "") -> str:
     return value or default
 
 
+@dataclass
+class AccountGroup:
+    """A named set of accounts that gets its own report email.
+
+    ``account_patterns`` are case-insensitive substrings matched against
+    ``account_name``; any match claims the account for this group.
+    Configured via REPORT_GROUP_{N}_ACCOUNTS / REPORT_GROUP_{N}_RECIPIENTS.
+    """
+    name: str
+    account_patterns: list[str]
+    recipients: list[str]
+
+
+def account_matches(account_name: str, patterns: list[str]) -> bool:
+    """Return True if account_name contains any pattern (case-insensitive)."""
+    name_lower = account_name.lower()
+    return any(p.lower() in name_lower for p in patterns)
+
+
+def _load_account_groups() -> list[AccountGroup]:
+    """Scan REPORT_GROUP_{1..19}_ACCOUNTS / _RECIPIENTS / _NAME env vars into groups."""
+    groups = []
+    for i in range(1, 20):
+        accts_env = _opt(f"REPORT_GROUP_{i}_ACCOUNTS")
+        if not accts_env:
+            continue
+        recips_env = _opt(f"REPORT_GROUP_{i}_RECIPIENTS")
+        name = _opt(f"REPORT_GROUP_{i}_NAME") or f"group_{i}"
+        groups.append(AccountGroup(
+            name=name,
+            account_patterns=[p.strip() for p in accts_env.split(",") if p.strip()],
+            recipients=[r.strip() for r in recips_env.split(",") if r.strip()],
+        ))
+    return groups
+
+
 @dataclass(frozen=True)
 class Settings:
     # Investec Open API
@@ -52,6 +88,10 @@ class Settings:
     smtp_password: str
     report_sender: str
     report_recipients: list[str] = field(default_factory=list)
+
+    # Account filtering / grouping
+    report_exclude_accounts: list[str] = field(default_factory=list)
+    report_account_groups: list[AccountGroup] = field(default_factory=list)
 
     # Behaviour
     ingest_window_days: int = 7
@@ -82,6 +122,10 @@ class Settings:
             report_recipients=[
                 r.strip() for r in os.getenv("REPORT_RECIPIENTS", "").split(",") if r.strip()
             ],
+            report_exclude_accounts=[
+                p.strip() for p in _opt("REPORT_EXCLUDE_ACCOUNTS").split(",") if p.strip()
+            ],
+            report_account_groups=_load_account_groups(),
             ingest_window_days=int(_opt("INGEST_WINDOW_DAYS", "7")),
             backup_passphrase=_opt("BACKUP_PASSPHRASE"),
         )
@@ -102,5 +146,7 @@ class Settings:
         ]
         if missing:
             raise RuntimeError(f"Missing email settings: {', '.join(missing)}")
-        if not self.report_recipients:
+        # When account groups are configured each group carries its own recipients,
+        # so a default REPORT_RECIPIENTS list is only required when no groups exist.
+        if not self.report_recipients and not self.report_account_groups:
             raise RuntimeError("REPORT_RECIPIENTS is empty; nowhere to send the report.")

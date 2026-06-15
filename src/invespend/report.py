@@ -198,14 +198,38 @@ def write_workbook(sheets: dict[str, pd.DataFrame], path: Path) -> Path:
     return path
 
 
-def generate_weekly_report(settings: Settings, end: date | None = None,
-                           out_dir: Path | None = None) -> tuple[Path, dict]:
-    """Build the workbook for the 7 days ending on ``end`` (default: today)."""
+def generate_weekly_report(
+    settings: Settings,
+    end: date | None = None,
+    out_dir: Path | None = None,
+    include_patterns: list[str] | None = None,
+    exclude_patterns: list[str] | None = None,
+    label: str = "",
+) -> tuple[Path, dict]:
+    """Build the workbook for the 7 days ending on ``end`` (default: today).
+
+    ``include_patterns`` / ``exclude_patterns`` are case-insensitive substrings
+    matched against ``account_name``; exclude is applied first.  Pass neither to
+    include all accounts (original behaviour).  ``label`` is appended to the
+    filename so group reports don't overwrite each other.
+    """
     end = end or date.today()
     start = end - timedelta(days=6)
     out_dir = out_dir or Path("reports")
 
     df = load_transactions(settings, start, end)
+
+    if exclude_patterns:
+        mask = df["account_name"].apply(
+            lambda n: any(p.lower() in n.lower() for p in exclude_patterns)
+        )
+        df = df[~mask].reset_index(drop=True)
+    if include_patterns:
+        mask = df["account_name"].apply(
+            lambda n: any(p.lower() in n.lower() for p in include_patterns)
+        )
+        df = df[mask].reset_index(drop=True)
+
     sheets = build_spend_summary(df)
     # Month-over-month trend comes from the build-layer view, which spans more
     # than the 7-day window the rest of the sheets are built from.
@@ -217,7 +241,8 @@ def generate_weekly_report(settings: Settings, end: date | None = None,
         sheets["Reconciliation"] = load_reconciliation(settings)
     except Exception as exc:  # noqa: BLE001 - report still useful without it
         log.warning("Skipping Reconciliation sheet: %s", exc)
-    filename = f"spend-analysis_{start.isoformat()}_to_{end.isoformat()}.xlsx"
+    suffix = f"_{label}" if label else ""
+    filename = f"spend-analysis_{start.isoformat()}_to_{end.isoformat()}{suffix}.xlsx"
     path = write_workbook(sheets, out_dir / filename)
     log.info("Wrote report %s (%d transactions)", path, len(df))
     return path, {"start": start.isoformat(), "end": end.isoformat(), "rows": len(df)}
