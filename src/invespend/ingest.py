@@ -48,14 +48,16 @@ def run_ingest(
     chunk_days: int = CHUNK_DAYS,
     resume: bool = False,
     full: bool = False,
+    dry_run: bool = False,
 ) -> dict:
     """Pull transactions and upsert them.
 
     By default pulls a rolling window ending today. Pass explicit ``from_date`` /
     ``to_date`` for a backfill. With ``resume=True`` a backfill that was cut short
     (e.g. by a CI time limit) continues *older* than the data already stored,
-    instead of re-pulling the recent windows every run. Returns a small summary
-    dict for observability.
+    instead of re-pulling the recent windows every run. With ``dry_run=True`` all
+    Investec API calls are made (verifying credentials and connectivity) but no
+    database writes occur. Returns a small summary dict for observability.
     """
     to_date = to_date or date.today()
     if from_date is None:
@@ -74,13 +76,16 @@ def run_ingest(
     tx_upserted = 0
     balances_captured = 0
 
-    # Schema first, in its own short transaction (DDL never shares a transaction
-    # with the data load, so it can't lock the tables for the whole run). This
-    # must precede the resume lookup, which reads the transactions table.
-    with db.connect(url) as conn:
-        db.init_db(conn)
+    if dry_run:
+        log.info("DRY RUN — API calls will be made; no database writes will occur.")
+    else:
+        # Schema first, in its own short transaction (DDL never shares a transaction
+        # with the data load, so it can't lock the tables for the whole run). This
+        # must precede the resume lookup, which reads the transactions table.
+        with db.connect(url) as conn:
+            db.init_db(conn)
 
-    if resume:
+    if resume and not dry_run:
         # Continue from where a previous backfill stopped: end this run just after
         # the oldest stored transaction (small overlap to heal the boundary) so the
         # windows march further back into history each run.
@@ -90,25 +95,39 @@ def run_ingest(
             to_date = oldest + timedelta(days=2)
             log.info("Resume: continuing backfill older than %s (to_date=%s)",
                      oldest, to_date)
+    elif resume and dry_run:
+        log.info("DRY RUN: --resume skipped (no DB read performed).")
 
-    with db.connect(url) as conn:
-        run_id = db.start_sync_run(conn, from_date, to_date)
+    if not dry_run:
+        with db.connect(url) as conn:
+            run_id = db.start_sync_run(conn, from_date, to_date)
 
     try:
         accounts = client.get_accounts()  # API call — no DB transaction open
         log.info("Found %d account(s)", len(accounts))
-        with db.connect(url) as conn:
+        if dry_run:
             for account in accounts:
-                db.upsert_account(conn, account)
+                log.info("DRY RUN: would upsert account %s (%s)",
+                         account.get("accountId"), account.get("accountName"))
                 accounts_synced += 1
+        else:
+            with db.connect(url) as conn:
+                for account in accounts:
+                    db.upsert_account(conn, account)
+                    accounts_synced += 1
 
         # Balance snapshots: fetch (API) then write (DB) separately, per account.
         for account in accounts:
             account_id = account["accountId"]
             try:
                 balance = client.get_balance(account_id)  # API
-                with db.connect(url) as conn:             # DB
-                    db.upsert_balance(conn, account_id, balance)
+                if dry_run:
+                    fields = db.extract_balance_fields(balance)
+                    log.info("DRY RUN: would upsert balance for %s: current=%s %s",
+                             account_id, fields.get("current_balance"), fields.get("currency"))
+                else:
+                    with db.connect(url) as conn:   # DB
+                        db.upsert_balance(conn, account_id, balance)
                 balances_captured += 1
             except Exception as exc:  # noqa: BLE001 - non-fatal
                 log.warning("Balance fetch failed for %s: %s", account_id, exc)
@@ -133,11 +152,15 @@ def run_ingest(
                     (tx, categorize(tx.get("description"), tx.get("transactionType")), day_seq)
                     for tx, day_seq in rows
                 ]
-                with db.connect(url) as conn:
-                    tx_upserted += db.upsert_transactions(conn, account_id, items)
+                if dry_run:
+                    tx_upserted += len(items)
+                else:
+                    with db.connect(url) as conn:
+                        tx_upserted += db.upsert_transactions(conn, account_id, items)
             log.info(
-                "Window %s..%s: %d transactions (%d new so far)",
+                "Window %s..%s: %d transactions (%d %s so far)",
                 chunk_start, chunk_end, chunk_total, tx_upserted,
+                "would upsert" if dry_run else "new",
             )
             if is_backfill:
                 empty_streak = empty_streak + 1 if chunk_total == 0 else 0
@@ -145,23 +168,25 @@ def run_ingest(
                     log.info("Reached end of available history; stopping backfill.")
                     break
 
-        with db.connect(url) as conn:
-            db.finish_sync_run(
-                conn, run_id,
-                accounts=accounts_synced,
-                transactions=tx_upserted,
-                status="success",
-            )
+        if not dry_run:
+            with db.connect(url) as conn:
+                db.finish_sync_run(
+                    conn, run_id,
+                    accounts=accounts_synced,
+                    transactions=tx_upserted,
+                    status="success",
+                )
     except Exception as exc:  # noqa: BLE001 - record then re-raise
-        # Record the failure in its own connection so it persists.
-        with db.connect(url) as conn:
-            db.finish_sync_run(
-                conn, run_id,
-                accounts=accounts_synced,
-                transactions=tx_upserted,
-                status="error",
-                error=str(exc),
-            )
+        if not dry_run:
+            # Record the failure in its own connection so it persists.
+            with db.connect(url) as conn:
+                db.finish_sync_run(
+                    conn, run_id,
+                    accounts=accounts_synced,
+                    transactions=tx_upserted,
+                    status="error",
+                    error=str(exc),
+                )
         raise
 
     summary = {
@@ -171,5 +196,7 @@ def run_ingest(
         "transactions_upserted": tx_upserted,
         "balances_captured": balances_captured,
     }
+    if dry_run:
+        summary["dry_run"] = True
     log.info("Ingest complete: %s", summary)
     return summary

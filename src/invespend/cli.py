@@ -36,17 +36,22 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     to_date = date.fromisoformat(args.to_date) if args.to_date else None
     summary = run_ingest(
         settings, window_days=args.days, from_date=from_date, to_date=to_date,
-        resume=args.resume, full=args.full,
+        resume=args.resume, full=args.full, dry_run=args.dry_run,
     )
-    print(f"Ingest: {summary}")
+    if args.dry_run:
+        print(f"DRY RUN — no data written. Would have ingested: {summary}")
+    else:
+        print(f"Ingest: {summary}")
     return 0
 
 
 def cmd_report(args: argparse.Namespace) -> int:
     settings = Settings.load()
+    if args.dry_run:
+        print("DRY RUN — report will be built but not emailed.")
     path, info = generate_weekly_report(settings)
     print(f"Report written: {path} ({info})")
-    if args.send:
+    if args.send and not args.dry_run:
         subject = f"Weekly spend analysis: {info['start']} to {info['end']}"
         body = (
             "Hi,\n\nAttached is your Investec weekly spend analysis for "
@@ -55,6 +60,8 @@ def cmd_report(args: argparse.Namespace) -> int:
         )
         send_report(settings, path, subject, body)
         print("Report emailed.")
+    elif args.send and args.dry_run:
+        print("DRY RUN — email suppressed.")
     return 0
 
 
@@ -64,12 +71,14 @@ def _money(value: float | None) -> str:
 
 def cmd_statements(args: argparse.Namespace) -> int:
     settings = Settings.load()
+    if args.dry_run:
+        print("DRY RUN — statements will be built but not emailed.")
     paths, info = generate_account_statements(settings, days=args.days)
     print(f"Statements written: {len(paths)} file(s) ({info})")
     if not paths:
         print("No accounts had transactions in the window; nothing to email.")
         return 0
-    if args.send:
+    if args.send and not args.dry_run:
         span = "full history" if info["full_history"] else f"{info['start']} to {info['end']}"
         subject = (
             f"Account statements ({span}) as at {info['end']} "
@@ -90,6 +99,8 @@ def cmd_statements(args: argparse.Namespace) -> int:
         )
         send_email(settings, paths, subject, body)
         print("Statements emailed.")
+    elif args.send and args.dry_run:
+        print("DRY RUN — email suppressed.")
     return 0
 
 
@@ -127,10 +138,14 @@ def build_parser() -> argparse.ArgumentParser:
     p_ingest.add_argument("--full", action="store_true",
                           help="Backfill: walk every window down to --from without "
                                "the empty-window early-stop (exhaustive scan)")
+    p_ingest.add_argument("--dry-run", dest="dry_run", action="store_true",
+                          help="Fetch from Investec API but write nothing to the database")
     p_ingest.set_defaults(func=cmd_ingest)
 
     p_report = sub.add_parser("report", help="Build the weekly Excel report")
     p_report.add_argument("--send", action="store_true", help="Email the report")
+    p_report.add_argument("--dry-run", dest="dry_run", action="store_true",
+                          help="Build the report file but do not send email")
     p_report.set_defaults(func=cmd_report)
 
     p_stmts = sub.add_parser(
@@ -142,6 +157,8 @@ def build_parser() -> argparse.ArgumentParser:
     p_stmts.add_argument("--days", type=int, default=None,
                          help="Trailing window in days; omit for full history "
                               "(account's first transaction → today, the default)")
+    p_stmts.add_argument("--dry-run", dest="dry_run", action="store_true",
+                         help="Build the statement files but do not send email")
     p_stmts.set_defaults(func=cmd_statements)
 
     sub.add_parser("backup", help="pg_dump the database to a (gzipped/encrypted) artifact") \
