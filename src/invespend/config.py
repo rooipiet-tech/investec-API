@@ -45,13 +45,18 @@ class Settings:
     # Database
     database_url: str
 
-    # Email
+    # Email — Gmail API (preferred) or SMTP fallback
     smtp_host: str
     smtp_port: int
     smtp_user: str
     smtp_password: str
     report_sender: str
     report_recipients: list[str] = field(default_factory=list)
+    # Gmail OAuth2 credentials. When all three are set the Gmail API is used
+    # instead of SMTP (no app-password required, no "less-secure app" toggle).
+    gmail_client_id: str = ""
+    gmail_client_secret: str = ""
+    gmail_refresh_token: str = ""
 
     # Behaviour
     ingest_window_days: int = 7
@@ -84,6 +89,9 @@ class Settings:
             ],
             ingest_window_days=int(_opt("INGEST_WINDOW_DAYS", "7")),
             backup_passphrase=_opt("BACKUP_PASSPHRASE"),
+            gmail_client_id=_opt("GMAIL_CLIENT_ID"),
+            gmail_client_secret=_opt("GMAIL_CLIENT_SECRET"),
+            gmail_refresh_token=_opt("GMAIL_REFRESH_TOKEN"),
         )
 
     @property
@@ -91,16 +99,25 @@ class Settings:
         """Connection the report uses — the read-only role if configured."""
         return self.report_database_url or self.database_url
 
+    @property
+    def use_gmail_api(self) -> bool:
+        """True when Gmail API credentials are fully configured."""
+        return bool(self.gmail_client_id and self.gmail_client_secret
+                    and self.gmail_refresh_token)
+
     def require_email(self) -> None:
         """Validate email settings only when we actually intend to send."""
+        if not self.report_sender:
+            raise RuntimeError("Missing email setting: REPORT_SENDER")
+        if not self.report_recipients:
+            raise RuntimeError("REPORT_RECIPIENTS is empty; nowhere to send the report.")
+        if self.use_gmail_api:
+            return  # OAuth credentials already validated by use_gmail_api
         missing = [
             n for n, v in (
                 ("SMTP_USER", self.smtp_user),
                 ("SMTP_PASSWORD", self.smtp_password),
-                ("REPORT_SENDER", self.report_sender),
             ) if not v
         ]
         if missing:
-            raise RuntimeError(f"Missing email settings: {', '.join(missing)}")
-        if not self.report_recipients:
-            raise RuntimeError("REPORT_RECIPIENTS is empty; nowhere to send the report.")
+            raise RuntimeError(f"Missing SMTP settings: {', '.join(missing)}")
