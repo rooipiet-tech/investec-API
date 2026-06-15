@@ -10,6 +10,10 @@ def _txn(amount, desc, value_date="2026-05-26", action_date="2026-05-26"):
     }
 
 
+def _posted(amount, desc, posted_order, action_date="2026-05-26"):
+    return {**_txn(amount, desc, action_date=action_date), "postedOrder": posted_order}
+
+
 def test_identical_same_day_txns_get_distinct_seq_and_hash():
     # Two genuinely identical R45 coffees on the same day must not collapse.
     txns = [_txn("45.00", "COFFEE SHOP"), _txn("45.00", "COFFEE SHOP")]
@@ -50,16 +54,48 @@ def test_stable_id_ignores_day_seq():
     assert transaction_hash("ACC1", tx, 0) == transaction_hash("ACC1", tx, 5)
 
 
+def test_posted_order_is_stable_when_action_date_advances():
+    # THE BUG: Investec returns actionDate as the fetch date, so a transaction
+    # in the rolling window is re-fetched daily with a new actionDate. Keyed on
+    # postedOrder the hash is unchanged, so the daily re-pull dedupes instead of
+    # inserting a new copy every day.
+    mon = _posted("2400.00", "BUSSIE UB40", "10540", action_date="2026-06-08")
+    sun = _posted("2400.00", "BUSSIE UB40", "10540", action_date="2026-06-14")
+    assert transaction_hash("ACC1", mon, 0) == transaction_hash("ACC1", sun, 0)
+
+
+def test_distinct_posted_orders_stay_distinct():
+    # The legitimate case: many identical month-end fees, each a real, separate
+    # transaction with its own postedOrder, must NOT collapse.
+    fees = [_posted("-6.00", "ELECTRONIC DEBIT FEE", str(po)) for po in (9623, 9621, 9620)]
+    hashes = {transaction_hash("ACC1", f, 0) for f in fees}
+    assert len(hashes) == 3
+
+
+def test_posted_order_zero_is_treated_as_no_id():
+    # postedOrder 0 (and "0") is Investec's not-yet-posted sentinel → content hash.
+    a = {**_txn("250.00", "AUTH"), "postedOrder": 0}
+    b = {**_txn("250.00", "AUTH DIFFERENT"), "postedOrder": "0"}
+    assert transaction_hash("ACC1", a, 0) != transaction_hash("ACC1", b, 0)  # falls back
+
+
+def test_content_fallback_ignores_action_date():
+    # Even without any stable id, actionDate must not affect the key.
+    a = _txn("10.00", "X", action_date="2026-06-01")
+    b = _txn("10.00", "X", action_date="2026-06-30")
+    assert transaction_hash("ACC1", a, 0) == transaction_hash("ACC1", b, 0)
+
+
 def test_falls_back_to_content_hash_without_id():
-    # No id field → unchanged content-hash behaviour (id-less public API).
+    # No id field → content hash still distinguishes different descriptions.
     a = _txn("45.00", "COFFEE")
     b = _txn("45.00", "COFFEE DIFFERENT")
     assert transaction_hash("ACC1", a, 0) != transaction_hash("ACC1", b, 0)
 
 
 def test_id_field_precedence():
-    # uuid preferred over id/transactionId; any one keys deterministically.
-    assert transaction_hash("ACC1", {"id": "x"}, 0) == transaction_hash("ACC1", {"id": "x"}, 0)
-    uuid_keyed = transaction_hash("ACC1", {"uuid": "x", "id": "y"}, 0)
-    id_keyed = transaction_hash("ACC1", {"id": "x"}, 0)
-    assert uuid_keyed == id_keyed  # both reduce to account|x
+    # postedOrder preferred over uuid; fields are namespaced so a uuid value and
+    # an id value that happen to be equal do not collide.
+    assert transaction_hash("ACC1", _posted("1", "x", "555"), 0) \
+        == transaction_hash("ACC1", {**_posted("1", "x", "555"), "uuid": "other"}, 0)
+    assert transaction_hash("ACC1", {"uuid": "x"}, 0) != transaction_hash("ACC1", {"id": "x"}, 0)

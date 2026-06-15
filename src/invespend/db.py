@@ -181,11 +181,18 @@ def oldest_posting_date(conn: psycopg.Connection) -> date | None:
 
 
 def _group_key(account_id: str, tx: dict) -> tuple:
-    """The identifying fields of a transaction, minus the within-day counter."""
+    """The identifying fields of a transaction, minus the within-day counter.
+
+    Excludes ``actionDate``: Investec returns it as the date the data was
+    *fetched* (it advances every day a transaction sits in the rolling window),
+    so it is not a stable property of the transaction and must never enter the
+    identity used for dedup.
+    """
     return (
         account_id,
         str(tx.get("valueDate", "")),
-        str(tx.get("actionDate", "")),
+        str(tx.get("postingDate", "")),
+        str(tx.get("transactionDate", "")),
         str(tx.get("amount", "")),
         str(tx.get("description", "")),
     )
@@ -209,37 +216,53 @@ def assign_day_seq(account_id: str, transactions: list[dict]) -> list[tuple[dict
     return out
 
 
-# Stable per-transaction identifiers some Investec responses now carry. When one
-# is present it is the most reliable dedup key — unlike the field hash it does
-# not change when a pending transaction later posts (description/dates/balance
-# get revised), so the same row upserts instead of duplicating.
-_STABLE_ID_FIELDS = ("uuid", "id", "transactionId")
+# Stable per-transaction identifiers, most reliable first. ``postedOrder`` is
+# Investec's per-account posting sequence number and is the real stable id —
+# unique per posted transaction and unchanged across re-pulls. (It is the
+# sentinel ``0`` for not-yet-posted items, which carry no stable order, so that
+# value is treated as "absent" and falls through to the content hash.) uuid/id/
+# transactionId are kept as fallbacks for other API shapes.
+_STABLE_ID_FIELDS = ("postedOrder", "uuid", "id", "transactionId")
+_NO_STABLE_ID = (None, "", 0, "0")
+
+
+def _stable_id(tx: dict) -> str | None:
+    for field in _STABLE_ID_FIELDS:
+        value = tx.get(field)
+        if value not in _NO_STABLE_ID:
+            return f"{field}={value}"
+    return None
 
 
 def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
     """Deterministic dedup key for a transaction.
 
-    Prefers a stable id from the payload (``uuid`` / ``id`` / ``transactionId``)
-    when present: ``sha256(account_id | <id>)``. The public API historically
-    exposes none, so we fall back to a content hash —
-    ``sha256(account_id | value_date | action_date | amount | description |
-    day_seq)`` — with ``day_seq`` disambiguating genuinely identical same-day
+    Prefers a stable id from the payload — ``postedOrder`` (Investec's per-account
+    posting sequence), then ``uuid`` / ``id`` / ``transactionId`` — keying as
+    ``sha256(account_id | field=value)``. A stable id is essential because the
+    rolling daily window re-fetches recent transactions and Investec returns
+    ``actionDate`` as the *fetch* date, so any hash that folds ``actionDate`` (or
+    other revised-on-posting fields) in produces a new key every day and the same
+    transaction duplicates. The stable id stays constant, so the row upserts.
+
+    Falls back to a content hash for items with no stable id (not-yet-posted,
+    ``postedOrder = 0``): ``sha256(account_id | value_date | posting_date |
+    transaction_date | amount | description | day_seq)`` — deliberately excluding
+    ``actionDate`` — with ``day_seq`` disambiguating genuinely identical same-day
     transactions.
 
-    Note: the content-hash fallback still changes if a pending row's description
-    or dates are revised when it posts, which can leave the pre-post row behind;
-    a stable id avoids that entirely. If a database keyed on the old content hash
-    later starts receiving ids, run ``invespend backfill-hashes`` once to re-key.
+    If a database keyed on the old (actionDate-bearing) hash is migrated to this
+    logic, run ``invespend backfill-hashes`` once to re-key existing rows.
     """
-    for field in _STABLE_ID_FIELDS:
-        value = tx.get(field)
-        if value:
-            return hashlib.sha256(f"{account_id}|{value}".encode()).hexdigest()
+    stable = _stable_id(tx)
+    if stable is not None:
+        return hashlib.sha256(f"{account_id}|{stable}".encode()).hexdigest()
 
     parts = [
         account_id,
         str(tx.get("valueDate", "")),
-        str(tx.get("actionDate", "")),
+        str(tx.get("postingDate", "")),
+        str(tx.get("transactionDate", "")),
         str(tx.get("amount", "")),
         str(tx.get("description", "")),
         str(day_seq),

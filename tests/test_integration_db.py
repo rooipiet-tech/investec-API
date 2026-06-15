@@ -48,6 +48,38 @@ def _tx(type_, amount, desc, ttype="CardPurchases", d="2026-06-03"):
     }
 
 
+def test_daily_repull_with_advancing_action_date_does_not_duplicate(clean_db: str):
+    # Regression for the production bug: Investec returns actionDate as the fetch
+    # date, so the rolling daily window re-fetched each transaction with a new
+    # actionDate and re-inserted it every day. Keyed on postedOrder it dedupes.
+    with db.connect(clean_db) as conn:
+        db.upsert_account(conn, {"accountId": "A1", "accountNumber": "10010900709"})
+    day1 = {**_tx("DEBIT", "2400.00", "BUSSIE UB40", d="2026-06-08"), "postedOrder": 10540}
+    day2 = {**day1, "actionDate": "2026-06-14"}  # next day's pull, actionDate advanced
+    with db.connect(clean_db) as conn:
+        first = db.upsert_transactions(conn, "A1", [(day1, "Transport", 0)])
+    with db.connect(clean_db) as conn:
+        second = db.upsert_transactions(conn, "A1", [(day2, "Transport", 0)])
+    assert first == 1 and second == 0
+    with db.connect(clean_db) as conn, conn.cursor() as cur:
+        cur.execute("select count(*) from transactions where description = 'BUSSIE UB40';")
+        assert cur.fetchone()[0] == 1
+
+
+def test_distinct_posted_orders_same_day_are_all_kept(clean_db: str):
+    # The legitimate month-end fees: same day/amount/description, but each a real
+    # separate transaction with its own postedOrder — none must be lost.
+    with db.connect(clean_db) as conn:
+        db.upsert_account(conn, {"accountId": "A1", "accountNumber": "100"})
+        rows = [
+            ({**_tx("DEBIT", "6.00", "ELECTRONIC DEBIT FEE", d="2022-10-31"),
+              "postedOrder": po}, "Fees", 0)
+            for po in (9623, 9621, 9620)
+        ]
+        inserted = db.upsert_transactions(conn, "A1", rows)
+    assert inserted == 3
+
+
 def test_migrations_apply_exactly_once(initialized_db: str):
     # A second init_db must be a no-op: the tracking table count does not grow
     # and no migration re-runs (idempotency of the whole apply path).
