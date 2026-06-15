@@ -12,7 +12,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl.styles import Font
 
-from . import db
+from . import MONEY_FORMAT, db
 from .config import Settings
 
 log = logging.getLogger(__name__)
@@ -189,6 +189,12 @@ def write_workbook(sheets: dict[str, pd.DataFrame], path: Path) -> Path:
                 ws.column_dimensions[col_cells[0].column_letter].width = min(width + 2, 50)
             for cell in ws[1]:
                 cell.font = Font(bold=True)
+            # Accounting format on every numeric cell (skip the header row and
+            # booleans like the reconciliation flag, which would show as 1.00).
+            for row in ws.iter_rows(min_row=2):
+                for cell in row:
+                    if isinstance(cell.value, (int, float)) and not isinstance(cell.value, bool):
+                        cell.number_format = MONEY_FORMAT
     return path
 
 

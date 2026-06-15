@@ -1,5 +1,7 @@
 import pandas as pd
+from openpyxl import load_workbook
 
+from invespend import MONEY_FORMAT
 from invespend.report import build_spend_summary, write_workbook
 
 
@@ -86,3 +88,12 @@ def test_write_workbook(tmp_path):
     sheets = build_spend_summary(_sample_df())
     out = write_workbook(sheets, tmp_path / "report.xlsx")
     assert out.exists() and out.stat().st_size > 0
+
+
+def test_write_workbook_applies_accounting_format(tmp_path):
+    sheets = build_spend_summary(_sample_df())
+    out = write_workbook(sheets, tmp_path / "report.xlsx")
+    ws = load_workbook(out)["Summary"]
+    # The numeric Value column gets the Accounting format; the text header does not.
+    assert ws.cell(row=2, column=2).number_format == MONEY_FORMAT
+    assert ws.cell(row=1, column=2).number_format != MONEY_FORMAT

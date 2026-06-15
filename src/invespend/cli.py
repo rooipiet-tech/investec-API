@@ -59,7 +59,9 @@ def cmd_report(args: argparse.Namespace) -> int:
 
 
 def _money(value: float | None) -> str:
-    return f"{value:,.2f}" if value is not None else "n/a"
+    # Space-grouped thousands to match the workbooks' Accounting format
+    # (en-ZA style): 15 515.50, not 15,515.50.
+    return f"{value:,.2f}".replace(",", " ") if value is not None else "n/a"
 
 
 def cmd_statements(args: argparse.Namespace) -> int:

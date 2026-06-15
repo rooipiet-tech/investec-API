@@ -3,6 +3,7 @@ import datetime as dt
 import pandas as pd
 from openpyxl import load_workbook
 
+from invespend import MONEY_FORMAT
 from invespend.statements import (
     Account,
     build_account_statement,
@@ -168,6 +169,11 @@ def test_write_statement_workbook(tmp_path):
     # The transaction table header is present below the 11-row metadata block.
     assert ws.cell(row=12, column=1).value == "Date"
     assert ws.cell(row=12, column=6).value == "Balance"
+    # Money cells (header block + Balance column) carry the Accounting format.
+    closing_row = next(r for r in range(1, 12)
+                       if ws.cell(row=r, column=1).value == "Closing balance")
+    assert ws.cell(row=closing_row, column=2).number_format == MONEY_FORMAT
+    assert ws.cell(row=13, column=6).number_format == MONEY_FORMAT  # first Balance cell
 
 
 def test_write_statement_workbook_empty(tmp_path):
