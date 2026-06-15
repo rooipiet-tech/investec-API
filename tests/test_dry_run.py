@@ -189,23 +189,51 @@ def test_dry_run_summary_keys(mock_client_cls, mock_db):
 @patch("invespend.cli.send_report")
 @patch("invespend.cli.generate_weekly_report")
 @patch("invespend.cli.Settings")
-def test_cmd_report_dry_run_suppresses_email(mock_settings_cls, mock_gen, mock_send):
+def test_cmd_report_dry_run_suppresses_email(mock_settings_cls, mock_gen, mock_send, capsys):
+    from pathlib import Path
     from invespend.cli import cmd_report
-    mock_gen.return_value = ("/tmp/report.xlsx", {"start": "2024-01-01", "end": "2024-01-07", "rows": 5})
+    mock_gen.return_value = (
+        Path("/tmp/report.xlsx"),
+        {"start": "2024-01-01", "end": "2024-01-07", "rows": 5},
+    )
+
+    args = build_parser().parse_args(["report", "--dry-run"])
+    cmd_report(args)
+
+    mock_gen.assert_called_once()
+    mock_send.assert_not_called()
+
+    out = capsys.readouterr().out
+    assert "DRY RUN" in out
+    assert "Weekly spend analysis" in out   # subject printed
+    assert "report.xlsx" in out             # attachment name printed
+    assert "5 transactions" in out          # body content printed
+
+
+@patch("invespend.cli.send_report")
+@patch("invespend.cli.generate_weekly_report")
+@patch("invespend.cli.Settings")
+def test_cmd_report_dry_run_with_send_still_suppresses(mock_settings_cls, mock_gen, mock_send):
+    """--dry-run takes precedence over --send."""
+    from pathlib import Path
+    from invespend.cli import cmd_report
+    mock_gen.return_value = (
+        Path("/tmp/report.xlsx"),
+        {"start": "2024-01-01", "end": "2024-01-07", "rows": 3},
+    )
 
     args = build_parser().parse_args(["report", "--dry-run", "--send"])
     cmd_report(args)
 
-    mock_gen.assert_called_once()
     mock_send.assert_not_called()
 
 
 @patch("invespend.cli.send_email")
 @patch("invespend.cli.generate_account_statements")
 @patch("invespend.cli.Settings")
-def test_cmd_statements_dry_run_suppresses_email(mock_settings_cls, mock_gen, mock_send):
-    from invespend.cli import cmd_statements
+def test_cmd_statements_dry_run_suppresses_email(mock_settings_cls, mock_gen, mock_send, capsys):
     from pathlib import Path
+    from invespend.cli import cmd_statements
     mock_gen.return_value = (
         [Path("/tmp/acc1.xlsx")],
         {
@@ -220,8 +248,14 @@ def test_cmd_statements_dry_run_suppresses_email(mock_settings_cls, mock_gen, mo
         },
     )
 
-    args = build_parser().parse_args(["statements", "--dry-run", "--send"])
+    args = build_parser().parse_args(["statements", "--dry-run"])
     cmd_statements(args)
 
     mock_gen.assert_called_once()
     mock_send.assert_not_called()
+
+    out = capsys.readouterr().out
+    assert "DRY RUN" in out
+    assert "Account statements" in out      # subject printed
+    assert "acc1.xlsx" in out              # attachment name printed
+    assert "10000000001" in out            # body content printed

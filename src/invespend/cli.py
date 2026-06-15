@@ -45,23 +45,32 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_dry_run_email(subject: str, body: str, attachments: list) -> None:
+    """Print a preview of the email that would be sent in a real run."""
+    names = ", ".join(a.name for a in attachments)
+    print("\n--- DRY RUN: email preview ---")
+    print(f"Subject   : {subject}")
+    print(f"Attachment: {names}")
+    print()
+    print(body)
+    print("--- end of preview ---\n")
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     settings = Settings.load()
-    if args.dry_run:
-        print("DRY RUN — report will be built but not emailed.")
     path, info = generate_weekly_report(settings)
     print(f"Report written: {path} ({info})")
-    if args.send and not args.dry_run:
-        subject = f"Weekly spend analysis: {info['start']} to {info['end']}"
-        body = (
-            "Hi,\n\nAttached is your Investec weekly spend analysis for "
-            f"{info['start']} to {info['end']} ({info['rows']} transactions).\n\n"
-            "— invespend"
-        )
+    subject = f"Weekly spend analysis: {info['start']} to {info['end']}"
+    body = (
+        "Hi,\n\nAttached is your Investec weekly spend analysis for "
+        f"{info['start']} to {info['end']} ({info['rows']} transactions).\n\n"
+        "— invespend"
+    )
+    if args.dry_run:
+        _print_dry_run_email(subject, body, [path])
+    elif args.send:
         send_report(settings, path, subject, body)
         print("Report emailed.")
-    elif args.send and args.dry_run:
-        print("DRY RUN — email suppressed.")
     return 0
 
 
@@ -71,36 +80,34 @@ def _money(value: float | None) -> str:
 
 def cmd_statements(args: argparse.Namespace) -> int:
     settings = Settings.load()
-    if args.dry_run:
-        print("DRY RUN — statements will be built but not emailed.")
     paths, info = generate_account_statements(settings, days=args.days)
     print(f"Statements written: {len(paths)} file(s) ({info})")
     if not paths:
         print("No accounts had transactions in the window; nothing to email.")
         return 0
-    if args.send and not args.dry_run:
-        span = "full history" if info["full_history"] else f"{info['start']} to {info['end']}"
-        subject = (
-            f"Account statements ({span}) as at {info['end']} "
-            f"— {info['accounts']} account(s)"
-        )
-        lines = [
-            f"  • {a['account_number']} ({a['account_name']}): "
-            f"{a['transactions']} txns from {a['start']}, "
-            f"closing balance {_money(a['closing_balance'])}"
-            for a in info["per_account"]
-        ]
-        body = (
-            "Hi,\n\nAttached are your Investec per-account statements — one Excel "
-            "file per account, each a full transaction listing (newest first) with "
-            f"a running balance, as at {info['end']}:\n\n"
-            + "\n".join(lines)
-            + "\n\n— invespend"
-        )
+    span = "full history" if info["full_history"] else f"{info['start']} to {info['end']}"
+    subject = (
+        f"Account statements ({span}) as at {info['end']} "
+        f"— {info['accounts']} account(s)"
+    )
+    lines = [
+        f"  • {a['account_number']} ({a['account_name']}): "
+        f"{a['transactions']} txns from {a['start']}, "
+        f"closing balance {_money(a['closing_balance'])}"
+        for a in info["per_account"]
+    ]
+    body = (
+        "Hi,\n\nAttached are your Investec per-account statements — one Excel "
+        "file per account, each a full transaction listing (newest first) with "
+        f"a running balance, as at {info['end']}:\n\n"
+        + "\n".join(lines)
+        + "\n\n— invespend"
+    )
+    if args.dry_run:
+        _print_dry_run_email(subject, body, paths)
+    elif args.send:
         send_email(settings, paths, subject, body)
         print("Statements emailed.")
-    elif args.send and args.dry_run:
-        print("DRY RUN — email suppressed.")
     return 0
 
 
