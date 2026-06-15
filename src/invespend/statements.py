@@ -24,7 +24,7 @@ import psycopg
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-from . import db
+from . import MONEY_FORMAT, db
 from .config import Settings
 
 log = logging.getLogger(__name__)
@@ -282,8 +282,8 @@ def write_statement_workbook(
             label_cell = ws.cell(row=i, column=1, value=label)
             value_cell = ws.cell(row=i, column=2, value=value)
             label_cell.font = Font(bold=True)
-            if isinstance(value, (int, float)):
-                value_cell.number_format = "#,##0.00"
+            if isinstance(value, (int, float)) and not isinstance(value, bool):
+                value_cell.number_format = MONEY_FORMAT
         ws.cell(row=1, column=1).font = Font(bold=True, size=14)
 
         # Style the transaction-table header row (1-based; +1 for the header itself).
@@ -303,7 +303,7 @@ def write_statement_workbook(
         widths = {1: 12, 2: 42, 3: 16, 4: 14, 5: 14, 6: 16}
         for col_idx in range(1, len(STATEMENT_COLUMNS) + 1):
             letter = get_column_letter(col_idx)
-            fmt = "#,##0.00" if col_idx in money_cols else (
+            fmt = MONEY_FORMAT if col_idx in money_cols else (
                 "yyyy-mm-dd" if col_idx == date_col else None
             )
             if fmt:

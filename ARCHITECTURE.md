@@ -191,8 +191,11 @@ report, future solutions) reads these, never the raw table:
   `external_inflow` / `external_outflow`. The `accounts` table is the authoritative
   list of owned accounts; a transaction is an internal transfer when its
   counterparty resolves to another owned account via a layered signal (own account
-  number in the description → own holder name → a guarded equal-and-opposite
-  matched leg on the same value date). `flow_signal` records which tier fired.
+  number in the description, matched verbatim or digit-normalised → own holder name
+  → a guarded equal-and-opposite matched leg on the same value date). `flow_signal`
+  records which tier fired. The account-number signal fires from a single leg, so a
+  transfer to a newly-opened own account is caught before its matching credit leg
+  is ingested — provided that account is already registered in `accounts`.
 - **`spend_by_category`** — spend/income aggregated per category per month
   (**excludes** `internal_transfer` so own-account movements aren't double-counted).
 - **`monthly_flows`** — per month: external inflow vs outflow vs internal-transfer
