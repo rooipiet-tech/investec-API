@@ -54,15 +54,16 @@ def account_matches(account_name: str, patterns: list[str]) -> bool:
 
 
 def _load_account_groups() -> list[AccountGroup]:
-    """Scan REPORT_GROUP_{1..19}_ACCOUNTS / _RECIPIENTS env vars into groups."""
+    """Scan REPORT_GROUP_{1..19}_ACCOUNTS / _RECIPIENTS / _NAME env vars into groups."""
     groups = []
     for i in range(1, 20):
         accts_env = _opt(f"REPORT_GROUP_{i}_ACCOUNTS")
         if not accts_env:
             continue
         recips_env = _opt(f"REPORT_GROUP_{i}_RECIPIENTS")
+        name = _opt(f"REPORT_GROUP_{i}_NAME") or f"group_{i}"
         groups.append(AccountGroup(
-            name=f"group_{i}",
+            name=name,
             account_patterns=[p.strip() for p in accts_env.split(",") if p.strip()],
             recipients=[r.strip() for r in recips_env.split(",") if r.strip()],
         ))
