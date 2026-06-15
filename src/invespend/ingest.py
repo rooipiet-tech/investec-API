@@ -95,12 +95,35 @@ def run_ingest(
         run_id = db.start_sync_run(conn, from_date, to_date)
 
     try:
+        # Snapshot existing account IDs before syncing so we can detect new ones.
+        with db.connect(url) as conn:
+            existing_account_ids = db.get_account_ids(conn)
+
         accounts = client.get_accounts()  # API call — no DB transaction open
         log.info("Found %d account(s)", len(accounts))
         with db.connect(url) as conn:
             for account in accounts:
                 db.upsert_account(conn, account)
                 accounts_synced += 1
+
+        # Normalise new accounts into a consistent dict shape for the alert module.
+        new_accounts = [
+            {
+                "account_id": a["accountId"],
+                "account_number": a.get("accountNumber"),
+                "account_name": a.get("accountName"),
+                "reference_name": a.get("referenceName"),
+                "product_name": a.get("productName"),
+                "profile_id": a.get("profileId"),
+            }
+            for a in accounts
+            if a["accountId"] not in existing_account_ids
+        ]
+        if new_accounts:
+            log.info(
+                "New account(s) detected: %s",
+                [a["account_name"] for a in new_accounts],
+            )
 
         # Balance snapshots: fetch (API) then write (DB) separately, per account.
         for account in accounts:
@@ -170,6 +193,7 @@ def run_ingest(
         "accounts": accounts_synced,
         "transactions_upserted": tx_upserted,
         "balances_captured": balances_captured,
+        "new_accounts": new_accounts,
     }
     log.info("Ingest complete: %s", summary)
     return summary

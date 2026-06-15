@@ -88,6 +88,13 @@ def oldest_posting_date(conn: psycopg.Connection) -> date | None:
         return cur.fetchone()[0]
 
 
+def get_account_ids(conn: psycopg.Connection) -> set[str]:
+    """Return the set of all account_ids currently stored in the database."""
+    with conn.cursor() as cur:
+        cur.execute("select account_id from accounts;")
+        return {row[0] for row in cur.fetchall()}
+
+
 def _group_key(account_id: str, tx: dict) -> tuple:
     """The identifying fields of a transaction, minus the within-day counter."""
     return (
