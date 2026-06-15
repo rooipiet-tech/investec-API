@@ -31,4 +31,27 @@ jobs:
           INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
           INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Email secrets — used to alert when new accounts are detected.
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
+          REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
+          REPORT_EXCLUDE_ACCOUNTS: ${{ secrets.REPORT_EXCLUDE_ACCOUNTS }}
+          REPORT_GROUP_1_NAME: ${{ secrets.REPORT_GROUP_1_NAME }}
+          REPORT_GROUP_1_ACCOUNTS: ${{ secrets.REPORT_GROUP_1_ACCOUNTS }}
+          REPORT_GROUP_1_RECIPIENTS: ${{ secrets.REPORT_GROUP_1_RECIPIENTS }}
+          REPORT_GROUP_2_NAME: ${{ secrets.REPORT_GROUP_2_NAME }}
+          REPORT_GROUP_2_ACCOUNTS: ${{ secrets.REPORT_GROUP_2_ACCOUNTS }}
+          REPORT_GROUP_2_RECIPIENTS: ${{ secrets.REPORT_GROUP_2_RECIPIENTS }}
+          REPORT_GROUP_3_NAME: ${{ secrets.REPORT_GROUP_3_NAME }}
+          REPORT_GROUP_3_ACCOUNTS: ${{ secrets.REPORT_GROUP_3_ACCOUNTS }}
+          REPORT_GROUP_3_RECIPIENTS: ${{ secrets.REPORT_GROUP_3_RECIPIENTS }}
+          REPORT_GROUP_4_NAME: ${{ secrets.REPORT_GROUP_4_NAME }}
+          REPORT_GROUP_4_ACCOUNTS: ${{ secrets.REPORT_GROUP_4_ACCOUNTS }}
+          REPORT_GROUP_4_RECIPIENTS: ${{ secrets.REPORT_GROUP_4_RECIPIENTS }}
+          REPORT_GROUP_5_NAME: ${{ secrets.REPORT_GROUP_5_NAME }}
+          REPORT_GROUP_5_ACCOUNTS: ${{ secrets.REPORT_GROUP_5_ACCOUNTS }}
+          REPORT_GROUP_5_RECIPIENTS: ${{ secrets.REPORT_GROUP_5_RECIPIENTS }}
         run: invespend ingest --days 7
