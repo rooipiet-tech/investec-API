@@ -8,7 +8,7 @@ from datetime import date
 
 from . import db
 from .backup import run_backup
-from .config import Settings
+from .config import AccountGroup, Settings
 from .emailer import send_email, send_report
 from .ingest import run_ingest
 from .report import generate_weekly_report
@@ -42,19 +42,80 @@ def cmd_ingest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _report_body(info: dict) -> str:
+    return (
+        "Hi,\n\nAttached is your Investec weekly spend analysis for "
+        f"{info['start']} to {info['end']} ({info['rows']} transactions).\n\n"
+        "— invespend"
+    )
+
+
+def _statements_body(info: dict) -> str:
+    lines = [
+        f"  • {a['account_number']} ({a['account_name']}): "
+        f"{a['transactions']} txns from {a['start']}, "
+        f"closing balance {_money(a['closing_balance'])}"
+        for a in info["per_account"]
+    ]
+    return (
+        "Hi,\n\nAttached are your Investec per-account statements — one Excel "
+        "file per account, each a full transaction listing (newest first) with "
+        f"a running balance, as at {info['end']}:\n\n"
+        + "\n".join(lines)
+        + "\n\n— invespend"
+    )
+
+
+def _send_group_report(
+    settings: Settings,
+    group: AccountGroup | None,
+    exclude: list[str],
+    send: bool,
+    extra_exclude: list[str] | None = None,
+) -> None:
+    """Generate and optionally email a weekly report for one account group.
+
+    ``group=None`` means the "default" bucket (all accounts not claimed by a
+    named group and not in the exclude list).
+    """
+    include = group.account_patterns if group else None
+    excl = list(exclude) + (extra_exclude or [])
+    label = group.name if group else "default"
+    path, info = generate_weekly_report(
+        settings,
+        include_patterns=include,
+        exclude_patterns=excl,
+        label=label,
+    )
+    tag = f"({label})" if group else "(default)"
+    print(f"Report {tag} written: {path} ({info})")
+    if not send:
+        return
+    recipients = group.recipients if group else settings.report_recipients
+    if not recipients:
+        logging.getLogger(__name__).warning(
+            "No recipients for %s report; skipping email", label
+        )
+        return
+    subject = f"Weekly spend analysis: {info['start']} to {info['end']}"
+    send_report(settings, path, subject, _report_body(info), recipients=recipients)
+    print(f"Report {tag} emailed.")
+
+
 def cmd_report(args: argparse.Namespace) -> int:
     settings = Settings.load()
-    path, info = generate_weekly_report(settings)
-    print(f"Report written: {path} ({info})")
-    if args.send:
-        subject = f"Weekly spend analysis: {info['start']} to {info['end']}"
-        body = (
-            "Hi,\n\nAttached is your Investec weekly spend analysis for "
-            f"{info['start']} to {info['end']} ({info['rows']} transactions).\n\n"
-            "— invespend"
-        )
-        send_report(settings, path, subject, body)
-        print("Report emailed.")
+    groups = settings.report_account_groups
+    exclude = settings.report_exclude_accounts
+
+    if groups:
+        all_group_patterns = [p for g in groups for p in g.account_patterns]
+        for group in groups:
+            _send_group_report(settings, group, exclude, args.send)
+        # Default bucket: accounts not in any named group
+        _send_group_report(settings, None, exclude, args.send,
+                           extra_exclude=all_group_patterns)
+    else:
+        _send_group_report(settings, None, exclude, args.send)
     return 0
 
 
@@ -64,34 +125,57 @@ def _money(value: float | None) -> str:
     return f"{value:,.2f}".replace(",", " ") if value is not None else "n/a"
 
 
+def _send_group_statements(
+    settings: Settings,
+    group: AccountGroup | None,
+    exclude: list[str],
+    days: int | None,
+    send: bool,
+    extra_exclude: list[str] | None = None,
+) -> None:
+    include = group.account_patterns if group else None
+    excl = list(exclude) + (extra_exclude or [])
+    label = group.name if group else "default"
+    paths, info = generate_account_statements(
+        settings,
+        days=days,
+        include_patterns=include,
+        exclude_patterns=excl,
+    )
+    tag = f"({label})" if group else "(default)"
+    print(f"Statements {tag}: {len(paths)} file(s)")
+    if not paths:
+        return
+    if not send:
+        return
+    recipients = group.recipients if group else settings.report_recipients
+    if not recipients:
+        logging.getLogger(__name__).warning(
+            "No recipients for %s statements; skipping email", label
+        )
+        return
+    span = "full history" if info["full_history"] else f"{info['start']} to {info['end']}"
+    subject = (
+        f"Account statements ({span}) as at {info['end']} "
+        f"— {info['accounts']} account(s)"
+    )
+    send_email(settings, paths, subject, _statements_body(info), recipients=recipients)
+    print(f"Statements {tag} emailed.")
+
+
 def cmd_statements(args: argparse.Namespace) -> int:
     settings = Settings.load()
-    paths, info = generate_account_statements(settings, days=args.days)
-    print(f"Statements written: {len(paths)} file(s) ({info})")
-    if not paths:
-        print("No accounts had transactions in the window; nothing to email.")
-        return 0
-    if args.send:
-        span = "full history" if info["full_history"] else f"{info['start']} to {info['end']}"
-        subject = (
-            f"Account statements ({span}) as at {info['end']} "
-            f"— {info['accounts']} account(s)"
-        )
-        lines = [
-            f"  • {a['account_number']} ({a['account_name']}): "
-            f"{a['transactions']} txns from {a['start']}, "
-            f"closing balance {_money(a['closing_balance'])}"
-            for a in info["per_account"]
-        ]
-        body = (
-            "Hi,\n\nAttached are your Investec per-account statements — one Excel "
-            "file per account, each a full transaction listing (newest first) with "
-            f"a running balance, as at {info['end']}:\n\n"
-            + "\n".join(lines)
-            + "\n\n— invespend"
-        )
-        send_email(settings, paths, subject, body)
-        print("Statements emailed.")
+    groups = settings.report_account_groups
+    exclude = settings.report_exclude_accounts
+
+    if groups:
+        all_group_patterns = [p for g in groups for p in g.account_patterns]
+        for group in groups:
+            _send_group_statements(settings, group, exclude, args.days, args.send)
+        _send_group_statements(settings, None, exclude, args.days, args.send,
+                               extra_exclude=all_group_patterns)
+    else:
+        _send_group_statements(settings, None, exclude, args.days, args.send)
     return 0
 
 

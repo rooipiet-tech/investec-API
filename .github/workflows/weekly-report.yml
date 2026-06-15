@@ -23,6 +23,11 @@ jobs:
       SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
       REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
       REPORT_RECIPIENTS: ${{ secrets.REPORT_RECIPIENTS }}
+      REPORT_EXCLUDE_ACCOUNTS: ${{ secrets.REPORT_EXCLUDE_ACCOUNTS }}
+      REPORT_GROUP_1_ACCOUNTS: ${{ secrets.REPORT_GROUP_1_ACCOUNTS }}
+      REPORT_GROUP_1_RECIPIENTS: ${{ secrets.REPORT_GROUP_1_RECIPIENTS }}
+      REPORT_GROUP_2_ACCOUNTS: ${{ secrets.REPORT_GROUP_2_ACCOUNTS }}
+      REPORT_GROUP_2_RECIPIENTS: ${{ secrets.REPORT_GROUP_2_RECIPIENTS }}
       # Not needed by the report/statement jobs, but Settings.load() validates
       # them; provide harmless placeholders so they can run on their own.
       INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
