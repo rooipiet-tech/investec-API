@@ -7,6 +7,7 @@ import sys
 from datetime import date
 
 from . import db
+from .account_alert import build_alert_email, find_unclaimed
 from .backup import run_backup
 from .config import AccountGroup, Settings
 from .emailer import send_email, send_report
@@ -39,7 +40,60 @@ def cmd_ingest(args: argparse.Namespace) -> int:
         resume=args.resume, full=args.full,
     )
     print(f"Ingest: {summary}")
+    _alert_new_accounts(settings, summary.get("new_accounts", []))
     return 0
+
+
+def _alert_new_accounts(settings: Settings, new_accounts: list[dict]) -> None:
+    """Email the user about new accounts that aren't assigned to any group.
+
+    Non-fatal: if email isn't configured (e.g. during a bare ingest run that
+    omits SMTP secrets), we log a warning and continue.
+    """
+    import smtplib
+    from email.message import EmailMessage
+    log = logging.getLogger(__name__)
+
+    if not new_accounts:
+        return
+
+    unclaimed = find_unclaimed(new_accounts, settings)
+    subject, body = build_alert_email(new_accounts, settings)
+    print(f"New account(s) detected: {[a['account_name'] for a in new_accounts]}")
+    if unclaimed:
+        print(
+            f"Unclaimed account(s) needing group assignment: "
+            f"{[a['account_name'] for a in unclaimed]}"
+        )
+
+    # Collect all configured recipients (group recipients as fallback).
+    recipients = settings.report_recipients or [
+        r for g in settings.report_account_groups for r in g.recipients
+    ]
+    if not recipients:
+        log.warning("New accounts detected but no recipients configured; skipping alert email.")
+        return
+
+    try:
+        settings.require_email()
+    except RuntimeError as exc:
+        log.warning("Cannot send new-account alert: %s", exc)
+        return
+
+    msg = EmailMessage()
+    msg["From"] = settings.report_sender
+    msg["To"] = ", ".join(recipients)
+    msg["Subject"] = subject
+    msg.set_content(body)
+    try:
+        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+            server.starttls()
+            server.login(settings.smtp_user, settings.smtp_password)
+            server.send_message(msg)
+        log.info("New-account alert emailed to %s", msg["To"])
+        print(f"Alert email sent to: {msg['To']}")
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Failed to send new-account alert email: %s", exc)
 
 
 def _report_body(info: dict) -> str:
