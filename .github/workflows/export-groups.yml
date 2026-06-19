@@ -5,6 +5,9 @@ name: export-groups
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: write
+
 jobs:
   export:
     runs-on: ubuntu-latest
