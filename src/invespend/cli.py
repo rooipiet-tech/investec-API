@@ -242,8 +242,12 @@ def cmd_backup(_args: argparse.Namespace) -> int:
 
 
 def cmd_backfill_hashes(_args: argparse.Namespace) -> int:
-    settings = Settings.load()
-    with db.connect(settings.database_url) as conn:
+    import os
+    # Only DATABASE_URL is required — no Investec API creds needed.
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        database_url = Settings.load().database_url
+    with db.connect(database_url) as conn:
         summary = db.backfill_transaction_hashes(conn)
     print(f"Backfill: {summary}")
     return 0
