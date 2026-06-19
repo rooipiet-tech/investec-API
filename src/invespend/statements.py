@@ -323,6 +323,8 @@ def generate_account_statements(
     days: int | None = None,
     include_patterns: list[str] | None = None,
     exclude_patterns: list[str] | None = None,
+    include_account_numbers: list[str] | None = None,
+    exclude_account_numbers: list[str] | None = None,
 ) -> tuple[list[Path], dict]:
     """Build one bank-statement workbook per account up to ``end``.
 
@@ -332,8 +334,9 @@ def generate_account_statements(
     limit it to a trailing window instead. Rows are newest-first.
 
     ``include_patterns`` / ``exclude_patterns`` are case-insensitive substrings
-    matched against ``account_name``; exclude is applied first.  Pass neither to
-    include all accounts (original behaviour).
+    matched against ``account_name``; ``include_account_numbers`` /
+    ``exclude_account_numbers`` are exact matches against ``account_number``.
+    Exclude is applied before include.  Pass nothing to include all accounts.
 
     Returns ``(paths, info)``. Accounts with no transactions are skipped so the
     email only carries statements that have activity.
@@ -347,15 +350,22 @@ def generate_account_statements(
     loaded: list[tuple[Account, pd.DataFrame, float | None]] = []
     with db.connect(settings.reporting_db_url) as conn:
         for account in load_accounts(conn):
-            if exclude_patterns and any(
-                p.lower() in account.account_name.lower() for p in exclude_patterns
-            ):
-                log.info("Excluding account %s from statements", account.account_number)
+            num = account.account_number
+            name = account.account_name
+            excluded = (
+                (exclude_patterns and any(p.lower() in name.lower() for p in exclude_patterns))
+                or (exclude_account_numbers and num in exclude_account_numbers)
+            )
+            if excluded:
+                log.info("Excluding account %s from statements", num)
                 continue
-            if include_patterns and not any(
-                p.lower() in account.account_name.lower() for p in include_patterns
-            ):
-                continue
+            if include_patterns or include_account_numbers:
+                included = (
+                    any(p.lower() in name.lower() for p in (include_patterns or []))
+                    or num in (include_account_numbers or [])
+                )
+                if not included:
+                    continue
             df = load_account_transactions(conn, account.account_id, start, end)
             if df.empty:
                 log.info("No transactions for %s; skipping statement",

@@ -9,8 +9,9 @@ from datetime import date
 from . import db
 from .account_alert import build_alert_email, find_unclaimed
 from .backup import run_backup
-from .config import AccountGroup, Settings
+from .config import Settings
 from .emailer import send_email, send_report
+from .groups import EXCLUDE_ACCOUNTS, GROUPS, Group
 from .ingest import run_ingest
 from .report import generate_weekly_report
 from .statements import generate_account_statements
@@ -68,7 +69,7 @@ def _alert_new_accounts(settings: Settings, new_accounts: list[dict]) -> None:
 
     # Collect all configured recipients (group recipients as fallback).
     recipients = settings.report_recipients or [
-        r for g in settings.report_account_groups for r in g.recipients
+        r for g in GROUPS for r in g.recipients
     ]
     if not recipients:
         log.warning("New accounts detected but no recipients configured; skipping alert email.")
@@ -122,23 +123,23 @@ def _statements_body(info: dict) -> str:
 
 def _send_group_report(
     settings: Settings,
-    group: AccountGroup | None,
-    exclude: list[str],
+    group: Group | None,
     send: bool,
-    extra_exclude: list[str] | None = None,
+    extra_exclude_names: list[str] | None = None,
+    extra_exclude_numbers: list[str] | None = None,
 ) -> None:
     """Generate and optionally email a weekly report for one account group.
 
-    ``group=None`` means the "default" bucket (all accounts not claimed by a
-    named group and not in the exclude list).
+    ``group=None`` means the "default" bucket (accounts not claimed by any
+    named group and not in EXCLUDE_ACCOUNTS).
     """
-    include = group.account_patterns if group else None
-    excl = list(exclude) + (extra_exclude or [])
     label = group.name if group else "default"
     path, info = generate_weekly_report(
         settings,
-        include_patterns=include,
-        exclude_patterns=excl,
+        include_patterns=group.name_patterns if group else None,
+        include_account_numbers=group.account_numbers if group else None,
+        exclude_patterns=list(EXCLUDE_ACCOUNTS) + (extra_exclude_names or []),
+        exclude_account_numbers=extra_exclude_numbers or [],
         label=label,
     )
     tag = f"({label})" if group else "(default)"
@@ -158,18 +159,18 @@ def _send_group_report(
 
 def cmd_report(args: argparse.Namespace) -> int:
     settings = Settings.load()
-    groups = settings.report_account_groups
-    exclude = settings.report_exclude_accounts
 
-    if groups:
-        all_group_patterns = [p for g in groups for p in g.account_patterns]
-        for group in groups:
-            _send_group_report(settings, group, exclude, args.send)
-        # Default bucket: accounts not in any named group
-        _send_group_report(settings, None, exclude, args.send,
-                           extra_exclude=all_group_patterns)
+    if GROUPS:
+        all_names = [p for g in GROUPS for p in g.name_patterns]
+        all_numbers = [n for g in GROUPS for n in g.account_numbers]
+        for group in GROUPS:
+            _send_group_report(settings, group, args.send)
+        # Default bucket: accounts not claimed by any named group
+        _send_group_report(settings, None, args.send,
+                           extra_exclude_names=all_names,
+                           extra_exclude_numbers=all_numbers)
     else:
-        _send_group_report(settings, None, exclude, args.send)
+        _send_group_report(settings, None, args.send)
     return 0
 
 
@@ -181,20 +182,20 @@ def _money(value: float | None) -> str:
 
 def _send_group_statements(
     settings: Settings,
-    group: AccountGroup | None,
-    exclude: list[str],
+    group: Group | None,
     days: int | None,
     send: bool,
-    extra_exclude: list[str] | None = None,
+    extra_exclude_names: list[str] | None = None,
+    extra_exclude_numbers: list[str] | None = None,
 ) -> None:
-    include = group.account_patterns if group else None
-    excl = list(exclude) + (extra_exclude or [])
     label = group.name if group else "default"
     paths, info = generate_account_statements(
         settings,
         days=days,
-        include_patterns=include,
-        exclude_patterns=excl,
+        include_patterns=group.name_patterns if group else None,
+        include_account_numbers=group.account_numbers if group else None,
+        exclude_patterns=list(EXCLUDE_ACCOUNTS) + (extra_exclude_names or []),
+        exclude_account_numbers=extra_exclude_numbers or [],
     )
     tag = f"({label})" if group else "(default)"
     print(f"Statements {tag}: {len(paths)} file(s)")
@@ -219,17 +220,17 @@ def _send_group_statements(
 
 def cmd_statements(args: argparse.Namespace) -> int:
     settings = Settings.load()
-    groups = settings.report_account_groups
-    exclude = settings.report_exclude_accounts
 
-    if groups:
-        all_group_patterns = [p for g in groups for p in g.account_patterns]
-        for group in groups:
-            _send_group_statements(settings, group, exclude, args.days, args.send)
-        _send_group_statements(settings, None, exclude, args.days, args.send,
-                               extra_exclude=all_group_patterns)
+    if GROUPS:
+        all_names = [p for g in GROUPS for p in g.name_patterns]
+        all_numbers = [n for g in GROUPS for n in g.account_numbers]
+        for group in GROUPS:
+            _send_group_statements(settings, group, args.days, args.send)
+        _send_group_statements(settings, None, args.days, args.send,
+                               extra_exclude_names=all_names,
+                               extra_exclude_numbers=all_numbers)
     else:
-        _send_group_statements(settings, None, exclude, args.days, args.send)
+        _send_group_statements(settings, None, args.days, args.send)
     return 0
 
 

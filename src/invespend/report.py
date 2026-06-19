@@ -204,14 +204,17 @@ def generate_weekly_report(
     out_dir: Path | None = None,
     include_patterns: list[str] | None = None,
     exclude_patterns: list[str] | None = None,
+    include_account_numbers: list[str] | None = None,
+    exclude_account_numbers: list[str] | None = None,
     label: str = "",
 ) -> tuple[Path, dict]:
     """Build the workbook for the 7 days ending on ``end`` (default: today).
 
     ``include_patterns`` / ``exclude_patterns`` are case-insensitive substrings
-    matched against ``account_name``; exclude is applied first.  Pass neither to
-    include all accounts (original behaviour).  ``label`` is appended to the
-    filename so group reports don't overwrite each other.
+    matched against ``account_name``; ``include_account_numbers`` /
+    ``exclude_account_numbers`` are exact matches against ``account_number``.
+    Exclude is applied before include.  Pass nothing to include all accounts.
+    ``label`` is appended to the filename so group reports don't overwrite each other.
     """
     end = end or date.today()
     start = end - timedelta(days=6)
@@ -219,14 +222,22 @@ def generate_weekly_report(
 
     df = load_transactions(settings, start, end)
 
-    if exclude_patterns:
-        mask = df["account_name"].apply(
-            lambda n: any(p.lower() in n.lower() for p in exclude_patterns)
+    if exclude_patterns or exclude_account_numbers:
+        mask = df.apply(
+            lambda r: (
+                any(p.lower() in r["account_name"].lower() for p in (exclude_patterns or []))
+                or r["account_number"] in (exclude_account_numbers or [])
+            ),
+            axis=1,
         )
         df = df[~mask].reset_index(drop=True)
-    if include_patterns:
-        mask = df["account_name"].apply(
-            lambda n: any(p.lower() in n.lower() for p in include_patterns)
+    if include_patterns or include_account_numbers:
+        mask = df.apply(
+            lambda r: (
+                any(p.lower() in r["account_name"].lower() for p in (include_patterns or []))
+                or r["account_number"] in (include_account_numbers or [])
+            ),
+            axis=1,
         )
         df = df[mask].reset_index(drop=True)
 
