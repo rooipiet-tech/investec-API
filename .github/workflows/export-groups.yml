@@ -1,0 +1,32 @@
+name: export-groups
+
+# One-off helper: dump all accounts + current group assignments to an Excel
+# artifact so group configuration can be reviewed and edited offline.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Export groups to Excel
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python scripts/export_groups.py groups_export.xlsx
+
+      - name: Upload Excel artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: groups-export
+          path: groups_export.xlsx
+          retention-days: 7
