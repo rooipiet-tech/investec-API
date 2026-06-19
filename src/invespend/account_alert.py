@@ -1,14 +1,16 @@
 """Detect new Investec accounts and alert the user when any are unclaimed by a group.
 
 Called from the daily ingest. Compares the accounts returned by the API with
-the group patterns in Settings; any account not matched by any group triggers
-an email so the user can assign it.
+the groups defined in ``groups.py``; any account not matched by any group
+triggers an email so the user can assign it.
 """
 from __future__ import annotations
 
 import logging
 
-from .config import AccountGroup, Settings, account_matches
+from . import groups as _groups
+from .config import Settings
+from .groups import Group
 
 log = logging.getLogger(__name__)
 
@@ -25,26 +27,22 @@ _BUSINESS_HINTS = {
 }
 
 
-def suggest_group(account: dict, settings: Settings) -> str | None:
+def suggest_group(account: dict) -> str | None:
     """Return the most likely group name for an unclaimed account, or None.
 
-    Tries each configured group (looking for shared words/tokens between the
-    account and the group's patterns), then falls back to product-name
-    heuristics so the user gets a concrete suggestion even when there are no
-    groups configured yet.
+    Scores each group by how many of its pattern words appear in the account
+    name/reference/product, then falls back to product-name heuristics.
     """
     name = (account.get("account_name") or "").lower()
     ref = (account.get("reference_name") or "").lower()
     product = (account.get("product_name") or "").lower()
     combined = f"{name} {ref} {product}"
 
-    # Score each existing group by how many of its pattern *words* appear in
-    # the combined text (weaker than a substring match, catches partial names).
-    best: AccountGroup | None = None
+    best: Group | None = None
     best_score = 0
-    for group in settings.report_account_groups:
+    for group in _groups.GROUPS:
         score = 0
-        for pattern in group.account_patterns:
+        for pattern in group.name_patterns:
             for token in pattern.lower().split():
                 if len(token) >= 3 and token in combined:
                     score += 1
@@ -54,7 +52,6 @@ def suggest_group(account: dict, settings: Settings) -> str | None:
     if best:
         return best.name
 
-    # Heuristic fallback when no groups are configured or no words matched.
     words = set(combined.split())
     if words & _BUSINESS_HINTS:
         return "business"
@@ -64,18 +61,14 @@ def suggest_group(account: dict, settings: Settings) -> str | None:
 
 
 def find_unclaimed(accounts: list[dict], settings: Settings) -> list[dict]:
-    """Return accounts not matched by any configured group pattern (and not excluded)."""
-    exclude = settings.report_exclude_accounts
+    """Return accounts not matched by any group in groups.py (and not excluded)."""
     unclaimed = []
     for account in accounts:
         name = account.get("account_name") or ""
-        if account_matches(name, exclude):
+        number = account.get("account_number") or ""
+        if any(p.lower() in name.lower() for p in _groups.EXCLUDE_ACCOUNTS):
             continue
-        claimed = any(
-            account_matches(name, g.account_patterns)
-            for g in settings.report_account_groups
-        )
-        if not claimed:
+        if not any(g.matches(name, number) for g in _groups.GROUPS):
             unclaimed.append(account)
     return unclaimed
 
@@ -102,7 +95,7 @@ def build_alert_email(new_accounts: list[dict], settings: Settings) -> tuple[str
         product = acc.get("product_name") or "n/a"
         ref = acc.get("reference_name") or ""
         is_unclaimed = acc["account_id"] in unclaimed_ids
-        suggested = suggest_group(acc, settings) if is_unclaimed else None
+        suggested = suggest_group(acc) if is_unclaimed else None
 
         lines.append(f"  Account:  {name}")
         if ref and ref.lower() != name.lower():
@@ -119,27 +112,27 @@ def build_alert_email(new_accounts: list[dict], settings: Settings) -> tuple[str
         lines.append("")
 
     if unclaimed:
-        n_groups = len(settings.report_account_groups)
-        next_n = n_groups + 1
         lines += [
             "─" * 60,
             "HOW TO ASSIGN AN ACCOUNT TO A GROUP",
             "",
-            "Option A — add a new group (GitHub Actions → Settings → Secrets):",
-            "",
-            f"  REPORT_GROUP_{next_n}_NAME=<group-name>",
-            f"  REPORT_GROUP_{next_n}_ACCOUNTS=<comma-separated substrings matching the account name>",
-            f"  REPORT_GROUP_{next_n}_RECIPIENTS=<comma-separated email addresses>",
+            "Edit src/invespend/groups.py and add the account to an existing group",
+            "or create a new Group entry:",
             "",
         ]
-        if settings.report_account_groups:
-            lines.append("Option B — add the account to an existing group:")
+        for group in _groups.GROUPS:
+            current_names = ", ".join(f'"{p}"' for p in group.name_patterns)
+            current_nums = ", ".join(f'"{n}"' for n in group.account_numbers)
+            lines.append(f"  Group '{group.name}':")
+            if current_names:
+                lines.append(f"    name_patterns: [{current_names}]")
+            if current_nums:
+                lines.append(f"    account_numbers: [{current_nums}]")
             lines.append("")
-            for i, group in enumerate(settings.report_account_groups, 1):
-                lines.append(f"  REPORT_GROUP_{i}_NAME={group.name}")
-                current = ",".join(group.account_patterns)
-                lines.append(f"  REPORT_GROUP_{i}_ACCOUNTS={current},<new pattern>")
-                lines.append("")
+        lines += [
+            "To add a new group, append a Group(...) entry to the GROUPS list.",
+            "",
+        ]
 
     lines.append("— invespend")
     return subject, "\n".join(lines)
