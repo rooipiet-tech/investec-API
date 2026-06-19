@@ -82,13 +82,30 @@ def load_account_transactions(
     if start is not None:
         lower_bound = "and f.effective_date >= %s"
         params.append(start)
+    # The inner ROW_NUMBER() deduplicates rows that share the same bank event
+    # (same account, amount, description, balance, and effective date) but have
+    # different transaction_hash values because mutable date fields changed
+    # between ingest runs while the transaction was settling.  We keep the most
+    # recently ingested version (order by ingested_at desc → rn = 1).
     query = f"""
-        select f.effective_date, f.description, f.transaction_type, f.type,
-               f.amount, f.running_balance, f.category, f.flow_type, t.day_seq
-        from transactions_flow f
-        join transactions t using (transaction_hash)
-        where f.account_id = %s and f.effective_date <= %s {lower_bound}
-        order by f.effective_date, t.day_seq, t.ingested_at;
+        with ranked as (
+            select f.effective_date, f.description, f.transaction_type, f.type,
+                   f.amount, f.running_balance, f.category, f.flow_type,
+                   t.day_seq, t.ingested_at,
+                   row_number() over (
+                       partition by f.account_id, f.amount, f.description,
+                                    f.running_balance, f.effective_date
+                       order by t.ingested_at desc
+                   ) as rn
+            from transactions_flow f
+            join transactions t using (transaction_hash)
+            where f.account_id = %s and f.effective_date <= %s {lower_bound}
+        )
+        select effective_date, description, transaction_type, type,
+               amount, running_balance, category, flow_type, day_seq
+        from ranked
+        where rn = 1
+        order by effective_date, day_seq, ingested_at;
     """
     cols = ["effective_date", "description", "transaction_type", "type",
             "amount", "running_balance", "category", "flow_type", "day_seq"]
@@ -113,12 +130,20 @@ def load_opening_balance(
     anchor to (the period contains the account's earliest data).
     """
     query = """
-        select f.running_balance
-        from transactions_flow f
-        join transactions t using (transaction_hash)
-        where f.account_id = %s and f.effective_date < %s
-          and f.running_balance is not null
-        order by f.effective_date desc, t.day_seq desc, t.ingested_at desc
+        select running_balance from (
+            select f.running_balance, f.effective_date, t.day_seq, t.ingested_at,
+                   row_number() over (
+                       partition by f.account_id, f.amount, f.description,
+                                    f.running_balance, f.effective_date
+                       order by t.ingested_at desc
+                   ) as rn
+            from transactions_flow f
+            join transactions t using (transaction_hash)
+            where f.account_id = %s and f.effective_date < %s
+              and f.running_balance is not null
+        ) deduped
+        where rn = 1
+        order by effective_date desc, day_seq desc, ingested_at desc
         limit 1;
     """
     with conn.cursor() as cur:

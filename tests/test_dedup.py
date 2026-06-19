@@ -34,3 +34,12 @@ def test_different_accounts_do_not_share_seq():
     a = assign_day_seq("ACC1", [_txn("10.00", "X")])
     b = assign_day_seq("ACC2", [_txn("10.00", "X")])
     assert transaction_hash("ACC1", a[0][0], a[0][1]) != transaction_hash("ACC2", b[0][0], b[0][1])
+
+
+def test_null_date_same_as_missing_date():
+    # JSON null (None in Python) and a missing key must hash identically so that
+    # a pending transaction with actionDate=null and the same transaction later
+    # re-pulled without the key produce the same hash and don't create a duplicate.
+    with_null = {"valueDate": "2026-06-15", "actionDate": None, "amount": "375.00", "description": "CHARGE"}
+    without_key = {"valueDate": "2026-06-15", "amount": "375.00", "description": "CHARGE"}
+    assert transaction_hash("ACC1", with_null, 0) == transaction_hash("ACC1", without_key, 0)

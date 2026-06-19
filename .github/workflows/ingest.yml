@@ -55,3 +55,8 @@ jobs:
           REPORT_GROUP_5_ACCOUNTS: ${{ secrets.REPORT_GROUP_5_ACCOUNTS }}
           REPORT_GROUP_5_RECIPIENTS: ${{ secrets.REPORT_GROUP_5_RECIPIENTS }}
         run: invespend ingest --days 7
+
+      - name: Re-key hashes after formula change (idempotent)
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: invespend backfill-hashes

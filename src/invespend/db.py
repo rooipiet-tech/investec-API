@@ -128,11 +128,15 @@ def transaction_hash(account_id: str, tx: dict, day_seq: int) -> str:
     """Deterministic dedup key — the public API has no stable transaction id.
 
     sha256(account_id | value_date | action_date | amount | description | day_seq)
+
+    Date fields use `or ""` so a JSON null and a missing key both hash to ""
+    rather than "None", preventing duplicate rows when dates are backfilled by
+    Investec as a pending transaction settles.
     """
     parts = [
         account_id,
-        str(tx.get("valueDate", "")),
-        str(tx.get("actionDate", "")),
+        str(tx.get("valueDate") or ""),
+        str(tx.get("actionDate") or ""),
         str(tx.get("amount", "")),
         str(tx.get("description", "")),
         str(day_seq),

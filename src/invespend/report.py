@@ -31,16 +31,32 @@ def load_transactions(settings: Settings, start: date, end: date) -> pd.DataFram
     ``transactions_flow`` view so each row carries its ``flow_type``, and joins
     accounts for the human-readable account number (and name).
     """
+    # The inner ROW_NUMBER() deduplicates rows that represent the same bank event
+    # but landed with different hashes because mutable date fields changed while
+    # the transaction was settling (see db.py:transaction_hash for details).
     query = """
-        select f.effective_date,
-               coalesce(a.account_number, f.account_id) as account_number,
-               coalesce(a.account_name, '')             as account_name,
-               f.type, f.transaction_type, f.description, f.amount,
-               f.category, f.flow_type
-        from transactions_flow f
-        left join accounts a on a.account_id = f.account_id
-        where f.effective_date between %s and %s
-        order by f.effective_date;
+        with ranked as (
+            select f.effective_date,
+                   coalesce(a.account_number, f.account_id) as account_number,
+                   coalesce(a.account_name, '')             as account_name,
+                   f.type, f.transaction_type, f.description, f.amount,
+                   f.category, f.flow_type, f.account_id, f.running_balance,
+                   t.ingested_at,
+                   row_number() over (
+                       partition by f.account_id, f.amount, f.description,
+                                    f.running_balance, f.effective_date
+                       order by t.ingested_at desc
+                   ) as rn
+            from transactions_flow f
+            left join accounts a on a.account_id = f.account_id
+            join transactions t on t.transaction_hash = f.transaction_hash
+            where f.effective_date between %s and %s
+        )
+        select effective_date, account_number, account_name, type, transaction_type,
+               description, amount, category, flow_type
+        from ranked
+        where rn = 1
+        order by effective_date;
     """
     with db.connect(settings.reporting_db_url) as conn:
         with conn.cursor() as cur:
