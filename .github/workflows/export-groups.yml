@@ -30,7 +30,7 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           mkdir -p exports
           cp groups_export.xlsx exports/groups_export.xlsx
-          git add exports/groups_export.xlsx
+          git add -f exports/groups_export.xlsx
           git commit -m "chore: groups export for editing [skip ci]" || echo "nothing to commit"
           git push
 
