@@ -24,6 +24,16 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python scripts/export_groups.py groups_export.xlsx
 
+      - name: Commit Excel to repo for download
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p exports
+          cp groups_export.xlsx exports/groups_export.xlsx
+          git add exports/groups_export.xlsx
+          git commit -m "chore: groups export for editing [skip ci]" || echo "nothing to commit"
+          git push
+
       - name: Upload Excel artifact
         uses: actions/upload-artifact@v4
         with:
