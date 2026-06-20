@@ -37,11 +37,11 @@ GROUPS: list[Group] = [
     Group(
         name="personal",
         recipients=["rooipiet@gmail.com"],
-        name_patterns=["BARC", "Ella", "JP van Zyl"],
+        name_patterns=["Bronkhorstspruit", "van Zyl"],
     ),
     Group(
         name="canvas",
-        recipients=["canvas@example.com"],  # TODO: update to actual canvas recipients
+        recipients=["pvz@canvasintelligence.com"],
         name_patterns=["Canvas Intelligence", "Canvas Kopano", "Canvas Support"],
     ),
 ]
