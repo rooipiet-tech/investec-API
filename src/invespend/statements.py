@@ -152,6 +152,25 @@ def load_opening_balance(
     return float(row[0]) if row and row[0] is not None else None
 
 
+def load_investec_balance(
+    conn: psycopg.Connection, account_id: str
+) -> tuple[float | None, "date | None"]:
+    """Most recent current_balance from the balances snapshot table."""
+    query = """
+        select current_balance, as_of_date
+        from balances
+        where account_id = %s and current_balance is not null
+        order by as_of_date desc, captured_at desc
+        limit 1;
+    """
+    with conn.cursor() as cur:
+        cur.execute(query, (account_id,))
+        row = cur.fetchone()
+    if row and row[0] is not None:
+        return float(row[0]), row[1]
+    return None, None
+
+
 def build_account_statement(
     df: pd.DataFrame,
     opening_balance: float | None = None,
@@ -278,9 +297,25 @@ def write_statement_workbook(
     path.parent.mkdir(parents=True, exist_ok=True)
     frame: pd.DataFrame = statement["statement"]
 
+    investec_bal = statement.get("investec_balance")
+    investec_date = statement.get("investec_balance_date")
+    recon_diff = statement.get("recon_difference")
+    reconciled = statement.get("reconciled")
+
+    bal_label = (
+        f"Investec balance (as of {investec_date})"
+        if investec_date else "Investec balance"
+    )
+    if reconciled is True:
+        recon_text = "RECONCILED"
+    elif recon_diff is not None:
+        recon_text = f"DIFFERENCE {recon_diff:+,.2f}"
+    else:
+        recon_text = "N/A — no balance snapshot"
+
     with pd.ExcelWriter(path, engine="openpyxl") as writer:
         sheet_name = "Statement"
-        header_rows = 11  # account/period/balances block before the table
+        header_rows = 14  # account/period/balances/reconciliation block before the table
         body = frame if not frame.empty else pd.DataFrame(
             [{"Date": None, "Description": "No transactions for this period",
               "Category": None, "Debit": None, "Credit": None, "Balance": None}]
@@ -302,6 +337,9 @@ def write_statement_workbook(
             ("Transfers in", statement["transfers_in"]),
             ("Transfers out", statement["transfers_out"]),
             ("Closing balance", statement["closing_balance"]),
+            (bal_label, investec_bal),
+            ("Statement vs Investec", recon_diff),
+            ("Reconciled", recon_text),
         ]
         for i, (label, value) in enumerate(meta, start=1):
             label_cell = ws.cell(row=i, column=1, value=label)
@@ -309,6 +347,16 @@ def write_statement_workbook(
             label_cell.font = Font(bold=True)
             if isinstance(value, (int, float)) and not isinstance(value, bool):
                 value_cell.number_format = MONEY_FORMAT
+
+        # Colour-code the Reconciled row (row 14)
+        recon_value_cell = ws.cell(row=14, column=2)
+        if reconciled is True:
+            recon_value_cell.fill = PatternFill("solid", fgColor="FFC6EFCE")
+            recon_value_cell.font = Font(bold=True, color="FF276221")
+        elif reconciled is False:
+            recon_value_cell.fill = PatternFill("solid", fgColor="FFFFC7CE")
+            recon_value_cell.font = Font(bold=True, color="FF9C0006")
+
         ws.cell(row=1, column=1).font = Font(bold=True, size=14)
 
         # Style the transaction-table header row (1-based; +1 for the header itself).
@@ -372,7 +420,7 @@ def generate_account_statements(
 
     # One pooled connection for the whole pass (accounts + per-account reads)
     # instead of a fresh connect per query — kinder to the transaction pooler.
-    loaded: list[tuple[Account, pd.DataFrame, float | None]] = []
+    loaded: list[tuple[Account, pd.DataFrame, float | None, float | None, object]] = []
     with db.connect(settings.reporting_db_url) as conn:
         for account in load_accounts(conn):
             num = account.account_number
@@ -402,15 +450,38 @@ def generate_account_statements(
                 load_opening_balance(conn, account.account_id, start)
                 if start is not None else None
             )
-            loaded.append((account, df, opening))
+            investec_bal, investec_date = load_investec_balance(conn, account.account_id)
+            loaded.append((account, df, opening, investec_bal, investec_date))
 
     paths: list[Path] = []
     per_account: list[dict] = []
     earliest: date | None = None
-    for account, df, opening in loaded:
+    for account, df, opening, investec_bal, investec_date in loaded:
         period_start = start if start is not None else df["effective_date"].min().date()
         earliest = period_start if earliest is None else min(earliest, period_start)
         statement = build_account_statement(df, opening)
+
+        # Reconciliation: compare computed closing balance against Investec's snapshot.
+        closing = statement["closing_balance"]
+        if investec_bal is not None and closing is not None:
+            diff = round(closing - investec_bal, 2)
+            recon_ok = abs(diff) < 0.01
+        else:
+            diff = None
+            recon_ok = None
+        statement["investec_balance"] = investec_bal
+        statement["investec_balance_date"] = investec_date
+        statement["recon_difference"] = diff
+        statement["reconciled"] = recon_ok
+
+        if recon_ok is False:
+            log.warning(
+                "Statement %s closing balance %.2f differs from Investec %.2f (diff %.2f)",
+                account.account_number, closing, investec_bal, diff,
+            )
+        elif recon_ok is True:
+            log.info("Statement %s reconciled ✓", account.account_number)
+
         filename = (
             f"statement_{_safe_filename(account.account_number)}_"
             f"{period_start.isoformat()}_to_{end.isoformat()}.xlsx"
@@ -426,6 +497,9 @@ def generate_account_statements(
                 "start": period_start.isoformat(),
                 "transactions": statement["count"],
                 "closing_balance": statement["closing_balance"],
+                "investec_balance": investec_bal,
+                "reconciled": recon_ok,
+                "recon_difference": diff,
             }
         )
         log.info("Wrote statement %s (%d transactions)", path, statement["count"])

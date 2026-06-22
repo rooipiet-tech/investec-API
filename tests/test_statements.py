@@ -160,20 +160,22 @@ def test_write_statement_workbook(tmp_path):
 
     wb = load_workbook(out)
     ws = wb["Statement"]
-    # Header block carries the account number and the closing balance.
+    # Header block (14 rows: 11 account/period/balances + 3 reconciliation).
     header = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
-              for r in range(1, 12)}
+              for r in range(1, 15)}
     assert header["Account number"] == "10010000001"
     assert header["Closing balance"] == 15515.5
     assert header["Transfers in"] == 0.0
-    # The transaction table header is present below the 11-row metadata block.
-    assert ws.cell(row=12, column=1).value == "Date"
-    assert ws.cell(row=12, column=6).value == "Balance"
+    # No balance snapshot → reconciliation row shows N/A.
+    assert header["Reconciled"] == "N/A — no balance snapshot"
+    # The transaction table header is present below the 14-row metadata block.
+    assert ws.cell(row=15, column=1).value == "Date"
+    assert ws.cell(row=15, column=6).value == "Balance"
     # Money cells (header block + Balance column) carry the Accounting format.
-    closing_row = next(r for r in range(1, 12)
+    closing_row = next(r for r in range(1, 15)
                        if ws.cell(row=r, column=1).value == "Closing balance")
     assert ws.cell(row=closing_row, column=2).number_format == MONEY_FORMAT
-    assert ws.cell(row=13, column=6).number_format == MONEY_FORMAT  # first Balance cell
+    assert ws.cell(row=16, column=6).number_format == MONEY_FORMAT  # first Balance cell
 
 
 def test_write_statement_workbook_empty(tmp_path):
@@ -184,7 +186,57 @@ def test_write_statement_workbook_empty(tmp_path):
         tmp_path / "empty.xlsx",
     )
     ws = load_workbook(out)["Statement"]
-    assert ws.cell(row=13, column=2).value == "No transactions for this period"
+    assert ws.cell(row=16, column=2).value == "No transactions for this period"
+
+
+def _recon_result(reconciled, recon_difference, investec_balance=None, investec_date=None):
+    result = build_account_statement(_sample_df(), opening_balance=1000.0)
+    result["reconciled"] = reconciled
+    result["recon_difference"] = recon_difference
+    result["investec_balance"] = investec_balance
+    result["investec_balance_date"] = investec_date
+    return result
+
+
+def test_write_statement_workbook_recon_pass(tmp_path):
+    result = _recon_result(True, 0.0, investec_balance=15515.5,
+                           investec_date=dt.date(2026, 5, 31))
+    account = Account("acc-1", "10010000001", "Primary Cheque", "ZAR")
+    out = write_statement_workbook(
+        result, account, dt.date(2026, 5, 25), dt.date(2026, 5, 31),
+        tmp_path / "recon_pass.xlsx",
+    )
+    ws = load_workbook(out)["Statement"]
+    assert ws.cell(row=14, column=2).value == "RECONCILED"
+    # Green fill applied
+    assert ws.cell(row=14, column=2).fill.fgColor.rgb == "FF" + "C6EFCE"
+
+
+def test_write_statement_workbook_recon_fail(tmp_path):
+    result = _recon_result(False, -150.0, investec_balance=15665.5,
+                           investec_date=dt.date(2026, 5, 31))
+    account = Account("acc-1", "10010000001", "Primary Cheque", "ZAR")
+    out = write_statement_workbook(
+        result, account, dt.date(2026, 5, 25), dt.date(2026, 5, 31),
+        tmp_path / "recon_fail.xlsx",
+    )
+    ws = load_workbook(out)["Statement"]
+    recon_cell = ws.cell(row=14, column=2)
+    assert "DIFFERENCE" in recon_cell.value
+    assert "-150" in recon_cell.value
+    # Red fill applied
+    assert recon_cell.fill.fgColor.rgb == "FF" + "FFC7CE"
+
+
+def test_write_statement_workbook_recon_none(tmp_path):
+    result = _recon_result(None, None)
+    account = Account("acc-1", "10010000001", "Primary Cheque", "ZAR")
+    out = write_statement_workbook(
+        result, account, dt.date(2026, 5, 25), dt.date(2026, 5, 31),
+        tmp_path / "recon_none.xlsx",
+    )
+    ws = load_workbook(out)["Statement"]
+    assert ws.cell(row=14, column=2).value == "N/A — no balance snapshot"
 
 
 def test_safe_filename():
