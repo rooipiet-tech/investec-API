@@ -330,6 +330,42 @@ def test_intraday_chain_sort_no_anchor():
     assert list(stmt["Balance"]) == [800.0, 714.5, 15714.5]
 
 
+def test_intraday_chain_sort_no_anchor_with_null_rb():
+    # opening=None (full-history) AND one NULL-rb row — the previously unhandled case.
+    # Correct Investec order: Woolworths(800) → Uber(714.5) → Netflix(NULL fills to 515.5).
+    # Wrong day_seq order: Uber(0), Woolworths(1), Netflix(2).
+    # Orphan detection on has_rb=[Uber, Woolworths]:
+    #   Woolworths before = 800−(−200) = 1000, not in {800, 714.5} → orphan → anchor=1000.
+    #   Uber before = 714.5−(−85.5) = 800, IS in {800, 714.5} → not orphan.
+    # Chain: Woolworths(800) → Uber(714.5).
+    # Netflix day_seq=2 > chained_seqs [1, 0] → appended last.
+    # Result order: Woolworths, Uber, Netflix. Netflix fill = 714.5 + (−199) = 515.5.
+    df = pd.DataFrame(
+        {
+            "effective_date": pd.to_datetime(["2026-05-26"] * 3),
+            "description": ["Uber", "Woolworths", "Netflix"],
+            "transaction_type": ["CardPurchases", "CardPurchases", "Subscription"],
+            "type": ["DEBIT", "DEBIT", "DEBIT"],
+            "amount": [-85.5, -200.0, -199.0],
+            "running_balance": [714.5, 800.0, None],
+            "category": ["Transport", "Groceries", "Subscriptions"],
+            "flow_type": ["external_outflow", "external_outflow", "external_outflow"],
+            "day_seq": [0, 1, 2],  # wrong order — Uber(0) should come after Woolworths(1)
+        }
+    )
+    result = build_account_statement(df, opening_balance=None, newest_first=False)
+    stmt = result["statement"]
+    descriptions = list(stmt["Description"])
+    assert descriptions.index("Woolworths") < descriptions.index("Uber"), descriptions
+    assert descriptions.index("Uber") < descriptions.index("Netflix"), descriptions
+    wool_idx = descriptions.index("Woolworths")
+    uber_idx = descriptions.index("Uber")
+    netflix_idx = descriptions.index("Netflix")
+    assert stmt.loc[wool_idx, "Balance"] == 800.0
+    assert stmt.loc[uber_idx, "Balance"] == 714.5
+    assert stmt.loc[netflix_idx, "Balance"] == 515.5
+
+
 def test_safe_filename():
     assert _safe_filename("1001 0000/001") == "1001-0000-001"
     assert _safe_filename("   ") == "account"

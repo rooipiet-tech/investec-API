@@ -221,10 +221,10 @@ def _chain_sort_day(rows: list[dict], opening: float | None) -> list[dict]:
     # Resolve the anchor for the chain start.
     anchor = opening
     if anchor is None:
-        if no_rb:
-            return rows  # can't infer start without an anchor when gaps exist
-        # Try to find the unique "orphan" row whose before-balance isn't another
-        # row's running_balance — that's the first row in Investec's sequence.
+        # Try orphan detection on the non-NULL subset: the "orphan" is the row
+        # whose before-balance (running_balance − amount) doesn't match any
+        # other row's running_balance, making it uniquely the chain's first row.
+        # This works whether or not NULL-balance rows are also present.
         rb_set = {round(float(r["running_balance"]), 2) for r in has_rb}
         orphans = [r for r in has_rb
                    if round(float(r["running_balance"]) - float(r["amount"]), 2) not in rb_set]
