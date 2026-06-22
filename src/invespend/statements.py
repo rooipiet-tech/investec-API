@@ -13,6 +13,7 @@ statement DataFrame out) so it is unit tested without a database, mirroring
 """
 from __future__ import annotations
 
+import itertools
 import logging
 import re
 from dataclasses import dataclass
@@ -171,6 +172,39 @@ def load_investec_balance(
     return None, None
 
 
+def _chain_sort_day(rows: list[dict], opening: float | None) -> list[dict]:
+    """Sort same-day rows into Investec's native sequence using running_balance.
+
+    Each Investec transaction carries the balance AFTER that transaction. The
+    correct order is the one where each row's (running_balance - amount) equals
+    the previous row's running_balance (or the day's opening balance for the
+    first row). This is independent of day_seq, which can shift when a
+    rolling-window re-ingest pulls same-day transactions in a different order.
+
+    Falls back to day_seq order when any row lacks a running_balance (can't
+    chain) or when no opening-balance anchor is available.
+    """
+    if len(rows) <= 1:
+        return rows
+    if opening is None:
+        return rows
+    if any(r["running_balance"] is None or pd.isna(r["running_balance"]) for r in rows):
+        return rows  # can't chain — keep day_seq order
+
+    remaining = list(rows)
+    result: list[dict] = []
+    current = float(opening)
+    while remaining:
+        best = min(
+            remaining,
+            key=lambda r: abs(float(r["running_balance"]) - float(r["amount"]) - current),
+        )
+        result.append(best)
+        remaining.remove(best)
+        current = float(best["running_balance"])
+    return result
+
+
 def build_account_statement(
     df: pd.DataFrame,
     opening_balance: float | None = None,
@@ -210,8 +244,29 @@ def build_account_statement(
             "count": 0,
         }
 
+    # Initial date-level sort; day_seq breaks ties within a day as a fallback.
     sort_cols = [c for c in ("effective_date", "day_seq") if c in df.columns]
     df = df.sort_values(sort_cols).reset_index(drop=True)
+
+    # Within each day, re-order by the running_balance chain so the sequence
+    # matches Investec's native order regardless of day_seq.  day_seq can shift
+    # when a rolling-window re-ingest returns same-day rows in a different order,
+    # which would otherwise cause the arithmetic gap-fill to produce wrong values.
+    rows_as_dicts = df.to_dict("records")
+    reordered: list[dict] = []
+    day_opening = opening_balance
+    for _date_key, group in itertools.groupby(rows_as_dicts, key=lambda r: r["effective_date"]):
+        day_rows = list(group)
+        day_rows = _chain_sort_day(day_rows, day_opening)
+        reordered.extend(day_rows)
+        # Carry forward the last known running_balance as the next day's anchor.
+        last_rb = next(
+            (float(r["running_balance"]) for r in reversed(day_rows)
+             if r.get("running_balance") is not None and not pd.isna(r["running_balance"])),
+            day_opening,
+        )
+        day_opening = last_rb
+    df = pd.DataFrame(reordered).reset_index(drop=True)
 
     balances: list[float | None] = []
     prev = opening_balance

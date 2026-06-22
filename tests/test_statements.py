@@ -239,6 +239,31 @@ def test_write_statement_workbook_recon_none(tmp_path):
     assert ws.cell(row=14, column=2).value == "N/A — no balance snapshot"
 
 
+def test_intraday_chain_sort():
+    # Three same-day transactions whose day_seq is WRONG (reversed from Investec
+    # order) but whose running_balance encodes the correct sequence.
+    # Correct sequence: Woolworths(800) → Uber(714.5) → Salary(15714.5).
+    # Wrong day_seq order puts Salary first (seq 0) and Woolworths last (seq 2).
+    df = pd.DataFrame(
+        {
+            "effective_date": pd.to_datetime(["2026-05-26"] * 3),
+            "description": ["Salary", "Uber", "Woolworths"],
+            "transaction_type": ["Salary", "CardPurchases", "CardPurchases"],
+            "type": ["CREDIT", "DEBIT", "DEBIT"],
+            "amount": [15000.0, -85.5, -200.0],
+            "running_balance": [15714.5, 714.5, 800.0],
+            "category": ["Income", "Transport", "Groceries"],
+            "flow_type": ["external_inflow", "external_outflow", "external_outflow"],
+            "day_seq": [0, 1, 2],  # intentionally wrong
+        }
+    )
+    result = build_account_statement(df, opening_balance=1000.0, newest_first=False)
+    stmt = result["statement"]
+    # Chain sort must restore Investec's sequence regardless of day_seq.
+    assert list(stmt["Description"]) == ["Woolworths", "Uber", "Salary"]
+    assert list(stmt["Balance"]) == [800.0, 714.5, 15714.5]
+
+
 def test_safe_filename():
     assert _safe_filename("1001 0000/001") == "1001-0000-001"
     assert _safe_filename("   ") == "account"
