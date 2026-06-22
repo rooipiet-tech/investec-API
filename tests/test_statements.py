@@ -268,6 +268,9 @@ def test_intraday_chain_sort_with_null_rb():
     # Two same-day transactions have running_balance; one has NULL.
     # Wrong day_seq order: Netflix(seq=0), Woolworths(seq=1), Uber(seq=2).
     # Correct Investec sequence: Woolworths(800) → Uber(714.5) → Netflix(NULL fills to 515.5).
+    # Arithmetic check: Netflix(-199) at gap 0: 1000-199=801 ≠ Woolworths.before=1000. No match.
+    #                   Netflix at gap 1: 800-199=601 ≠ Uber.before=800. No match.
+    #                   No unique match → append after chain → [Woolworths, Uber, Netflix].
     df = pd.DataFrame(
         {
             "effective_date": pd.to_datetime(["2026-05-26"] * 3),
@@ -283,25 +286,10 @@ def test_intraday_chain_sort_with_null_rb():
     )
     result = build_account_statement(df, opening_balance=1000.0, newest_first=False)
     stmt = result["statement"]
-    # The two non-NULL rows chain correctly (1000→800, 800→714.5).
-    # Netflix (NULL rb) has day_seq=0 which is < all chained seqs → placed first.
-    # But actually Netflix has day_seq=0 and Woolworths has day_seq=1, Uber has day_seq=2.
-    # So Netflix gets placed before Woolworths (the chained row with seq=1).
-    # Then gap-fill: Netflix is first with no anchor yet → balance = 800 - (-200) - 199 = 515.5
-    # Actually let's think more carefully. The chain sorts Woolworths and Uber correctly.
-    # Netflix day_seq=0 < Woolworths day_seq=1, so Netflix is inserted before Woolworths.
-    # Result order: Netflix, Woolworths, Uber.
-    # Gap fill: Woolworths balance=800, Uber=714.5. Netflix has no rb, so filled by arithmetic.
-    # Since Netflix comes BEFORE Woolworths with no prior anchor, it has no rb to use.
-    # opening=1000, Netflix amount=-199 → 1000-199=801? No — the fill works backwards from Woolworths.
-    # Let's just check the chained rows' balances are correct and Netflix is placed by day_seq.
     descriptions = list(stmt["Description"])
-    assert descriptions.index("Woolworths") < descriptions.index("Uber")
-    # Woolworths and Uber carry their authoritative balances.
-    wool_idx = descriptions.index("Woolworths")
-    uber_idx = descriptions.index("Uber")
-    assert stmt.loc[wool_idx, "Balance"] == 800.0
-    assert stmt.loc[uber_idx, "Balance"] == 714.5
+    # Arithmetic placement: no gap is consistent → Netflix appended after the chain.
+    assert list(descriptions) == ["Woolworths", "Uber", "Netflix"]
+    assert list(stmt["Balance"]) == [800.0, 714.5, 515.5]
 
 
 def test_intraday_chain_sort_no_anchor():

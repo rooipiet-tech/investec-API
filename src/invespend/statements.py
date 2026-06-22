@@ -237,19 +237,51 @@ def _chain_sort_day(rows: list[dict], opening: float | None) -> list[dict]:
     if not no_rb:
         return chained
 
-    # Interleave NULL-balance rows by their original day_seq position relative
-    # to the chained rows' day_seq values.
-    chained_seqs = [r.get("day_seq", 0) for r in chained]
+    # Place each NULL-rb row in the chain arithmetically.
+    # For gaps 1..n-1 (between consecutive has_rb rows): check
+    #   prev_rb + amount ≈ next_chain_row.before
+    # For gap 0 (before the first chained row):
+    #   - When anchor IS the actual day opening (opening arg was not None):
+    #     check anchor + amount ≈ chained[0].before — meaningful.
+    #   - When anchor was inferred by orphan detection (anchor == chained[0].before):
+    #     the gap-0 arithmetic is degenerate (reduces to amount ≈ 0); skip it
+    #     and fall back to day_seq comparison for that row.
+    # If a unique gap matches, insert there; otherwise append after the chain.
+    anchor_is_day_opening = (opening is not None)
     result = list(chained)
-    offset = 0
     for null_row in sorted(no_rb, key=lambda r: r.get("day_seq", 0)):
-        null_seq = null_row.get("day_seq", 0)
-        pos = next(
-            (i for i, s in enumerate(chained_seqs) if s > null_seq),
-            len(chained_seqs),
-        )
-        result.insert(pos + offset, null_row)
-        offset += 1
+        amount = float(null_row["amount"])
+        matching_gaps = []
+        for i, chain_row in enumerate(chained):
+            if i == 0 and not anchor_is_day_opening:
+                # Degenerate case: skip gap-0 arithmetic (see above).
+                continue
+            prev_bal = (
+                anchor if i == 0
+                else round(float(chained[i - 1]["running_balance"]), 2)
+            )
+            expected_after = round(prev_bal + amount, 2)
+            next_before = round(
+                float(chain_row["running_balance"]) - float(chain_row["amount"]), 2
+            )
+            if abs(expected_after - next_before) < 0.015:
+                matching_gaps.append(i)
+
+        if len(matching_gaps) == 1:
+            target = chained[matching_gaps[0]]
+            insert_at = next(i for i, x in enumerate(result) if x is target)
+        elif (
+            not anchor_is_day_opening
+            and null_row.get("day_seq", 0) < chained[0].get("day_seq", 0)
+        ):
+            # No arithmetic match and null_rb predates chain start by day_seq:
+            # place before chain[0] (day_seq is the best available heuristic here).
+            first = chained[0]
+            insert_at = next(i for i, x in enumerate(result) if x is first)
+        else:
+            last = chained[-1]
+            insert_at = next(i for i, x in enumerate(result) if x is last) + 1
+        result.insert(insert_at, null_row)
     return result
 
 
