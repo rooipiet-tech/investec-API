@@ -172,25 +172,9 @@ def load_investec_balance(
     return None, None
 
 
-def _chain_sort_day(rows: list[dict], opening: float | None) -> list[dict]:
-    """Sort same-day rows into Investec's native sequence using running_balance.
-
-    Each Investec transaction carries the balance AFTER that transaction. The
-    correct order is the one where each row's (running_balance - amount) equals
-    the previous row's running_balance (or the day's opening balance for the
-    first row). This is independent of day_seq, which can shift when a
-    rolling-window re-ingest pulls same-day transactions in a different order.
-
-    Falls back to day_seq order when any row lacks a running_balance (can't
-    chain) or when no opening-balance anchor is available.
-    """
-    if len(rows) <= 1:
-        return rows
-    if opening is None:
-        return rows
-    if any(r["running_balance"] is None or pd.isna(r["running_balance"]) for r in rows):
-        return rows  # can't chain — keep day_seq order
-
+def _greedy_chain(rows: list[dict], opening: float) -> list[dict]:
+    """Greedy min-distance chain sort: pick the row whose before-balance is
+    closest to ``opening``, then repeat from that row's running_balance."""
     remaining = list(rows)
     result: list[dict] = []
     current = float(opening)
@@ -202,6 +186,70 @@ def _chain_sort_day(rows: list[dict], opening: float | None) -> list[dict]:
         result.append(best)
         remaining.remove(best)
         current = float(best["running_balance"])
+    return result
+
+
+def _chain_sort_day(rows: list[dict], opening: float | None) -> list[dict]:
+    """Sort same-day rows into Investec's native sequence using running_balance.
+
+    Each Investec transaction carries the balance AFTER that transaction. The
+    correct order is the one where each row's (running_balance - amount) equals
+    the previous row's running_balance (or the day's opening balance for the
+    first row). This is independent of day_seq, which can shift when a
+    rolling-window re-ingest pulls same-day transactions in a different order.
+
+    Handles three cases:
+    - All rows have running_balance + known opening → full greedy chain.
+    - All rows have running_balance but opening is None → infer the start row
+      from the "orphan" (the row whose before-balance matches no other row's
+      running_balance), then chain from there.
+    - Mixed NULL/non-NULL rows → chain the non-NULL subset and re-insert the
+      NULL rows by their day_seq position (best available).
+    Falls back to day_seq order when the chain is ambiguous or impossible.
+    """
+    if len(rows) <= 1:
+        return rows
+
+    has_rb = [r for r in rows
+              if r.get("running_balance") is not None
+              and not pd.isna(r["running_balance"])]
+    no_rb  = [r for r in rows if r not in has_rb]
+
+    if not has_rb:
+        return rows  # nothing to chain
+
+    # Resolve the anchor for the chain start.
+    anchor = opening
+    if anchor is None:
+        if no_rb:
+            return rows  # can't infer start without an anchor when gaps exist
+        # Try to find the unique "orphan" row whose before-balance isn't another
+        # row's running_balance — that's the first row in Investec's sequence.
+        rb_set = {round(float(r["running_balance"]), 2) for r in has_rb}
+        orphans = [r for r in has_rb
+                   if round(float(r["running_balance"]) - float(r["amount"]), 2) not in rb_set]
+        if len(orphans) != 1:
+            return rows  # ambiguous (e.g. circular or duplicate amounts) — fall back
+        anchor = round(float(orphans[0]["running_balance"]) - float(orphans[0]["amount"]), 2)
+
+    chained = _greedy_chain(has_rb, anchor)
+
+    if not no_rb:
+        return chained
+
+    # Interleave NULL-balance rows by their original day_seq position relative
+    # to the chained rows' day_seq values.
+    chained_seqs = [r.get("day_seq", 0) for r in chained]
+    result = list(chained)
+    offset = 0
+    for null_row in sorted(no_rb, key=lambda r: r.get("day_seq", 0)):
+        null_seq = null_row.get("day_seq", 0)
+        pos = next(
+            (i for i, s in enumerate(chained_seqs) if s > null_seq),
+            len(chained_seqs),
+        )
+        result.insert(pos + offset, null_row)
+        offset += 1
     return result
 
 
