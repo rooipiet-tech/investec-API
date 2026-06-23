@@ -1,6 +1,6 @@
 # invespend — REFACTORING_PLAN.md
 
-Iteration: **1**  ·  Spec: **FROZEN** (`.loop/spec.json`)  ·  Baseline: **62 tests passing**
+Iteration: **2**  ·  Spec: **FROZEN** (`.loop/spec.json`)  ·  Baseline: **62 tests passing**
 
 ---
 
@@ -34,16 +34,16 @@ Gating constraints honoured (from frozen spec F1–F7):
 
 ## 2. Staged change set
 
-| ID | Description | Files touched (`src/invespend/`) | Risk | Criteria advanced | Iteration 1? |
-|----|-------------|----------------------------------|------|-------------------|--------------|
-| **S1′** | Extract the byte-identical 4-line smtplib send sequence (`SMTP(...).starttls()/login()/send_message()`) into a private `emailer._smtp_send(settings, msg)` helper, and call it from both `emailer.send_email` and `cli._alert_new_accounts`. The cli keeps building its own (attachment-less) `EmailMessage`, so the alert message is byte-identical; only the connection dance is shared. | `emailer.py`, `cli.py` (`_alert_new_accounts`) | **LOW** | F1, F2 | **Applied** |
+| ID | Description | Files touched (`src/invespend/`) | Risk | Criteria advanced | Applied in |
+|----|-------------|----------------------------------|------|-------------------|------------|
+| **S1′** | Extract the byte-identical 4-line smtplib send sequence (`SMTP(...).starttls()/login()/send_message()`) into a private `emailer._smtp_send(settings, msg)` helper, and call it from both `emailer.send_email` and `cli._alert_new_accounts`. The cli keeps building its own (attachment-less) `EmailMessage`, so the alert message is byte-identical; only the connection dance is shared. | `emailer.py`, `cli.py` (`_alert_new_accounts`) | **LOW** | F1, F2 | **Iter 1** |
 | ~~S1~~ | **REJECTED at plan-review gate.** Routing the alert through `emailer.send_email` is NOT behaviour-preserving: `send_email` requires ≥1 attachment (`emailer.py:42-43` raises `ValueError` when none) and the alert is attachment-less — the `ValueError` would be swallowed by the alert's outer `try/except`, silently dropping the alert email (F3 violation). | — | — | — | **Rejected** |
-| **S2** | Replace the redundant quoted forward-ref `"date | None"` in `statements.load_investec_balance`'s return annotation with the bare `date | None` (annotations are strings already; no runtime effect). | `statements.py:158` | **LOW** | F1, F2 | **Applied** |
-| **S3** | Tighten the `loaded` local annotation in `statements.generate_account_statements` so the `investec_date` slot reads `date | None` instead of `object` (annotation only; the value already is a date-or-None). | `statements.py:558` | **LOW** | F1, F2 | **Applied** |
+| **S2** | Replace the redundant quoted forward-ref `"date | None"` in `statements.load_investec_balance`'s return annotation with the bare `date | None` (annotations are strings already; no runtime effect). | `statements.py:158` | **LOW** | F1, F2 | **Iter 1** |
+| **S3** | Tighten the `loaded` local annotation in `statements.generate_account_statements` so the `investec_date` slot reads `date | None` instead of `object` (annotation only; the value already is a date-or-None). | `statements.py:558` | **LOW** | F1, F2 | **Iter 1** |
 | S4 | Inline / remove the thin `emailer.send_report` back-compat wrapper and update its single caller `cli._send_group_report`. | `emailer.py`, `cli.py` | LOW | F2 | Deferred |
 | S5 | Remove `db.upsert_transaction` (single-row upsert) if provably dead. | `db.py` | LOW | F2 | Deferred (see §4) |
-| S6 | Extract a shared group fan-out helper for `cmd_report` / `cmd_statements`. | `cli.py` | MED | F2 | Deferred |
-| S7 | Extract a shared `_send_group_report` / `_send_group_statements` recipient-resolution helper. | `cli.py` | MED | F2 | Deferred |
+| S6 | Extract a shared group fan-out helper for `cmd_report` / `cmd_statements`. | `cli.py` | MED | F2 | **Re-deferred (Iter 2, see §6)** |
+| **S7** | Extract the duplicated recipient-resolution + "no recipients → warn + skip" block from `cli._send_group_report` and `cli._send_group_statements` into a private `_resolve_group_recipients(settings, group, label, kind)` helper. Each caller becomes `recipients = _resolve_group_recipients(...); if not recipients: return`. | `cli.py` (`_send_group_report`, `_send_group_statements`, new helper) | **LOW** | F1, F2 | **Iter 2** |
 | S8 | Consolidate the 3-way account include/exclude filtering helper. | `report.py`, `statements.py`, `groups.py` | MED | F2 | Deferred |
 | S9 | Name the flow-type string literals as constants. | `report.py`, `statements.py` | MED | F2 | Deferred |
 | S10 | Split `statements.build_account_statement` into pure sub-helpers. | `statements.py` | MED–HIGH | F2 | Deferred |
@@ -130,6 +130,93 @@ tuple's actual contents.
 
 ---
 
+## 3a. Iteration-2 stages — exact edit intent, why behaviour-preserving, verification
+
+### S7 — Extract `_resolve_group_recipients` recipient-resolution helper  (`cli.py`, LOW)
+
+**Current state.** The same recipient-resolution + "no recipients → warn + skip"
+block appears twice, differing only in the literal word `report` vs `statements`:
+
+`cli._send_group_report` (cli.py:145-150):
+```
+recipients = group.recipients if group else settings.report_recipients
+if not recipients:
+    logging.getLogger(__name__).warning(
+        "No recipients for %s report; skipping email", label
+    )
+    return
+```
+`cli._send_group_statements` (cli.py:202-207):
+```
+recipients = group.recipients if group else settings.report_recipients
+if not recipients:
+    logging.getLogger(__name__).warning(
+        "No recipients for %s statements; skipping email", label
+    )
+    return
+```
+
+**Edit intent.**
+1. Add a module-private helper to `cli.py`:
+   ```
+   def _resolve_group_recipients(settings, group, label, kind):
+       recipients = group.recipients if group else settings.report_recipients
+       if not recipients:
+           logging.getLogger(__name__).warning(
+               "No recipients for %s %s; skipping email", label, kind
+           )
+       return recipients
+   ```
+   (Public signatures of `_send_group_report` / `_send_group_statements` /
+   `cmd_report` / `cmd_statements` are **unchanged**; this helper is new private
+   surface, not a change to any signature listed in research §1.)
+2. In `_send_group_report`, replace lines 145-150 with:
+   ```
+   recipients = _resolve_group_recipients(settings, group, label, "report")
+   if not recipients:
+       return
+   ```
+3. In `_send_group_statements`, replace lines 202-207 with:
+   ```
+   recipients = _resolve_group_recipients(settings, group, label, "statements")
+   if not recipients:
+       return
+   ```
+
+**Why behaviour-preserving (byte-identical warning string — confirmed).**
+- The original report warning is `"No recipients for %s report; skipping email" % label`;
+  the original statements warning is `"No recipients for %s statements; skipping email" % label`.
+- The helper logs `"No recipients for %s %s; skipping email"` with two `%`-args
+  `(label, kind)`. With `kind="report"` the lazy-`%`-formatted record renders
+  `No recipients for <label> report; skipping email` — **identical** to the original;
+  with `kind="statements"` it renders `No recipients for <label> statements; skipping
+  email` — **identical** to the original. The format template still has exactly two
+  `%s` placeholders and is still passed as a lazy `logging` arg (no eager
+  `%`-interpolation introduced), so the logger name (`__name__`), level (`WARNING`),
+  and final message text are all unchanged.
+- The recipient-resolution expression `group.recipients if group else
+  settings.report_recipients` is relocated verbatim — same source value in both paths.
+- Control flow is preserved: the helper **returns** `recipients` and only the caller
+  performs the early `return`, so the "skip email" semantics (return before building
+  subject / calling `send_report` / `send_email` / printing the "emailed." line) are
+  identical. The truthiness test `if not recipients` is unchanged.
+
+**Why this is safe despite the entry points being unguarded.** `tests/test_cli.py`
+covers only the argparse surface (F6), not the command-dispatch bodies, so this rests
+on the manual equivalence proof above plus reviewers. The change is intentionally the
+*obviously-correct* mechanical extraction: identical sub-expression + identical
+rendered log string, no new branches, no signature change.
+
+**Verification.**
+- `git diff` confined to `cli.py`; `git diff --stat db/` empty (F5); no `.sql` /
+  `pyproject.toml` / argparse change (F6/F7).
+- Full `python -m pytest -q` must stay **>=62 passed / 0 failed / 0 errors** (F4).
+- Spot-check rendered strings: confirm `"No recipients for %s %s; skipping email" %
+  ("X", "report") == "No recipients for X report; skipping email"` and likewise for
+  `"statements"`.
+
+---
+
 ## 4. Deferred / out of scope (HIGH-risk zones — left untouched)
 
 These are flagged HIGH-risk by research/domain and are **explicitly not planned for
@@ -175,16 +262,37 @@ keep iteration 1 minimal and certainly-safe):
 
 ## 5. Rollback
 
-Each iteration-1 stage is an **independent, commit-sized, revertable** change with no
+Each stage is an **independent, commit-sized, revertable** change with no
 cross-stage dependency:
 
-- **S1** is confined to `cli._alert_new_accounts` (+ two removed local imports) —
+- **S1′** is confined to `cli._alert_new_accounts` (+ two removed local imports) —
   revert restores the inline SMTP block verbatim.
 - **S2** and **S3** are single-line annotation edits in `statements.py` — revert is a
   one-line restore each.
+- **S7** (iteration 2) is confined to `cli.py` — revert restores the two inline
+  recipient-resolution blocks verbatim and removes the `_resolve_group_recipients`
+  helper.
 
-Recommended ordering: S2, S3 (annotation-only, lowest risk), then S1. Run
-`python -m pytest -q` after each stage; if any stage drops below 62 passed / 0
-failed / 0 errors, revert that stage's commit and stop. `git diff --stat db/` must
-stay empty (F5) and `git diff` must show changes confined to `cli.py` and
-`statements.py` only (F2).
+Recommended ordering — iteration 1: S2, S3 (annotation-only, lowest risk), then S1′.
+Iteration 2: S7 alone. Run `python -m pytest -q` after each stage; if any stage drops
+below 62 passed / 0 failed / 0 errors, revert that stage's commit and stop.
+`git diff --stat db/` must stay empty (F5) and each stage's `git diff` must show
+changes confined to its listed files only (F2).
+
+---
+
+## 6. Iteration-2 re-deferral — S6 (group fan-out helper)
+
+**S6 — extract a shared group fan-out helper for `cmd_report` / `cmd_statements` —
+remains DEFERRED in iteration 2.** Rationale: `cmd_report`/`cmd_statements` are
+untested command-dispatch entry points (`tests/test_cli.py` covers only the argparse
+surface, not these bodies — F6). A shared fan-out helper would have to thread the
+differing per-command work (`_send_group_report` vs `_send_group_statements`, and the
+`days` argument that only `cmd_statements` carries) through a callable/lambda
+indirection. That indirection in an unguarded entry point is a real correctness risk
+for only a marginal clarity gain — the opposite trade-off to S7, whose extraction is a
+mechanical, byte-identical move with a provably identical rendered log string. S6 is
+therefore held back; revisit only if later iterations add body-level coverage or the
+spec is reopened. S4 (`send_report` inlining) and S5 (`upsert_transaction` removal)
+also stay deferred — removing public functions risks the "public signatures preserved"
+Must (F3). S8/S9/S10 stay deferred as behaviour-sensitive zones (see §4).

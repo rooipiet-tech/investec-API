@@ -117,6 +117,21 @@ def _statements_body(info: dict) -> str:
     )
 
 
+def _resolve_group_recipients(
+    settings: Settings,
+    group: Group | None,
+    label: str,
+    kind: str,
+) -> list[str]:
+    """Recipients for a group delivery, or [] (with a warning) if none."""
+    recipients = group.recipients if group else settings.report_recipients
+    if not recipients:
+        logging.getLogger(__name__).warning(
+            "No recipients for %s %s; skipping email", label, kind
+        )
+    return recipients
+
+
 def _send_group_report(
     settings: Settings,
     group: Group | None,
@@ -142,11 +157,8 @@ def _send_group_report(
     print(f"Report {tag} written: {path} ({info})")
     if not send:
         return
-    recipients = group.recipients if group else settings.report_recipients
+    recipients = _resolve_group_recipients(settings, group, label, "report")
     if not recipients:
-        logging.getLogger(__name__).warning(
-            "No recipients for %s report; skipping email", label
-        )
         return
     subject = f"Weekly spend analysis: {info['start']} to {info['end']}"
     send_report(settings, path, subject, _report_body(info), recipients=recipients)
@@ -199,11 +211,8 @@ def _send_group_statements(
         return
     if not send:
         return
-    recipients = group.recipients if group else settings.report_recipients
+    recipients = _resolve_group_recipients(settings, group, label, "statements")
     if not recipients:
-        logging.getLogger(__name__).warning(
-            "No recipients for %s statements; skipping email", label
-        )
         return
     span = "full history" if info["full_history"] else f"{info['start']} to {info['end']}"
     subject = (
