@@ -1,0 +1,11 @@
+{
+  "iteration": 0,
+  "phase": "awaiting-approval",
+  "pass_rate": "n/a",
+  "S": 0.0,
+  "best": 0.0,
+  "triage": "halt-for-approval",
+  "decision_log": [
+    "it0: research+domain+spec persisted; baseline pytest=62 passed/0 failed/0 errors; spec has 7 criteria (5 Must F3-F7, 2 Should F1-F2); frozen=false pending human approval"
+  ]
+}
