@@ -1,0 +1,87 @@
+{
+  "spec_version": 1,
+  "frozen": false,
+  "status": "DRAFT — pending spec-writer validation and user approval at the spec gate",
+  "goal_ref": ".loop/GOAL.md",
+  "acceptance_criteria": [
+    {
+      "id": "F1",
+      "statement": "The full pytest suite passes with no failures or errors and the existing test count does not drop.",
+      "type": "automated",
+      "verify": "pip install -e \".[dev]\" && pytest -q  # exit code 0, >= 62 passed, 0 failed, 0 errors",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "make sure everything works still (regression safety)"
+    },
+    {
+      "id": "F2",
+      "statement": "The invespend CLI surface is unchanged: `invespend --help` and each subcommand (init-db, ingest, report, statements, backfill-hashes, backup) parse and expose the same commands and flags as before the refactor.",
+      "type": "automated",
+      "verify": "Capture `invespend --help` and each subcommand `--help` before the refactor; after the refactor re-capture and diff — must be identical.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 2,
+      "from_constraint": "no behavioural change to the platform"
+    },
+    {
+      "id": "F3",
+      "statement": "Database migrations still apply in order on a fresh database and the build-layer views/schema are unchanged (same objects, same columns).",
+      "type": "automated",
+      "verify": "Apply db/migrations/*.sql in order on a clean SQLite/Postgres-compatible harness; assert the documented tables and views exist with unchanged columns (db tests in tests/ pass).",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 2,
+      "from_constraint": "clean foundation must not regress"
+    },
+    {
+      "id": "F4",
+      "statement": "A REFACTORING_PLAN.md exists at the repo root, mapping each proposed change to the modules it touches, its risk level, and which acceptance criterion guards it.",
+      "type": "rubric",
+      "verify": "File exists at repo root and contains, at minimum, sections: Scope, Staged Changes (each with module + risk + guarding criterion), Out-of-scope, Rollback. Two reviewers score presence identically.",
+      "severity": "major",
+      "moscow": "Should",
+      "weight": 2,
+      "from_constraint": "suggest a refactoring plan for the whole repo"
+    },
+    {
+      "id": "F5",
+      "statement": "Public import paths and the console entry point are preserved: `from invespend.cli import main` resolves and the `invespend` script runs.",
+      "type": "automated",
+      "verify": "python -c \"import invespend, invespend.cli, invespend.ingest, invespend.report, invespend.statements, invespend.db; from invespend.cli import main\" && invespend --help",
+      "severity": "major",
+      "moscow": "Should",
+      "weight": 1,
+      "from_constraint": "no behavioural change; importers keep working"
+    },
+    {
+      "id": "F6",
+      "statement": "No secrets or credentials are committed; `.env` remains git-ignored and only `.env.example` (no values) is tracked. A read-only scan finds no hardcoded secrets.",
+      "type": "automated",
+      "verify": "git check-ignore .env  # ignored; git ls-files | grep -E '(^|/)\\.env$' returns nothing; risk-security secret scan reports 0 findings.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 2,
+      "from_constraint": "security model — secrets never touch the repo"
+    },
+    {
+      "id": "F7",
+      "statement": "Refactored modules are measurably more maintainable: no dead code introduced, no module grows without justification, and duplicated logic is consolidated where the plan says so.",
+      "type": "rubric",
+      "verify": "Per the REFACTORING_PLAN.md targets: compare per-module line counts and structure before/after; reviewer confirms each claimed consolidation is real and no orphaned/unused code remains.",
+      "severity": "major",
+      "moscow": "Should",
+      "weight": 1,
+      "from_constraint": "refactor for maintainability and clarity"
+    }
+  ],
+  "out_of_scope": [
+    "New features or new CLI subcommands",
+    "Database schema or view changes",
+    "Behavioural changes to ingestion, reporting, or statement generation",
+    "Dependency upgrades beyond what a refactor strictly requires",
+    "Activating/deploying (Supabase project, GitHub secrets, enabling crons)"
+  ],
+  "coverage_note": "F1-F3,F6 are the hard regression/security gates (Must). F4,F5,F7 capture the deliverable plan and maintainability (Should). Drafted outside the loop; spec-writer should confirm completeness and minimality before freezing.",
+  "confidence": 0.6
+}
