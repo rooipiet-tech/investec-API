@@ -155,7 +155,7 @@ def load_opening_balance(
 
 def load_investec_balance(
     conn: psycopg.Connection, account_id: str
-) -> tuple[float | None, "date | None"]:
+) -> tuple[float | None, date | None]:
     """Most recent current_balance from the balances snapshot table."""
     query = """
         select current_balance, as_of_date
@@ -555,7 +555,7 @@ def generate_account_statements(
 
     # One pooled connection for the whole pass (accounts + per-account reads)
     # instead of a fresh connect per query — kinder to the transaction pooler.
-    loaded: list[tuple[Account, pd.DataFrame, float | None, float | None, object]] = []
+    loaded: list[tuple[Account, pd.DataFrame, float | None, float | None, date | None]] = []
     with db.connect(settings.reporting_db_url) as conn:
         for account in load_accounts(conn):
             num = account.account_number

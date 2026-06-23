@@ -1,6 +1,6 @@
 {
   "goal": "Maintainability/clarity refactor of the invespend Python package: apply the agreed LOW-risk refactors and produce a staged REFACTORING_PLAN.md, with zero observable-behaviour change to ingestion, reporting, statement generation, the CLI surface, the DB schema/migrations, or dependencies.",
-  "frozen": false,
+  "frozen": true,
   "criteria": [
     {
       "id": "F1",

@@ -10,7 +10,7 @@ from . import db
 from .account_alert import build_alert_email, find_unclaimed
 from .backup import run_backup
 from .config import Settings
-from .emailer import send_email, send_report
+from .emailer import _smtp_send, send_email, send_report
 from .groups import EXCLUDE_ACCOUNTS, GROUPS, Group
 from .ingest import run_ingest
 from .report import generate_weekly_report
@@ -51,7 +51,6 @@ def _alert_new_accounts(settings: Settings, new_accounts: list[dict]) -> None:
     Non-fatal: if email isn't configured (e.g. during a bare ingest run that
     omits SMTP secrets), we log a warning and continue.
     """
-    import smtplib
     from email.message import EmailMessage
     log = logging.getLogger(__name__)
 
@@ -87,10 +86,7 @@ def _alert_new_accounts(settings: Settings, new_accounts: list[dict]) -> None:
     msg["Subject"] = subject
     msg.set_content(body)
     try:
-        with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
-            server.starttls()
-            server.login(settings.smtp_user, settings.smtp_password)
-            server.send_message(msg)
+        _smtp_send(settings, msg)
         log.info("New-account alert emailed to %s", msg["To"])
         print(f"Alert email sent to: {msg['To']}")
     except Exception as exc:  # noqa: BLE001

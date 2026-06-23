@@ -1,0 +1,18 @@
+usage: invespend [-h]
+                 {init-db,ingest,report,statements,backup,backfill-hashes} ...
+
+Command-line entry point: invespend init-db | ingest | report | statements.
+
+positional arguments:
+  {init-db,ingest,report,statements,backup,backfill-hashes}
+    init-db             Apply the database schema
+    ingest              Pull transactions into the database
+    report              Build the weekly Excel report
+    statements          Build a separate bank-statement Excel file per account
+                        (running balance)
+    backup              pg_dump the database to a (gzipped/encrypted) artifact
+    backfill-hashes     One-off: re-key existing rows to the day_seq-aware
+                        hash (idempotent)
+
+options:
+  -h, --help            show this help message and exit

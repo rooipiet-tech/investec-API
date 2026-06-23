@@ -1,0 +1,4 @@
+usage: invespend init-db [-h]
+
+options:
+  -h, --help  show this help message and exit
