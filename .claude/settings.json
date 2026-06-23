@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "defaultMode": "acceptEdits",
+    "allow": [
+      "Read", "Grep", "Glob", "WebSearch", "WebFetch",
+      "Edit", "Write", "MultiEdit",
+      "Bash(git:*)", "Bash(npm:*)", "Bash(npx:*)", "Bash(pip:*)",
+      "Bash(pip3:*)", "Bash(python:*)", "Bash(python3:*)",
+      "Bash(pytest:*)", "Bash(node:*)", "Bash(uv:*)",
+      "Bash(mkdir:*)", "Bash(touch:*)", "Bash(cp:*)", "Bash(mv:*)",
+      "Bash(ls:*)", "Bash(cat:*)", "Bash(echo:*)", "Bash(sed:*)"
+    ],
+    "deny": ["Bash(git push --force:*)"]
+  },
+  "model": "opus"
+}
