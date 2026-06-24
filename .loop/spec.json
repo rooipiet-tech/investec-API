@@ -1,0 +1,48 @@
+{
+  "goal": "Maintainability/clarity refactor of the invespend Python package: apply the agreed LOW-risk refactors and produce a staged REFACTORING_PLAN.md, with zero observable-behaviour change to ingestion, reporting, statement generation, the CLI surface, the DB schema/migrations, or dependencies.",
+  "frozen": true,
+  "criteria": [
+    {
+      "id": "F1",
+      "text": "REFACTORING_PLAN.md exists at the repo root and describes the staged changes with their risk classification (LOW/MEDIUM/HIGH), explicitly maps each stage to the affected module(s) under src/invespend/, and identifies which staged refactors are LOW-risk and applied versus deferred.",
+      "priority": "Should",
+      "verify": "test -f /home/user/investec-API/REFACTORING_PLAN.md; file is non-empty and names concrete src/invespend modules plus per-stage risk levels and which stages were applied vs deferred."
+    },
+    {
+      "id": "F2",
+      "text": "The agreed LOW-risk refactors are applied (clarity/maintainability only): e.g. consolidating the duplicated SMTP send path into emailer.send_email, tidying redundant type annotations/naming, and similar isolated cleanups in low-risk modules (emailer, config, groups, categorize, backup, cli body/recipient helpers). MEDIUM/HIGH-risk zones (dedup hash, read-time ROW_NUMBER SQL, chain-sort, flow classifier, money formatting/rounding) are left unchanged.",
+      "priority": "Should",
+      "verify": "git diff --stat shows changes confined to low-risk modules; the dedup-hash functions (db.transaction_hash/assign_day_seq/_group_key), the ROW_NUMBER dedup CTEs in report.py/statements.py, statements._chain_sort_day, and MONEY_FORMAT are byte-identical (git diff on those hunks is empty)."
+    },
+    {
+      "id": "F3",
+      "text": "Behaviour freeze: no new features, no schema changes, and no behavioural change to ingestion, reporting, or statement generation. All public function signatures listed in research.md section 1 are preserved, and groups.GROUPS / groups.EXCLUDE_ACCOUNTS remain patchable at invespend.groups.<NAME>.",
+      "priority": "Must",
+      "verify": "Public symbols/signatures unchanged (compare exported names per module); tests that pin behaviour pass; no .sql files modified (git diff --stat db/ empty per F5)."
+    },
+    {
+      "id": "F4",
+      "text": "Full pytest suite is green with no regression from the 62-test baseline: at least 62 passing, 0 failures, 0 errors.",
+      "priority": "Must",
+      "verify": "python -m pytest -q reports >=62 passed, 0 failed, 0 errors (exit code 0)."
+    },
+    {
+      "id": "F5",
+      "text": "DB migrations still apply in numeric filename-sort order and the schema/views are unchanged: no diff anywhere under db/ (migrations, views, roles.sql).",
+      "priority": "Must",
+      "verify": "git diff --stat db/ is empty; migration filenames 0001..0008 unchanged and still sort in numeric order."
+    },
+    {
+      "id": "F6",
+      "text": "CLI surface is identical: subcommands init-db, ingest, report, statements, backfill-hashes, backup are present with unchanged flags, dest names, defaults, and help text; top-level and per-subcommand --help output is unchanged.",
+      "priority": "Must",
+      "verify": "invespend --help and invespend <subcommand> --help output unchanged for each of init-db/ingest/report/statements/backfill-hashes/backup; tests/test_cli.py passes."
+    },
+    {
+      "id": "F7",
+      "text": "No secrets committed and .env remains git-ignored; the Python 3.12 stack and current dependency set (requests, psycopg, pandas, openpyxl, python-dotenv) are unchanged — no new dependencies added.",
+      "priority": "Must",
+      "verify": "git check-ignore .env succeeds; git diff finds no committed credentials/.env; pyproject.toml dependencies list unchanged (no additions) and requires-python unchanged."
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+usage: invespend ingest [-h] [--days DAYS] [--from FROM_DATE] [--to TO_DATE]
+                        [--resume] [--full]
+
+options:
+  -h, --help        show this help message and exit
+  --days DAYS       Days of history to pull (default: INGEST_WINDOW_DAYS)
+  --from FROM_DATE  Backfill start date YYYY-MM-DD (overrides --days)
+  --to TO_DATE      End date YYYY-MM-DD (default: today)
+  --resume          Backfill: continue older than the oldest stored
+                    transaction instead of re-pulling recent windows
+  --full            Backfill: walk every window down to --from without the
+                    empty-window early-stop (exhaustive scan)

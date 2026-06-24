@@ -23,6 +23,13 @@ def _attach(msg: EmailMessage, attachment: Path) -> None:
     )
 
 
+def _smtp_send(settings: Settings, msg: EmailMessage) -> None:
+    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
+        server.starttls()
+        server.login(settings.smtp_user, settings.smtp_password)
+        server.send_message(msg)
+
+
 def send_email(
     settings: Settings,
     attachments: Path | list[Path],
@@ -54,10 +61,7 @@ def send_email(
     for path in paths:
         _attach(msg, path)
 
-    with smtplib.SMTP(settings.smtp_host, settings.smtp_port) as server:
-        server.starttls()
-        server.login(settings.smtp_user, settings.smtp_password)
-        server.send_message(msg)
+    _smtp_send(settings, msg)
     log.info("Emailed %d file(s) to %s", len(paths), msg["To"])
 
 
