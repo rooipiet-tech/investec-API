@@ -1,12 +1,14 @@
 {
-  "iteration": 0,
+  "iteration": 1,
   "spec_frozen": true,
-  "pass_rate": "0/20",
-  "S": 0.0,
-  "best": 0.0,
-  "triage": "iterate",
+  "pass_rate": "20/20",
+  "S": 1.0,
+  "best": 1.0,
+  "triage": "ship",
   "decision_log": [
     "phase0: spec v1.0.0 frozen (20 criteria, 16 blocker Must). last-3=source-account selector. Awaiting plan.",
-    "it1: plan v1.0.0 -> plan-review=revise (0 blockers, 5 tightenings PR1-PR5 folded). Proceeding to build."
+    "it1: plan v1.0.0 -> plan-review=revise (0 blockers, 5 tightenings PR1-PR5 folded). Proceeding to build.",
+    "it1: build v1 -> tester 20/20 (152 suite, 62 baseline, db/ empty, 0 regressions). pass_rate=1.00; open review pts RS1(.4)+RS2(.1)+AN1(.1)+AN2(.1)=0.7; penalty=min(1,.7/5)=0.14; S=1.0*(1-0.5*0.14)=0.93. Shippable=TRUE; all 4 reviewers signed off. Electing build-PATCH for cheap high-value fixes before ship.",
+    "it1-patch: 7 findings fixed; suite 164 passed (62 baseline additive-intact, db/ empty, .env ignored); pass_rate=1.00; open review pts=0; penalty=0; S=1.00. SHIPPABLE=ship."
   ]
 }

@@ -258,6 +258,52 @@ def cmd_backfill_hashes(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_approve_payments(args: argparse.Namespace) -> int:
+    """Run one email-payment-approval cycle. Headless, machine-readable JSON,
+    deterministic exit code (F16). DRY-RUN unless live is configured (F8)."""
+    import json
+
+    # --live is advisory only: live still requires live_enabled() (flag AND cred).
+    requested_mode = "live" if getattr(args, "live", False) else "dry-run"
+    try:
+        settings = Settings.load()
+        from .investec_client import InvestecClient
+        from .payments.inbox import ImapInbox
+        from .payments.pipeline import run_approval_cycle
+
+        live = settings.live_enabled()
+        # F8/PR1: live mode uses the WRITE-scoped credential; dry-run uses read.
+        if live:
+            client = InvestecClient(
+                settings.investec_write_client_id,
+                settings.investec_write_client_secret,
+                settings.investec_write_api_key,
+                settings.investec_base_url,
+            )
+        else:
+            client = InvestecClient(
+                settings.investec_client_id,
+                settings.investec_client_secret,
+                settings.investec_api_key,
+                settings.investec_base_url,
+            )
+        inbox = ImapInbox(settings)
+        summary = run_approval_cycle(settings, inbox=inbox, client=client)
+    except Exception as exc:  # noqa: BLE001 — surface as machine-readable envelope (F16)
+        print(json.dumps(
+            {"error": type(exc).__name__, "message": str(exc),
+             "requested_mode": requested_mode},
+            sort_keys=True,
+        ))
+        return 2
+    # F8/F16: surface the advisory flag and the effective gate so the flag's
+    # effect (or inertness) is explicit and assertable.
+    summary["requested_mode"] = requested_mode
+    summary["live_enabled"] = live
+    print(json.dumps(summary, sort_keys=True))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="invespend", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -301,6 +347,20 @@ def build_parser() -> argparse.ArgumentParser:
         "backfill-hashes",
         help="One-off: re-key existing rows to the day_seq-aware hash (idempotent)",
     ).set_defaults(func=cmd_backfill_hashes)
+
+    p_pay = sub.add_parser(
+        "approve-payments",
+        help="Run one email-payment-approval cycle (DRY-RUN default; outputs JSON)",
+    )
+    pay_mode = p_pay.add_mutually_exclusive_group()
+    pay_mode.add_argument("--dry-run", dest="live", action="store_false",
+                          help="Never call the write endpoint (default)")
+    pay_mode.add_argument("--live", dest="live", action="store_true",
+                          help="Permit live execution (still needs flag+write cred)")
+    p_pay.set_defaults(live=False)
+    p_pay.add_argument("--once", action="store_true",
+                       help="Run a single cycle and exit (default)")
+    p_pay.set_defaults(func=cmd_approve_payments)
 
     return parser
 

@@ -1,29 +1,189 @@
 {
   "spec_version": "1.0.0-email-payment-approval",
   "run": "email-payment-approval-loop",
-  "frozen": false,
+  "frozen": true,
   "reused_learnings": "none (.compound/ empty)",
   "acceptance_criteria": [
-    {"id":"F1","statement":"Inbound email content is never an authenticator: no payment is approved/executed on From-address, subject, body, or any plaintext keyword (incl. 'app'/'approve'/'yes') alone.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"AUTH-INBOUND-NOT-AUTHENTICATOR","verify":"pytest: reply of exactly 'approve'/'app'/'yes' with no token, and a forged token-looking string, from the user address (incl. spoofed From) -> payment stays 'pending', execute mock not_called."},
-    {"id":"F2","statement":"Token = HMAC-SHA256 keyed by a never-emailed/never-logged secret, BOUND to (sourceAccountId, amount, beneficiaryId, dedup key, nonce, expiry), single-use, expiring, constant-time compared.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"TOKEN-HMAC-BOUND-SINGLE-USE-EXPIRING","verify":"pytest: valid token approves once; reuse rejected; expired rejected; altered source-account/amount/beneficiary fails; wrong-secret rejected; verify uses hmac.compare_digest; secret never in logs."},
-    {"id":"F3","statement":"The last-3 digits in the email identify WHICH of the user's own accounts to pay FROM (the source/debit account). They are resolved EXACTLY against the user's real Investec accounts (get_accounts); zero or >1 matches -> fail-closed. Last-3 selects the source account but is NEVER an authorization factor — execution still requires the valid bound HMAC token (F2).","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"LAST3-IS-WEAK-SELECTOR + source-account-selection","verify":"pytest: (a) last-3 matching exactly one real account resolves to that sourceAccountId, which is the account debited in the (dry-run) payment and is bound into the token; (b) last-3 matching zero or >1 accounts -> fail-closed (parked, no execute); (c) email matching last-3 with approval-looking body but no valid token -> matched/pending but NOT executed."},
-    {"id":"F4","statement":"Execution targets ONLY an exact pre-registered beneficiaryId from an allowlist; a parsed account number is never paid directly.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"ALLOWLIST-EXACT-BENEFICIARY-ID","verify":"pytest: exact allowlist match -> dry-run execute with beneficiaryId; no match -> fail-closed; value passed to execute is the registered id, never parsed account string."},
-    {"id":"F5","statement":"Fail-closed on ambiguity/low-confidence extraction; uncertainty defaults to NO pay.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"FAIL-CLOSED-ON-AMBIGUITY","verify":"pytest: two amounts / two payees / currency mismatch / corrupt PDF each -> 'parked'/'needs_review', never executes; clean single input proceeds."},
-    {"id":"F6","statement":"Per-payment cap AND persisted daily-aggregate cap both checked BEFORE execution; daily total survives restart.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"CAPS-ENFORCED-PRE-EXECUTION","verify":"pytest: over per-payment cap blocked; under-cap payment pushing daily over aggregate blocked; reloaded daily total persists; execute not_called when blocked."},
-    {"id":"F7","statement":"Deterministic dedup key (message-id+amount+beneficiaryId+currency) prevents double-pending and double-execution.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"IDEMPOTENCY-DEDUP-KEY","verify":"pytest: same email twice -> one pending; approve+execute then re-present -> execute call_count==1; different payments -> different keys."},
-    {"id":"F8","statement":"DRY_RUN is default; live needs an explicit logged enable flag AND a write-scoped credential; in dry-run no write endpoint is called.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"DRY-RUN-DEFAULT-AUDITABLE-LIVE-SWITCH","verify":"pytest: default -> no client write/_post called, recorded 'dry-run'; flag set but no write cred -> stays dry-run; both present -> mocked write path invoked + live enablement audited."},
-    {"id":"F9","statement":"Append-only timestamped audit trail of every step; never records full account number/PAN nor the signing secret.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"AUDIT-TRAIL-NON-REPUDIATION","verify":"pytest: full pipeline -> one ordered entry per step, entries never mutated; scan finds no secret and no full account number (only last-3 or hash)."},
-    {"id":"F10","statement":"A token approves ONLY the exact payment it was bound to (append-later safety).","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"TOKEN-HMAC-BOUND-SINGLE-USE-EXPIRING","verify":"pytest: T1 for P1, T2 for P2 in one batch; T1 against P2 rejected; T1 against P1 approves; approving P1 leaves P2 untouched."},
-    {"id":"F11","statement":"Image OCR out of scope / graceful-skip; image attachments never egress to cloud OCR; image-only payment fails closed.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"POPIA-CLOUD-OCR-CROSS-BORDER-EGRESS","verify":"pytest: image-only attachment -> no exception, recorded 'skipped (OCR out of scope)', no network/cloud OCR call, no pending payment from image alone."},
-    {"id":"F12","statement":"Sender progress emails only when sender contact explicitly present; content minimised (no beneficiaryId/account/balance/caps/token).","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"POPIA-THIRD-PARTY-SENDER-CONTACT","verify":"pytest: no sender contact -> send mock not_called; contact present -> one minimised status email containing none of beneficiaryId/full account/balance/caps/token."},
-    {"id":"F13","statement":"Frozen behaviour: new isolated module + ONE new CLI subcommand only; no existing module/migration/view altered; 62 tests stay green.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"Golden Rule 1","verify":"pytest suite >=62 passed/0 failed/0 errors; git diff: existing module signatures unchanged, no diff under db/, 6 existing subcommands' --help identical, new subcommand additive."},
-    {"id":"F14","statement":"New module does not break emailer.send_email's zero-attachment guard for existing callers.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"EMAILER guard","verify":"pytest: send_email with no attachments still raises; new approval/progress send path sends (mocked SMTP) via attachment or its own send fn."},
-    {"id":"F15","statement":"No secrets committed; .env git-ignored; APPROVAL_SIGNING_SECRET and write cred from env only, never hardcoded/logged/emailed.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"Golden Rule 2","verify":"git check-ignore .env; grep tracked source finds no literal secret; test asserts secret sourced from config, absent from log+email+audit."},
-    {"id":"F16","statement":"Agent-native: new subcommand invokable headlessly, outputs machine-readable, behaviour assertable with no human-only step.","severity":"blocker","moscow":"Must","weight":3,"from_constraint":"AGENT-NATIVE","verify":"pytest: invoke entry point with mocked inbox/SMTP/Investec -> deterministic exit code; pending state + audit readable and assertable in-test."},
-    {"id":"F17","statement":"Pending + daily-aggregate state persisted without altering frozen schema (file/JSON default; 0009 migration only if later approved).","severity":"major","moscow":"Should","weight":2,"from_constraint":"Golden Rule 1 + idempotency persistence","verify":"pytest: state survives fresh process; git diff under db/ empty for default deliverable."},
-    {"id":"F18","statement":"Attachment extraction covers PDF and Excel/CSV deterministically; clean inputs yield one unambiguous candidate.","severity":"major","moscow":"Should","weight":2,"from_constraint":"goal extraction surface (bounded by F5)","verify":"pytest: parametrized over body/PDF/CSV/xlsx well-formed fixtures -> expected amount/currency/payee; malformed -> F5 fail-closed."},
-    {"id":"F19","statement":"Consolidated approval email lists multiple pending payments each with its own bound token; later-arriving items appended.","severity":"major","moscow":"Should","weight":2,"from_constraint":"goal consolidation (bounded by F10)","verify":"pytest: two pendings -> one email listing both with distinct tokens; add a third -> refreshed email includes all unapproved, approved not re-solicited."},
-    {"id":"F20","statement":"POPIA minimisation/retention: only needed fields stored, account ids as last-3/hash, retention/cleanup path exists.","severity":"major","moscow":"Should","weight":2,"from_constraint":"POPIA-LAWFUL-MINIMISATION","verify":"pytest: persisted record has no full account number, only minimal fields; cleanup function removes/expires records past retention window."}
+    {
+      "id": "F1",
+      "statement": "Inbound email content is never an authenticator: no payment is approved/executed on From-address, subject, body, or any plaintext keyword (incl. 'app'/'approve'/'yes') alone.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "AUTH-INBOUND-NOT-AUTHENTICATOR",
+      "verify": "pytest: reply of exactly 'approve'/'app'/'yes' with no token, and a forged token-looking string, from the user address (incl. spoofed From) -> payment stays 'pending', execute mock not_called."
+    },
+    {
+      "id": "F2",
+      "statement": "Token = HMAC-SHA256 keyed by a never-emailed/never-logged secret, BOUND to (sourceAccountId, amount, beneficiaryId, dedup key, nonce, expiry), single-use, expiring, constant-time compared.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "TOKEN-HMAC-BOUND-SINGLE-USE-EXPIRING",
+      "verify": "pytest: valid token approves once; reuse rejected; expired rejected; altered source-account/amount/beneficiary fails; wrong-secret rejected; verify uses hmac.compare_digest; secret never in logs."
+    },
+    {
+      "id": "F3",
+      "statement": "The last-3 digits in the email identify WHICH of the user's own accounts to pay FROM (the source/debit account). They are resolved EXACTLY against the user's real Investec accounts (get_accounts); zero or >1 matches -> fail-closed. Last-3 selects the source account but is NEVER an authorization factor \u2014 execution still requires the valid bound HMAC token (F2).",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "LAST3-IS-WEAK-SELECTOR + source-account-selection",
+      "verify": "pytest: (a) last-3 matching exactly one real account resolves to that sourceAccountId, which is the account debited in the (dry-run) payment and is bound into the token; (b) last-3 matching zero or >1 accounts -> fail-closed (parked, no execute); (c) email matching last-3 with approval-looking body but no valid token -> matched/pending but NOT executed."
+    },
+    {
+      "id": "F4",
+      "statement": "Execution targets ONLY an exact pre-registered beneficiaryId from an allowlist; a parsed account number is never paid directly.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "ALLOWLIST-EXACT-BENEFICIARY-ID",
+      "verify": "pytest: exact allowlist match -> dry-run execute with beneficiaryId; no match -> fail-closed; value passed to execute is the registered id, never parsed account string."
+    },
+    {
+      "id": "F5",
+      "statement": "Fail-closed on ambiguity/low-confidence extraction; uncertainty defaults to NO pay.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "FAIL-CLOSED-ON-AMBIGUITY",
+      "verify": "pytest: two amounts / two payees / currency mismatch / corrupt PDF each -> 'parked'/'needs_review', never executes; clean single input proceeds."
+    },
+    {
+      "id": "F6",
+      "statement": "Per-payment cap AND persisted daily-aggregate cap both checked BEFORE execution; daily total survives restart.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "CAPS-ENFORCED-PRE-EXECUTION",
+      "verify": "pytest: over per-payment cap blocked; under-cap payment pushing daily over aggregate blocked; reloaded daily total persists; execute not_called when blocked."
+    },
+    {
+      "id": "F7",
+      "statement": "Deterministic dedup key (message-id+amount+beneficiaryId+currency) prevents double-pending and double-execution.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "IDEMPOTENCY-DEDUP-KEY",
+      "verify": "pytest: same email twice -> one pending; approve+execute then re-present -> execute call_count==1; different payments -> different keys."
+    },
+    {
+      "id": "F8",
+      "statement": "DRY_RUN is default; live needs an explicit logged enable flag AND a write-scoped credential; in dry-run no write endpoint is called.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "DRY-RUN-DEFAULT-AUDITABLE-LIVE-SWITCH",
+      "verify": "pytest: default -> no client write/_post called, recorded 'dry-run'; flag set but no write cred -> stays dry-run; both present -> mocked write path invoked + live enablement audited."
+    },
+    {
+      "id": "F9",
+      "statement": "Append-only timestamped audit trail of every step; never records full account number/PAN nor the signing secret.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "AUDIT-TRAIL-NON-REPUDIATION",
+      "verify": "pytest: full pipeline -> one ordered entry per step, entries never mutated; scan finds no secret and no full account number (only last-3 or hash)."
+    },
+    {
+      "id": "F10",
+      "statement": "A token approves ONLY the exact payment it was bound to (append-later safety).",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "TOKEN-HMAC-BOUND-SINGLE-USE-EXPIRING",
+      "verify": "pytest: T1 for P1, T2 for P2 in one batch; T1 against P2 rejected; T1 against P1 approves; approving P1 leaves P2 untouched."
+    },
+    {
+      "id": "F11",
+      "statement": "Image OCR out of scope / graceful-skip; image attachments never egress to cloud OCR; image-only payment fails closed.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "POPIA-CLOUD-OCR-CROSS-BORDER-EGRESS",
+      "verify": "pytest: image-only attachment -> no exception, recorded 'skipped (OCR out of scope)', no network/cloud OCR call, no pending payment from image alone."
+    },
+    {
+      "id": "F12",
+      "statement": "Sender progress emails only when sender contact explicitly present; content minimised (no beneficiaryId/account/balance/caps/token).",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "POPIA-THIRD-PARTY-SENDER-CONTACT",
+      "verify": "pytest: no sender contact -> send mock not_called; contact present -> one minimised status email containing none of beneficiaryId/full account/balance/caps/token."
+    },
+    {
+      "id": "F13",
+      "statement": "Frozen behaviour: new isolated module + ONE new CLI subcommand only; no existing module/migration/view altered; 62 tests stay green.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "Golden Rule 1",
+      "verify": "pytest suite >=62 passed/0 failed/0 errors; git diff: existing module signatures unchanged, no diff under db/, 6 existing subcommands' --help identical, new subcommand additive."
+    },
+    {
+      "id": "F14",
+      "statement": "New module does not break emailer.send_email's zero-attachment guard for existing callers.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "EMAILER guard",
+      "verify": "pytest: send_email with no attachments still raises; new approval/progress send path sends (mocked SMTP) via attachment or its own send fn."
+    },
+    {
+      "id": "F15",
+      "statement": "No secrets committed; .env git-ignored; APPROVAL_SIGNING_SECRET and write cred from env only, never hardcoded/logged/emailed.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "Golden Rule 2",
+      "verify": "git check-ignore .env; grep tracked source finds no literal secret; test asserts secret sourced from config, absent from log+email+audit."
+    },
+    {
+      "id": "F16",
+      "statement": "Agent-native: new subcommand invokable headlessly, outputs machine-readable, behaviour assertable with no human-only step.",
+      "severity": "blocker",
+      "moscow": "Must",
+      "weight": 3,
+      "from_constraint": "AGENT-NATIVE",
+      "verify": "pytest: invoke entry point with mocked inbox/SMTP/Investec -> deterministic exit code; pending state + audit readable and assertable in-test."
+    },
+    {
+      "id": "F17",
+      "statement": "Pending + daily-aggregate state persisted without altering frozen schema (file/JSON default; 0009 migration only if later approved).",
+      "severity": "major",
+      "moscow": "Should",
+      "weight": 2,
+      "from_constraint": "Golden Rule 1 + idempotency persistence",
+      "verify": "pytest: state survives fresh process; git diff under db/ empty for default deliverable."
+    },
+    {
+      "id": "F18",
+      "statement": "Attachment extraction covers PDF and Excel/CSV deterministically; clean inputs yield one unambiguous candidate.",
+      "severity": "major",
+      "moscow": "Should",
+      "weight": 2,
+      "from_constraint": "goal extraction surface (bounded by F5)",
+      "verify": "pytest: parametrized over body/PDF/CSV/xlsx well-formed fixtures -> expected amount/currency/payee; malformed -> F5 fail-closed."
+    },
+    {
+      "id": "F19",
+      "statement": "Consolidated approval email lists multiple pending payments each with its own bound token; later-arriving items appended.",
+      "severity": "major",
+      "moscow": "Should",
+      "weight": 2,
+      "from_constraint": "goal consolidation (bounded by F10)",
+      "verify": "pytest: two pendings -> one email listing both with distinct tokens; add a third -> refreshed email includes all unapproved, approved not re-solicited."
+    },
+    {
+      "id": "F20",
+      "statement": "POPIA minimisation/retention: only needed fields stored, account ids as last-3/hash, retention/cleanup path exists.",
+      "severity": "major",
+      "moscow": "Should",
+      "weight": 2,
+      "from_constraint": "POPIA-LAWFUL-MINIMISATION",
+      "verify": "pytest: persisted record has no full account number, only minimal fields; cleanup function removes/expires records past retention window."
+    }
   ],
   "out_of_scope": [
     "Live money movement in THIS env (no write-scoped Investec credential): deliverable is dry-run with live path guarded (F8) but not exercised.",
@@ -32,11 +192,26 @@
     "Sending via Gmail MCP (read/draft only); all sends via SMTP."
   ],
   "open_questions": [
-    {"id":"OQ1","q":"Exact Investec payment/beneficiary endpoints+scope UNVERIFIED; live execute() shape covered only as guarded mocked dry-run (F8)."},
-    {"id":"OQ2","q":"Persistence: file/JSON (default, no schema change) vs additive 0009 migration (needs explicit approval)."},
-    {"id":"OQ3","q":"PDF dep (pypdf) — if no new dep permitted, PDF extraction degrades to fail-closed."},
-    {"id":"OQ4","q":"Inbox read: stdlib imaplib vs Gmail MCP (mocked in tests either way)."},
-    {"id":"OQ5","q":"POPIA retention-window value + lawful-basis doc are policy inputs."}
+    {
+      "id": "OQ1",
+      "q": "Exact Investec payment/beneficiary endpoints+scope UNVERIFIED; live execute() shape covered only as guarded mocked dry-run (F8)."
+    },
+    {
+      "id": "OQ2",
+      "q": "Persistence: file/JSON (default, no schema change) vs additive 0009 migration (needs explicit approval)."
+    },
+    {
+      "id": "OQ3",
+      "q": "PDF dep (pypdf) \u2014 if no new dep permitted, PDF extraction degrades to fail-closed."
+    },
+    {
+      "id": "OQ4",
+      "q": "Inbox read: stdlib imaplib vs Gmail MCP (mocked in tests either way)."
+    },
+    {
+      "id": "OQ5",
+      "q": "POPIA retention-window value + lawful-basis doc are policy inputs."
+    }
   ],
   "coverage_note": "All 13 HARD domain constraints -> blocker Musts; EMAILER advisory -> F14; AGENT-NATIVE -> F16. 5 goal breaches neutralized: parsed-account->F4/F5, keyword-approval->F1/F2/F3, live-without-cred->F8, image-OCR->F11, sender-disclosure->F12. Append-later hazard -> F10. Functional surfaces -> Shoulds F17-F20.",
   "confidence": "high on security/idempotency/freeze invariants; medium on POPIA phrasing; low on live Investec API (deferred to OQ1)."

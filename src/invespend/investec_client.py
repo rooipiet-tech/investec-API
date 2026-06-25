@@ -1,7 +1,15 @@
-"""Investec Open API client (read-only).
+"""Investec Open API client (read-only reads + guarded write path).
 
 Implements the OAuth2 client-credentials flow and the account/transaction reads.
-The credentials granted here cannot move money — they only read account data.
+The read credentials granted here cannot move money — they only read account data.
+
+The write helpers (``_post`` / ``create_payment``) are ADDITIVE and are reached
+ONLY in live mode (an explicit enable flag AND a write-scoped credential — see
+config.live_enabled()). In the default dry-run posture they are never called.
+
+ASSUMPTION (OQ1): the exact Investec payment endpoint + scope are UNVERIFIED.
+The endpoint path is isolated below in a single clearly-marked constant and is
+exercised only by mocked tests — it is NOT asserted as a confirmed live URL.
 """
 from __future__ import annotations
 
@@ -98,3 +106,49 @@ class InvestecClient:
             },
         )
         return data.get("data", {}).get("transactions", [])
+
+    # ── writes (ADDITIVE; live-mode only) ─────────────────────────────────────
+    # ASSUMPTION (OQ1): UNVERIFIED Investec endpoint path, isolated here so the
+    # uncertainty lives in exactly one place. Only ever exercised by mocked tests.
+    PAY_MULTIPLE_PATH = "/za/pb/v1/accounts/{account_id}/paymultiple"  # ASSUMPTION (OQ1)
+
+    def _post(self, path: str, payload: dict) -> dict:
+        resp = self._session.post(
+            f"{self._base_url}{path}",
+            headers={
+                "Authorization": f"Bearer {self._get_token()}",
+                "x-api-key": self._api_key,
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=self._timeout,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
+    def create_payment(
+        self,
+        source_account_id: str,
+        beneficiary_id: str,
+        amount: str,
+        reference: str = "",
+        my_reference: str = "",
+    ) -> dict:
+        """Submit a single payment to a pre-registered beneficiary (live-mode only).
+
+        Pays ONLY by ``beneficiary_id`` — never a raw account number. The exact
+        request shape is an ASSUMPTION (OQ1) and is verified only via mocks.
+        """
+        path = self.PAY_MULTIPLE_PATH.format(account_id=source_account_id)
+        payload = {
+            "paymentList": [
+                {
+                    "beneficiaryId": beneficiary_id,
+                    "amount": str(amount),
+                    "myReference": my_reference or reference,
+                    "theirReference": reference,
+                }
+            ]
+        }
+        return self._post(path, payload)

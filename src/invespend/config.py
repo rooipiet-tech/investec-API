@@ -15,6 +15,23 @@ from dotenv import load_dotenv
 
 load_dotenv()  # no-op in CI where vars are already in the environment
 
+# The .env.example placeholder value for APPROVAL_SIGNING_SECRET. A user who
+# copies .env.example verbatim must NOT be able to issue/verify real tokens.
+_SIGNING_SECRET_PLACEHOLDER = "change_me_long_random_secret"
+# Minimum acceptable signing-secret length (rejects trivially-short secrets).
+_SIGNING_SECRET_MIN_LEN = 16
+
+
+def signing_secret_is_valid(secret: str | None) -> bool:
+    """A signing secret is usable only when it is non-empty, not the example
+    placeholder, and at least the minimum length (F2/F15)."""
+    if not secret:
+        return False
+    secret = secret.strip()
+    if not secret or secret == _SIGNING_SECRET_PLACEHOLDER:
+        return False
+    return len(secret) >= _SIGNING_SECRET_MIN_LEN
+
 
 def _require(name: str) -> str:
     value = os.getenv(name)
@@ -35,6 +52,14 @@ def _opt(name: str, default: str = "") -> str:
         return default
     value = value.strip()
     return value or default
+
+
+def _opt_bool(name: str, default: bool = False) -> bool:
+    """Read an optional boolean env var (1/true/yes/on -> True)."""
+    raw = _opt(name)
+    if not raw:
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
 @dataclass(frozen=True)
@@ -67,6 +92,55 @@ class Settings:
     # Backup (optional): passphrase to encrypt the weekly pg_dump at rest.
     backup_passphrase: str = ""
 
+    # ── Email-payment-approval (NEW, all optional with safe defaults) ─────────
+    # HMAC key that signs approval tokens. Env only, never logged/emailed (F2/F15).
+    approval_signing_secret: str = ""
+    # Spending caps (default 0 => fail-closed: no payment passes until configured).
+    per_payment_cap: float = 0.0
+    daily_aggregate_cap: float = 0.0
+    # DRY-RUN is the default; live needs BOTH the flag AND a write credential (PR1/F8).
+    payments_dry_run: bool = True
+    payments_live_enable: bool = False
+    # Write-scoped Investec credential (absent by default -> stays dry-run).
+    investec_write_client_id: str = ""
+    investec_write_client_secret: str = ""
+    investec_write_api_key: str = ""
+    # IMAP inbox (read; tests inject a fake reader).
+    imap_host: str = ""
+    imap_port: int = 993
+    imap_user: str = ""
+    imap_password: str = ""
+    imap_mailbox: str = "INBOX"
+    # POPIA retention window (days) for pending/audit cleanup (F20).
+    retention_days: int = 90
+    # Where pending/daily-total/audit JSON state is persisted (F17).
+    state_dir: str = ".invespend_state"
+
+    def require_signing_secret(self) -> str:
+        """Return the approval signing secret only when it is valid; otherwise
+        fail CLOSED (F2/F15) so a placeholder/short secret can never mint or
+        verify a real token."""
+        if not signing_secret_is_valid(self.approval_signing_secret):
+            raise RuntimeError(
+                "APPROVAL_SIGNING_SECRET is missing, the .env.example placeholder, "
+                "or too short; set a strong random secret (>= "
+                f"{_SIGNING_SECRET_MIN_LEN} chars) before issuing approval tokens."
+            )
+        return self.approval_signing_secret.strip()
+
+    def has_write_credential(self) -> bool:
+        """True iff a full write-scoped Investec credential is configured."""
+        return bool(
+            self.investec_write_client_id
+            and self.investec_write_client_secret
+            and self.investec_write_api_key
+        )
+
+    def live_enabled(self) -> bool:
+        """Live money movement is permitted ONLY when the enable flag is set AND a
+        write-scoped credential is present (PR1/F8). Flag-only stays dry-run."""
+        return bool(self.payments_live_enable and self.has_write_credential())
+
     @classmethod
     def load(cls) -> "Settings":
         return cls(
@@ -88,6 +162,22 @@ class Settings:
             ],
             ingest_window_days=int(_opt("INGEST_WINDOW_DAYS", "7")),
             backup_passphrase=_opt("BACKUP_PASSPHRASE"),
+            # ── Email-payment-approval (all optional) ─────────────────────────
+            approval_signing_secret=_opt("APPROVAL_SIGNING_SECRET"),
+            per_payment_cap=float(_opt("PER_PAYMENT_CAP", "0")),
+            daily_aggregate_cap=float(_opt("DAILY_AGGREGATE_CAP", "0")),
+            payments_dry_run=_opt_bool("PAYMENTS_DRY_RUN", True),
+            payments_live_enable=_opt_bool("PAYMENTS_LIVE_ENABLE", False),
+            investec_write_client_id=_opt("INVESTEC_WRITE_CLIENT_ID"),
+            investec_write_client_secret=_opt("INVESTEC_WRITE_CLIENT_SECRET"),
+            investec_write_api_key=_opt("INVESTEC_WRITE_API_KEY"),
+            imap_host=_opt("IMAP_HOST"),
+            imap_port=int(_opt("IMAP_PORT", "993")),
+            imap_user=_opt("IMAP_USER"),
+            imap_password=_opt("IMAP_PASSWORD").replace(" ", ""),
+            imap_mailbox=_opt("IMAP_MAILBOX", "INBOX"),
+            retention_days=int(_opt("RETENTION_DAYS", "90")),
+            state_dir=_opt("PAYMENTS_STATE_DIR", ".invespend_state"),
         )
 
     @property
