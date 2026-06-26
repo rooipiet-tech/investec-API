@@ -70,12 +70,26 @@ def run_approval_cycle(
     audit.append("cycle_start", {"execution_mode": "live" if live else "dry-run",
                                  "live_enabled": live})
 
+    # Allowlist source: explicit param wins; else API (when enabled) else static
+    # code config. A failed/empty API fetch -> empty allowlist -> everything fails
+    # closed (no pay) — the fetch never raises past this guard.
+    beneficiary_source = "static"
+    if allowlist is None and getattr(settings, "payments_beneficiaries_from_api", False):
+        beneficiary_source = "api"
+        try:
+            allowlist = bene.from_api(client.get_beneficiaries())
+        except Exception:  # noqa: BLE001 — fail closed, never bypass safety
+            allowlist = []
+        audit.append("beneficiaries_loaded",
+                     {"source": "api", "count": len(allowlist)})
+
     real_accounts = client.get_accounts()
     messages = inbox.fetch_messages()
 
     summary = {
         "execution_mode": "live" if live else "dry-run",
         "live_enabled": live,
+        "beneficiary_source": beneficiary_source,
         "processed": 0,
         "pending": 0,
         "executed": 0,

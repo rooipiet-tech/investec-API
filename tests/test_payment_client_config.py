@@ -41,6 +41,46 @@ def test_create_payment_posts_via_mock(monkeypatch):
     assert "ACC1" in captured["path"]
 
 
+def test_get_beneficiaries_parses_data(monkeypatch):
+    client = InvestecClient("id", "sec", "key", "https://example.invalid")
+    monkeypatch.setattr(
+        client, "_get",
+        lambda path: {"data": [{"beneficiaryId": "B1"}, {"beneficiaryId": "B2"}]},
+    )
+    out = client.get_beneficiaries()
+    assert out == [{"beneficiaryId": "B1"}, {"beneficiaryId": "B2"}]
+
+
+def test_get_beneficiaries_empty_when_no_data(monkeypatch):
+    client = InvestecClient("id", "sec", "key", "https://example.invalid")
+    monkeypatch.setattr(client, "_get", lambda path: {})
+    assert client.get_beneficiaries() == []
+
+
+def test_payments_enabled_acts_as_write_credential():
+    # User declares the single main key can pay: no separate write trio needed.
+    s = _settings(investec_payments_enabled=True)
+    assert s.has_write_credential() is True
+    # Flag-only still dry-run; live needs payments_live_enable too.
+    assert s.live_enabled() is False
+    s2 = _settings(investec_payments_enabled=True, payments_live_enable=True)
+    assert s2.live_enabled() is True
+
+
+def test_payment_credentials_prefers_write_trio_else_main():
+    main = _settings()
+    assert main.payment_credentials() == ("x", "x", "x")
+    w = _settings(
+        investec_write_client_id="wid",
+        investec_write_client_secret="wsec",
+        investec_write_api_key="wkey",
+    )
+    assert w.payment_credentials() == ("wid", "wsec", "wkey")
+    # payments_enabled (no separate trio) -> the main trio is the payment cred.
+    p = _settings(investec_payments_enabled=True)
+    assert p.payment_credentials() == ("x", "x", "x")
+
+
 def test_read_methods_present_and_additive():
     # Read methods still exist with their original signatures (PR5 guard).
     for name in ("get_accounts", "get_balance", "get_transactions", "_get", "_get_token"):
@@ -151,21 +191,38 @@ def test_approve_payments_headless_json(monkeypatch, capsys, tmp_path):
     assert json.loads(capsys.readouterr().out)["execution_mode"] == "dry-run"
 
 
-def _cli_stub_settings(tmp_path, *, live):
+def _cli_stub_settings(tmp_path, *, live, write_trio=True):
     class _S:
         state_dir = str(tmp_path)
         investec_client_id = "READ_ID"
         investec_client_secret = "READ_SEC"
         investec_api_key = "READ_KEY"
-        investec_write_client_id = "WRITE_ID"
-        investec_write_client_secret = "WRITE_SEC"
-        investec_write_api_key = "WRITE_KEY"
+        investec_write_client_id = "WRITE_ID" if write_trio else ""
+        investec_write_client_secret = "WRITE_SEC" if write_trio else ""
+        investec_write_api_key = "WRITE_KEY" if write_trio else ""
         investec_base_url = "u"
         report_sender = "from@x"
         retention_days = 90
+        payments_beneficiaries_from_api = False
 
         def live_enabled(self):
             return live
+
+        def _has_write_trio(self):
+            return bool(
+                self.investec_write_client_id
+                and self.investec_write_client_secret
+                and self.investec_write_api_key
+            )
+
+        def payment_credentials(self):
+            if self._has_write_trio():
+                return (self.investec_write_client_id,
+                        self.investec_write_client_secret,
+                        self.investec_write_api_key)
+            return (self.investec_client_id,
+                    self.investec_client_secret,
+                    self.investec_api_key)
 
     return _S()
 
@@ -224,6 +281,37 @@ def test_dry_run_uses_read_credentials(monkeypatch, capsys, tmp_path):
     out = json.loads(capsys.readouterr().out)
     assert out["requested_mode"] == "live"   # advisory value surfaced
     assert out["live_enabled"] is False      # effective gate stays closed
+
+
+def test_live_mode_uses_main_creds_when_no_write_trio(monkeypatch, capsys, tmp_path):
+    # Single-key case: no separate write trio, but payments declared on the main
+    # credential. The live client must be built from the MAIN trio.
+    from invespend import cli
+
+    captured = {}
+    monkeypatch.setattr(
+        cli.Settings, "load",
+        classmethod(lambda c: _cli_stub_settings(tmp_path, live=True, write_trio=False)),
+    )
+    monkeypatch.setattr(
+        "invespend.investec_client.InvestecClient.__init__",
+        lambda self, cid, csec, akey, burl, *a, **k: captured.__setitem__("args", (cid, csec, akey)),
+    )
+    monkeypatch.setattr("invespend.payments.inbox.ImapInbox.__init__",
+                        lambda self, *a, **k: None)
+    monkeypatch.setattr(
+        "invespend.payments.pipeline.run_approval_cycle",
+        lambda settings, **kw: {"execution_mode": "live", "processed": 0,
+                                "executed": 0, "pending": 0, "parked": 0,
+                                "skipped": 0, "results": [], "beneficiary_source": "static"},
+    )
+    rc = cli.main(["approve-payments", "--live"])
+    assert rc == 0
+    assert captured["args"] == ("READ_ID", "READ_SEC", "READ_KEY")
+    out = json.loads(capsys.readouterr().out)
+    assert out["live_enabled"] is True
+    assert out["credential_set"] == "main"
+    assert out["beneficiary_source"] == "static"
 
 
 def test_approve_payments_error_envelope(monkeypatch, capsys, tmp_path):

@@ -107,6 +107,14 @@ class InvestecClient:
         )
         return data.get("data", {}).get("transactions", [])
 
+    def get_beneficiaries(self) -> list[dict]:
+        """List the user's pre-registered Investec beneficiaries (read-only).
+
+        Returns the raw ``data`` list; mapping to the allowlist dataclass and the
+        exact-match/fail-closed resolution live in payments.beneficiaries.
+        """
+        return self._get("/za/pb/v1/accounts/beneficiaries").get("data", [])
+
     # ── writes (ADDITIVE; live-mode only) ─────────────────────────────────────
     # Endpoint + request shape VERIFIED against Investec Programmable Banking docs:
     # POST /za/pb/v1/accounts/{accountId}/paymultiple with a "paymentList" of

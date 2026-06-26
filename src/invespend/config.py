@@ -105,6 +105,11 @@ class Settings:
     investec_write_client_id: str = ""
     investec_write_client_secret: str = ""
     investec_write_api_key: str = ""
+    # The user may declare the MAIN Investec credential is payment-capable (single
+    # key for reads + payments). Off by default: a read key never silently pays.
+    investec_payments_enabled: bool = False
+    # Source the beneficiary allowlist from the Investec API instead of static code.
+    payments_beneficiaries_from_api: bool = False
     # IMAP inbox (read; tests inject a fake reader).
     imap_host: str = ""
     imap_port: int = 993
@@ -128,17 +133,40 @@ class Settings:
             )
         return self.approval_signing_secret.strip()
 
-    def has_write_credential(self) -> bool:
-        """True iff a full write-scoped Investec credential is configured."""
+    def _has_write_trio(self) -> bool:
+        """True iff a full separate write-scoped Investec credential is configured."""
         return bool(
             self.investec_write_client_id
             and self.investec_write_client_secret
             and self.investec_write_api_key
         )
 
+    def has_write_credential(self) -> bool:
+        """True iff money can be moved: EITHER a full separate write-scoped trio is
+        configured, OR the user explicitly declared the main credential is
+        payment-capable (investec_payments_enabled). A read key never pays unless
+        one of these is true (PR1/F8)."""
+        return self._has_write_trio() or self.investec_payments_enabled
+
+    def payment_credentials(self) -> tuple[str, str, str]:
+        """The (client_id, secret, api_key) the LIVE client must use to pay: the
+        separate write trio when fully present, else the main Investec trio (the
+        user-declared payment-capable key)."""
+        if self._has_write_trio():
+            return (
+                self.investec_write_client_id,
+                self.investec_write_client_secret,
+                self.investec_write_api_key,
+            )
+        return (
+            self.investec_client_id,
+            self.investec_client_secret,
+            self.investec_api_key,
+        )
+
     def live_enabled(self) -> bool:
         """Live money movement is permitted ONLY when the enable flag is set AND a
-        write-scoped credential is present (PR1/F8). Flag-only stays dry-run."""
+        payment-capable credential is present (PR1/F8). Flag-only stays dry-run."""
         return bool(self.payments_live_enable and self.has_write_credential())
 
     @classmethod
@@ -171,6 +199,8 @@ class Settings:
             investec_write_client_id=_opt("INVESTEC_WRITE_CLIENT_ID"),
             investec_write_client_secret=_opt("INVESTEC_WRITE_CLIENT_SECRET"),
             investec_write_api_key=_opt("INVESTEC_WRITE_API_KEY"),
+            investec_payments_enabled=_opt_bool("INVESTEC_PAYMENTS_ENABLED", False),
+            payments_beneficiaries_from_api=_opt_bool("PAYMENTS_BENEFICIARIES_FROM_API", False),
             imap_host=_opt("IMAP_HOST"),
             imap_port=int(_opt("IMAP_PORT", "993")),
             imap_user=_opt("IMAP_USER"),

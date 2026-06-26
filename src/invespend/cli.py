@@ -272,14 +272,12 @@ def cmd_approve_payments(args: argparse.Namespace) -> int:
         from .payments.pipeline import run_approval_cycle
 
         live = settings.live_enabled()
-        # F8/PR1: live mode uses the WRITE-scoped credential; dry-run uses read.
+        # F8/PR1: live mode uses the payment-capable credential (separate write
+        # trio if configured, else the user-declared payment-capable main key);
+        # dry-run uses the read credential.
         if live:
-            client = InvestecClient(
-                settings.investec_write_client_id,
-                settings.investec_write_client_secret,
-                settings.investec_write_api_key,
-                settings.investec_base_url,
-            )
+            cid, csec, akey = settings.payment_credentials()
+            client = InvestecClient(cid, csec, akey, settings.investec_base_url)
         else:
             client = InvestecClient(
                 settings.investec_client_id,
@@ -297,9 +295,17 @@ def cmd_approve_payments(args: argparse.Namespace) -> int:
         ))
         return 2
     # F8/F16: surface the advisory flag and the effective gate so the flag's
-    # effect (or inertness) is explicit and assertable.
+    # effect (or inertness) is explicit and assertable. credential_set names which
+    # creds the live client used (write trio vs the payment-capable main key);
+    # beneficiary_source (set by the pipeline) shows api vs static allowlist.
     summary["requested_mode"] = requested_mode
     summary["live_enabled"] = live
+    if live:
+        summary["credential_set"] = (
+            "write" if settings._has_write_trio() else "main"
+        )
+    else:
+        summary["credential_set"] = "read"
     print(json.dumps(summary, sort_keys=True))
     return 0
 

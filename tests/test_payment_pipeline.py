@@ -237,6 +237,87 @@ def test_summary_is_json_serializable(tmp_path):
     assert json.loads(json.dumps(res))["execution_mode"] == "dry-run"
 
 
+# ── beneficiary allowlist sourced from the Investec API ──────────────────────
+class _ApiClient(_Client):
+    def __init__(self, beneficiaries):
+        super().__init__()
+        self._beneficiaries = beneficiaries
+
+    def get_beneficiaries(self):
+        return self._beneficiaries
+
+
+def _approve_flow_api(s, client, amount="500.00", payee="Acme", mid="m1"):
+    m1 = _msg(f"Payee: {payee}\nAmount: R {amount}", mid=mid)
+    pipeline.run_approval_cycle(s, inbox=_inbox([m1]), client=client,
+                                smtp_send=lambda *a: None)
+    rec = [r for r in PaymentStore(s.state_dir).list_records()
+           if r["status"] == "pending"][0]
+    tok, _ = token.issue_token(
+        s.approval_signing_secret, source_account_id=rec["source_account_id"],
+        amount=rec["amount"], beneficiary_id=rec["beneficiary_id"],
+        dedup_key=rec["dedup_key"], nonce=rec["nonce"],
+    )
+    m2 = _msg(f"Payee: {payee}\nAmount: R {amount}\n{tok}", token=tok, mid=mid)
+    return pipeline.run_approval_cycle(s, inbox=_inbox([m2]), client=client,
+                                       smtp_send=lambda *a: None)
+
+
+def test_allowlist_from_api_resolves_and_executes(tmp_path):
+    # payments_beneficiaries_from_api=True -> allowlist sourced from the client.
+    s = _settings(
+        tmp_path, payments_beneficiaries_from_api=True,
+        payments_live_enable=True, investec_payments_enabled=True,
+    )
+    assert s.live_enabled() is True
+    client = _ApiClient([{"beneficiaryId": "BEN1", "beneficiaryName": "Acme"}])
+    res = _approve_flow_api(s, client)
+    assert res["beneficiary_source"] == "api"
+    assert res["executed"] == 1
+    assert client.writes == [("ACC1", "BEN1", "500.00")]
+
+
+def test_empty_api_beneficiaries_fails_closed(tmp_path):
+    # A beneficiary fetch returning [] -> empty allowlist -> nothing executes.
+    s = _settings(
+        tmp_path, payments_beneficiaries_from_api=True,
+        payments_live_enable=True, investec_payments_enabled=True,
+    )
+    client = _ApiClient([])
+    res = pipeline.run_approval_cycle(
+        s, inbox=_inbox([_msg("Payee: Acme\nAmount: R 500.00")]),
+        client=client, smtp_send=lambda *a: None,
+    )
+    assert res["beneficiary_source"] == "api"
+    assert res["executed"] == 0
+    assert res["parked"] == 1
+    assert client.writes == []
+
+
+def test_failed_api_beneficiaries_fetch_fails_closed(tmp_path):
+    # A raising get_beneficiaries() must not bypass safety: empty allowlist.
+    s = _settings(tmp_path, payments_beneficiaries_from_api=True)
+
+    class _Boom(_Client):
+        def get_beneficiaries(self):
+            raise RuntimeError("investec down")
+
+    client = _Boom()
+    res = pipeline.run_approval_cycle(
+        s, inbox=_inbox([_msg("Payee: Acme\nAmount: R 500.00")]),
+        client=client, smtp_send=lambda *a: None,
+    )
+    assert res["beneficiary_source"] == "api"
+    assert res["executed"] == 0
+    assert client.writes == []
+
+
+def test_static_source_when_api_flag_off(tmp_path):
+    s = _settings(tmp_path)  # flag off -> static source
+    res, _ = _run(s, [_msg("Payee: Acme\nAmount: R 500.00")])
+    assert res["beneficiary_source"] == "static"
+
+
 # ── F19: consolidated approval email lists multiple pendings ─────────────────
 def test_approval_email_consolidates_pendings(tmp_path):
     s = _settings(tmp_path)
