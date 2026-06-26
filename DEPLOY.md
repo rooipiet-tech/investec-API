@@ -59,14 +59,34 @@ restarts.
 
 ## 3. Schedule the cycle
 
-Run one approval cycle on a Railway **cron / scheduled job**:
+The repo's `railway.toml` already configures the payment job as a **cron
+service**: every 15 minutes it runs one cycle and exits (run-to-completion,
+no restart):
 
-```
-invespend approve-payments --once
+```toml
+[deploy]
+startCommand = "invespend approve-payments --once"
+cronSchedule = "*/15 * * * *"
+restartPolicyType = "NEVER"
 ```
 
-(`ingest`, `report`, and `statements` are separate scheduled jobs if you use
-them.)
+Each cycle both **sends approval requests** for newly-matched payments and
+**acts on valid approval replies** in your inbox, so approvals are processed
+within the schedule interval. Adjust `cronSchedule` to taste (e.g. `*/5 * * * *`).
+
+A Railway service has only **one** schedule + start command. Run the other jobs
+as their **own Railway services** (same image + Variables), each with its own
+`startCommand` / `cronSchedule`:
+
+| Service       | startCommand                        | example schedule     |
+| ------------- | ----------------------------------- | -------------------- |
+| payments      | `invespend approve-payments --once` | `*/15 * * * *`       |
+| ingest        | `invespend ingest`                  | `0 * * * *` (hourly) |
+| weekly report | `invespend report`                  | `0 6 * * 1` (Mon 6h) |
+| statements    | `invespend statements`              | as needed            |
+
+Run `invespend init-db` once (any service) to apply migrations, including the
+additive `0009_payment_approvals.sql` used by the Postgres state backend.
 
 ## 4. Go live carefully
 

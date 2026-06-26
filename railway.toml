@@ -1,3 +1,18 @@
 [build]
 builder = "DOCKERFILE"
 dockerfilePath = "Dockerfile"
+
+# Scheduled payment-approval cycle. Railway runs the container on this schedule,
+# the CLI runs ONE cycle and exits, and the job does not restart (run-to-
+# completion). Every 15 min: send approval requests for newly-matched payments
+# and act on any valid approval replies. State persists in Postgres
+# (PAYMENTS_STATE_BACKEND=postgres) or a mounted volume — see DEPLOY.md.
+#
+# NOTE: a Railway service has ONE schedule/start command. Run the other jobs
+# (ingest / report / statements) as their own Railway services, each with its
+# own startCommand + cronSchedule. All share this image and the Variables.
+[deploy]
+startCommand = "invespend approve-payments --once"
+cronSchedule = "*/15 * * * *"
+restartPolicyType = "NEVER"
+numReplicas = 1
