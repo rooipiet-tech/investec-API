@@ -61,11 +61,19 @@ def run_approval_cycle(
     sender_contact: str | None = None,
     approval_recipients=None,
     now=None,
+    store=None,
+    audit=None,
 ):
     """Run one cycle. ``client`` exposes ``get_accounts`` and (live only)
-    ``create_payment``. ``smtp_send`` overrides the SMTP transport for tests."""
-    store = PaymentStore(settings.state_dir)
-    audit = AuditLog(settings.state_dir)
+    ``create_payment``. ``smtp_send`` overrides the SMTP transport for tests.
+
+    ``store``/``audit`` may be injected to select a persistence backend (file
+    default vs Postgres opt-in); when omitted, the file-backed defaults are used,
+    so existing behaviour is unchanged."""
+    if store is None:
+        store = PaymentStore(settings.state_dir)
+    if audit is None:
+        audit = AuditLog(settings.state_dir)
     live = settings.live_enabled()
     audit.append("cycle_start", {"execution_mode": "live" if live else "dry-run",
                                  "live_enabled": live})

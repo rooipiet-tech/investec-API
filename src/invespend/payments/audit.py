@@ -90,3 +90,51 @@ class AuditLog:
             if line:
                 entries.append(json.loads(line))
         return entries
+
+
+class PgAuditLog:
+    """Postgres-backed append-only audit trail (OQ2 opt-in backend).
+
+    Same ``append``/``read_entries`` interface as ``AuditLog`` and the SAME
+    minimisation: each detail object is built via ``_safe_fields``/``_scrub_value``
+    at write time, so no secret and no full PAN is ever recorded. Insert-only —
+    a prior row is never updated or deleted.
+    """
+
+    def __init__(self, database_url) -> None:
+        self._database_url = str(database_url)
+
+    def append(self, step: str, detail: dict | None = None, *, ts: str | None = None) -> dict:
+        safe = _safe_fields(detail)
+        entry = {
+            "ts": ts or datetime.now(timezone.utc).isoformat(),
+            "step": step,
+            "detail": safe,
+        }
+        from .. import db
+
+        with db.connect(self._database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "insert into payment_audit (ts, step, detail) values (%s, %s, %s);",
+                    (entry["ts"], step, json.dumps(safe)),
+                )
+        return entry
+
+    def read_entries(self) -> list[dict]:
+        from .. import db
+
+        with db.connect(self._database_url) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "select ts, step, detail from payment_audit order by id;"
+                )
+                rows = cur.fetchall()
+        entries = []
+        for ts, step, detail in rows:
+            if isinstance(ts, datetime):
+                ts = ts.isoformat()
+            if isinstance(detail, str):
+                detail = json.loads(detail)
+            entries.append({"ts": ts, "step": step, "detail": detail or {}})
+        return entries

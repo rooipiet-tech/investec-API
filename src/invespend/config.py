@@ -120,6 +120,10 @@ class Settings:
     retention_days: int = 90
     # Where pending/daily-total/audit JSON state is persisted (F17).
     state_dir: str = ".invespend_state"
+    # Payment-state backend (OQ2 opt-in): "file" (default) keeps state under
+    # state_dir as JSON; "postgres" stores it in the DB (reuses database_url) so a
+    # Railway deploy needs no persistent volume. File stays the default behaviour.
+    payments_state_backend: str = "file"
 
     def require_signing_secret(self) -> str:
         """Return the approval signing secret only when it is valid; otherwise
@@ -208,6 +212,7 @@ class Settings:
             imap_mailbox=_opt("IMAP_MAILBOX", "INBOX"),
             retention_days=int(_opt("RETENTION_DAYS", "90")),
             state_dir=_opt("PAYMENTS_STATE_DIR", ".invespend_state"),
+            payments_state_backend=_opt("PAYMENTS_STATE_BACKEND", "file").lower(),
         )
 
     @property

@@ -286,7 +286,22 @@ def cmd_approve_payments(args: argparse.Namespace) -> int:
                 settings.investec_base_url,
             )
         inbox = ImapInbox(settings)
-        summary = run_approval_cycle(settings, inbox=inbox, client=client)
+        # OQ2: select the payment-state backend. "file" (default) keeps the
+        # existing JSON-under-state_dir behaviour; "postgres" stores pending /
+        # daily-total / audit in the DB (reuses database_url) so a Railway deploy
+        # needs no persistent volume.
+        backend = getattr(settings, "payments_state_backend", "file")
+        if backend == "postgres":
+            from .payments.audit import PgAuditLog
+            from .payments.pg_store import PgPaymentStore
+
+            store = PgPaymentStore(settings.database_url)
+            audit = PgAuditLog(settings.database_url)
+            summary = run_approval_cycle(
+                settings, inbox=inbox, client=client, store=store, audit=audit
+            )
+        else:
+            summary = run_approval_cycle(settings, inbox=inbox, client=client)
     except Exception as exc:  # noqa: BLE001 — surface as machine-readable envelope (F16)
         print(json.dumps(
             {"error": type(exc).__name__, "message": str(exc),
@@ -300,6 +315,7 @@ def cmd_approve_payments(args: argparse.Namespace) -> int:
     # beneficiary_source (set by the pipeline) shows api vs static allowlist.
     summary["requested_mode"] = requested_mode
     summary["live_enabled"] = live
+    summary["state_backend"] = getattr(settings, "payments_state_backend", "file")
     if live:
         summary["credential_set"] = (
             "write" if settings._has_write_trio() else "main"
