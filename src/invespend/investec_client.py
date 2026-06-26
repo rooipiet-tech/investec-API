@@ -108,9 +108,12 @@ class InvestecClient:
         return data.get("data", {}).get("transactions", [])
 
     # ── writes (ADDITIVE; live-mode only) ─────────────────────────────────────
-    # ASSUMPTION (OQ1): UNVERIFIED Investec endpoint path, isolated here so the
-    # uncertainty lives in exactly one place. Only ever exercised by mocked tests.
-    PAY_MULTIPLE_PATH = "/za/pb/v1/accounts/{account_id}/paymultiple"  # ASSUMPTION (OQ1)
+    # Endpoint + request shape VERIFIED against Investec Programmable Banking docs:
+    # POST /za/pb/v1/accounts/{accountId}/paymultiple with a "paymentList" of
+    # {beneficiaryId, amount, myReference, theirReference}. Requires a credential
+    # with payments enabled and the beneficiary pre-registered online (Investec
+    # only pays beneficiaries you have created + paid once via online banking).
+    PAY_MULTIPLE_PATH = "/za/pb/v1/accounts/{account_id}/paymultiple"
 
     def _post(self, path: str, payload: dict) -> dict:
         resp = self._session.post(
@@ -137,8 +140,9 @@ class InvestecClient:
     ) -> dict:
         """Submit a single payment to a pre-registered beneficiary (live-mode only).
 
-        Pays ONLY by ``beneficiary_id`` — never a raw account number. The exact
-        request shape is an ASSUMPTION (OQ1) and is verified only via mocks.
+        Pays ONLY by ``beneficiary_id`` — never a raw account number. Endpoint and
+        request shape are verified against Investec's published API; the live call
+        is exercised in tests via mocks (no real money in CI).
         """
         path = self.PAY_MULTIPLE_PATH.format(account_id=source_account_id)
         payload = {
