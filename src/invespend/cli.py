@@ -326,6 +326,72 @@ def cmd_approve_payments(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_pay_selftest(args: argparse.Namespace) -> int:
+    """Operator-initiated single-payment self-test. Makes ONE explicit payment
+    from the command line to validate the live wiring WITHOUT waiting for an
+    inbound email, reusing every existing guardrail (caps, live gate, beneficiary
+    verification, audit, dedup). Headless, machine-readable JSON, deterministic
+    exit code (F16). DRY-RUN unless live is configured (F8)."""
+    import json
+
+    try:
+        settings = Settings.load()
+        from .investec_client import InvestecClient
+        from .payments.selftest import run_selftest
+
+        live = settings.live_enabled()
+        # F8/PR1: live mode uses the payment-capable credential (separate write
+        # trio if configured, else the user-declared payment-capable main key);
+        # dry-run uses the read credential.
+        if live:
+            cid, csec, akey = settings.payment_credentials()
+            client = InvestecClient(cid, csec, akey, settings.investec_base_url)
+        else:
+            client = InvestecClient(
+                settings.investec_client_id,
+                settings.investec_client_secret,
+                settings.investec_api_key,
+                settings.investec_base_url,
+            )
+        # OQ2: select the payment-state backend (same as approve-payments) so the
+        # self-test counts toward the persisted daily total and is audited there.
+        backend = getattr(settings, "payments_state_backend", "file")
+        store = audit = None
+        if backend == "postgres":
+            from .payments.audit import PgAuditLog
+            from .payments.pg_store import PgPaymentStore
+
+            store = PgPaymentStore(settings.database_url)
+            audit = PgAuditLog(settings.database_url)
+        summary = run_selftest(
+            settings,
+            client=client,
+            beneficiary_id=args.beneficiary,
+            amount=args.amount,
+            source_last3=getattr(args, "source", None),
+            reference=getattr(args, "reference", "") or "",
+            store=store,
+            audit=audit,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface as machine-readable envelope (F16)
+        print(json.dumps(
+            {"error": type(exc).__name__, "message": str(exc), "self_test": True},
+            sort_keys=True,
+        ))
+        return 2
+
+    summary["live_enabled"] = live
+    summary["state_backend"] = getattr(settings, "payments_state_backend", "file")
+    if live:
+        summary["credential_set"] = "write" if settings._has_write_trio() else "main"
+    else:
+        summary["credential_set"] = "read"
+    print(json.dumps(summary, sort_keys=True))
+    # Exit 0 only on a clean dry-run or a successful live execution; non-zero on
+    # any fail-closed path or error.
+    return 0 if summary.get("committed") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="invespend", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -383,6 +449,20 @@ def build_parser() -> argparse.ArgumentParser:
     p_pay.add_argument("--once", action="store_true",
                        help="Run a single cycle and exit (default)")
     p_pay.set_defaults(func=cmd_approve_payments)
+
+    p_self = sub.add_parser(
+        "pay-selftest",
+        help="Make ONE explicit self-test payment (DRY-RUN default; outputs JSON)",
+    )
+    p_self.add_argument("--beneficiary", required=True,
+                        help="Registered Investec beneficiaryId to pay (never an account number)")
+    p_self.add_argument("--amount", required=True,
+                        help="Amount to pay (e.g. 1.00); subject to the per-payment + daily caps")
+    p_self.add_argument("--source", default=None,
+                        help="Last-3 digits selecting the source account (omit if you have one account)")
+    p_self.add_argument("--reference", default="",
+                        help="Optional payment reference")
+    p_self.set_defaults(func=cmd_pay_selftest)
 
     return parser
 
