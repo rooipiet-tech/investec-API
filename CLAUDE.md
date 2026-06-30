@@ -1,94 +1,106 @@
-# Project control contract — autonomous build loop
+# invespend — autonomous build loop
 
-You (the main session) are the **ORCHESTRATOR**. You do **not** write code or specs in this
-context. You spawn subagents, read the artifacts they produce, apply the deterministic rules
-below, and decide ship / loop / halt. Keep this context lean: subagents return **one-line
-summaries**; never paste their full output here.
+This repository uses an **autonomous build loop** as its canonical workflow for
+non-trivial changes. The orchestrator (you, the top-level Claude Code session)
+coordinates a small fleet of subagents through a fixed pipeline, persists state
+under `.loop/`, and ships only when an explicit gate passes.
 
-## Prime directives
-1. **Never implement in this context.** All real work happens in subagents.
-2. **Only the builder writes source code.** All other subagents are read-only.
-3. **Only you (orchestrator) write `.loop/` state files.** Subagents return their artifact
-   content as their final message; you persist it.
-4. **The spec is frozen once written.** It changes only via the amendment protocol (§7).
-5. Apply the scoring, triage, and termination rules as written. Show your arithmetic in
-   `.loop/state.json` so decisions are auditable.
+## Project shape
 
-## State & artifacts (you own `.loop/`)
+- Package: `invespend` (`src/invespend/`), installed as a console script
+  `invespend = invespend.cli:main`.
+- Stack: Python 3.12, deps `requests`, `psycopg`, `pandas`, `openpyxl`,
+  `python-dotenv`. Dev: `pytest`.
+- Purpose: ingest Investec Programmable Banking transactions into Postgres and
+  produce weekly Excel spend reports + account statements.
+- CLI subcommands (the observable surface): `init-db`, `ingest`, `report`,
+  `statements`, `backfill-hashes`, `backup`.
+- Database migrations live in `db/migrations/` and apply in numeric order.
 
-```
-.loop/state.json        # iteration, scores, best, triage, decision_log  (you maintain)
-.loop/research.md       # researcher
-.loop/domain.md         # domain-expert
-.loop/spec.json         # spec-writer — frozen acceptance criteria, versioned
-.loop/plan.md           # planner — versioned
-.loop/review.json       # output-reviewer
-.loop/risk.json         # risk-security
-.loop/test-report.json  # tester
-<repo source tree>      # builder (the only writer of code)
-```
+## Golden rules
 
-## The loop (run in order; gates are hard)
+1. **Behaviour is frozen.** No new features, no schema changes, no change to the
+   CLI surface or to the observable output of ingestion, reporting, or statement
+   generation, unless the spec explicitly says so.
+2. **Secrets stay out of git.** `.env` is git-ignored; never commit credentials.
+3. **The test suite is the floor, not the ceiling.** The full `pytest` suite must
+   stay green (baseline: 62 passing, 0 failures, 0 errors). Migrations must still
+   apply in order; views/schema unchanged.
+4. **Ship only through the gate** (see Shippable gate below). Never ship a failing
+   Must-have — halt and surface a diagnostic instead.
 
-```
-RESEARCH → DOMAIN → SPEC(freeze) → PREFLIGHT → PLAN → [gate PLAN_REVIEW]
-  → BUILD → REVIEW(output-reviewer ∥ risk-security) → [gate TEST] → SCORE → decide
-```
-
-- **PREFLIGHT:** before planning, confirm external deps/APIs the spec needs are reachable.
-  If a hard dependency is down → stop and ask the user.
-- **REVIEW:** spawn `output-reviewer` and `risk-security` (both read-only). Either one's open
-  **blocker** finding blocks the ship gate.
-- **TEST:** spawn `tester`; it runs the **full** criteria set every iteration (regression).
-
-## Scoring (compute in SCORE, record in state.json)
+## The loop
 
 ```
-pass_rate      = Σ(weightᵢ · passedᵢ) / Σ(weightᵢ)            over all criteria
-review_penalty = min(1, Σ points / 5)   points: blocker 1.0, major 0.4, minor 0.1  (open findings, both critics)
-S              = pass_rate · (1 − 0.5 · review_penalty)
+research → domain → spec  ──(human approval gate)──▶
+plan → plan-review gate → build → (output-reviewer ∥ risk-security) → tester
+     → score → triage ──▶ ship | iterate | halt
 ```
 
-**Shippable (all must hold):** no failing **Must-have** (blocker) criterion · no open blocker
-finding from either critic · `pass_rate ≥ 0.90` · output-reviewer `sign_off` true ·
-risk-security `sign_off` true. `S` only ranks candidates; `shippable` decides if any may ship.
-Track `best` = highest-S candidate that introduced no blocker regression.
+### Phase 0 — research & spec (one-time, frozen)
+- **researcher** → `.loop/research.md`: factual map of modules, CLI surface, tests,
+  migrations, code smells (ranked by risk), coupling.
+- **domain-expert** → `.loop/domain.md`: domain invariants and observable-output
+  contracts that must not change.
+- **spec-writer** → `.loop/spec.json`: the acceptance criteria (Must-have / Should /
+  Nice), each measurable. Validate/refine the existing draft rather than restart.
+  Once shown to the human and **approved**, the spec is **frozen**.
 
-## Triage (when not shippable, not terminating)
-Classify every open failure, then route by precedence **spec > plan > build > test**:
+The orchestrator **STOPS** after the spec and shows the human the acceptance
+criteria. No planning or building happens before explicit approval.
 
-| Class (tagged by tester/critics) | Route |
-|---|---|
-| `spec` (criteria contradiction, policy conflict) | **amend spec** (§7) → PLAN |
-| `plan` (architectural / sequencing) | **re-plan** → PLAN_REVIEW → BUILD |
-| `build` (impl bug, secret, bad dep) | **builder patch** — anchor on `best`, **skip PLAN/PLAN_REVIEW** |
-| `test` (untestable-as-specified, flake) | **fix the check** (minor spec amendment) |
+### Phase 1+ — iterate
+- **planner** → `REFACTORING_PLAN.md` + a concrete change set for this iteration,
+  staged by risk and mapped to modules.
+- **plan-review gate**: the orchestrator checks the plan is low-risk, behaviour-
+  preserving, and mapped to spec criteria. If not, bounce back to planner.
+- **builder** applies the agreed change set (smallest safe steps).
+- **output-reviewer** ∥ **risk-security** review the diff in parallel: one for
+  correctness/clarity/behaviour-preservation, one for risk + secret leakage.
+- **tester** runs the full `pytest` suite and migration-order check, reports
+  pass/fail counts.
 
-Build-patch is the key efficiency win: the plan didn't change, so don't re-run the plan gate.
-On a re-plan, pass the planner the triage + latest test/review/risk so it plans against the gaps.
+### Scoring & triage
+Each iteration the orchestrator computes:
+- `pass_rate` = passing criteria / total criteria (Must-haves are gating).
+- `S` = weighted score (Must-have = 3, Should = 2, Nice = 1), `S = Σ earned / Σ max`.
+- Triage route ∈ {`ship`, `iterate`, `halt`}.
 
-## Termination (check each SCORE, first match wins)
-1. **SHIP** if shippable → finalize.
-2. **HALT-TRIAGE (no ship)** if (iteration ≥ 6 OR budget/time exhausted OR stagnation) AND
-   `best` still fails a Must-have → write a diagnostic to `.loop/state.json` and ask the user.
-   *Never ship a failing Must-have.*
-3. **HALT (ship best)** if a limit is hit AND `best` violates no Must-have → ship `best` with
-   the unmet should/could list.
-4. **Stagnation:** if the failure signature (failed criteria ids + classes) repeats across 2
-   iterations with no plan change → force one re-plan; if it still repeats → halt.
-5. **Diminishing returns:** if S improves < 0.03 over 2 iterations → halt, ship best.
-Otherwise → triage and loop.
+Record everything in `.loop/state.json` (see below) with a one-line
+`decision_log` entry showing the scoring arithmetic.
 
-## MoSCoW
-`severity: blocker = Must` (hard ship gate) · `major = Should` · `minor = Could`.
+### Shippable gate
+Ship **iff** all of:
+- every **Must-have** criterion passes,
+- `pytest` is green (≥62 passing, 0 failures, 0 errors),
+- migrations still apply in order; views/schema unchanged,
+- no secrets committed; `.env` still git-ignored,
+- no behavioural/CLI/schema change beyond what the (frozen) spec allows.
 
-## Spec amendment protocol (§7)
-The frozen spec changes only here: state which criteria and why (unbuildable / contradictory),
-do an impact analysis, **bump `spec.version`**, append to its amendment log, re-freeze. A
-weakened **Must-have** always requires explicit user approval — ask, don't auto-amend.
+If any Must-have fails → **halt** and show a diagnostic. Never ship red.
 
-## Discipline
-- Subagents return summaries; you persist artifacts and keep this context clean.
-- Restart/refresh the session if you edit agent files on disk (they load at session start).
-- Stop at the **spec gate** and show the user the acceptance criteria before planning, unless
-  told to run straight through.
+## `.loop/state.json` schema
+
+```json
+{
+  "iteration": 1,
+  "pass_rate": "x/y",
+  "S": 0.00,
+  "best": 0.00,
+  "triage": "iterate|ship|halt",
+  "decision_log": ["it1: <scoring arithmetic, one line>"]
+}
+```
+
+## Thread hygiene
+
+Subagents return **one-line** summaries to the orchestrator and write their full
+output to files under `.loop/` (or the diff). The orchestrator never pastes full
+subagent transcripts into the main thread.
+
+## Agents
+
+Definitions live in `.claude/agents/`. Roles: `researcher`, `domain-expert`,
+`spec-writer`, `planner`, `builder`, `output-reviewer`, `risk-security`,
+`tester`. Each is a focused, mostly read-only specialist except `builder`
+(edits code) and `spec-writer`/`planner` (write `.loop/` + plan docs).

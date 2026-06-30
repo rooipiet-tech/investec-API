@@ -1,25 +1,13 @@
 {
-  "goal_ref": ".loop/GOAL.md",
-  "spec_version": 1,
-  "spec_frozen": false,
-  "iteration": 0,
-  "phase": "SPEC_GATE",
-  "next_action": "In a fresh session, run researcher -> domain-expert -> spec-writer to validate/refine .loop/spec.json, then STOP and show the criteria for approval before freezing and planning.",
-  "pass_rate": null,
-  "S": null,
-  "best": null,
-  "triage": null,
-  "criteria_status": {
-    "F1": "not_evaluated",
-    "F2": "not_evaluated",
-    "F3": "not_evaluated",
-    "F4": "not_evaluated",
-    "F5": "not_evaluated",
-    "F6": "not_evaluated",
-    "F7": "not_evaluated"
-  },
+  "iteration": 2,
+  "phase": "shipped",
+  "pass_rate": "7/7",
+  "S": 1.0,
+  "best": 1.0,
+  "triage": "ship",
   "decision_log": [
-    "seed @ iter 0: orchestrator drafted GOAL + DRAFT spec (v1, 7 criteria: 4 Must / 3 Should) OUTSIDE a running loop because the custom subagents load only at session start. No research, plan, build, test, or score has run. Spec is NOT frozen. No criterion has been evaluated; any prior reference to 'F1-F5 resolved' did not correspond to repo state and was not carried forward."
-  ],
-  "notes": "Honest starting line. To activate: open a new session in this repo (agents load), set mode to Auto/acceptEdits, paste KICKOFF_PROMPT.md (goal already captured in .loop/GOAL.md), let the spec gate run, approve, then the loop proceeds plan -> plan-review -> build -> review || risk -> tester -> score."
+    "it0: research+domain+spec persisted; baseline pytest=62 passed/0/0; spec 7 criteria (5 Must F3-F7, 2 Should F1-F2); frozen pending approval",
+    "it1: human approved -> spec frozen. plan-review REJECTED S1 (send_email requires >=1 attachment -> attachment-less alert would raise+swallow = F3 regression); replaced with S1' extract emailer._smtp_send shared by both call sites. Built S1'+S2+S3 (emailer.py,cli.py,statements.py). Reviews: output-reviewer PASS, risk-security LOW. tester: pytest 62 passed/0/0; db/ diff empty; 7/7 CLI --help identical; deps unchanged. Score S=earned19/max19=1.00 (Must F3-F7=3*5; Should F1,F2=2*2). All Must pass -> SHIP.",
+    "it2: planned S7 only (extract cli._resolve_group_recipients dedup of recipient-resolution+warn/skip from _send_group_report/_send_group_statements); S6 re-deferred (callable indirection in untested cmd_* bodies, marginal gain). plan-review PASS: two-%s template renders byte-identical warning; cmd bodies not test-guarded so relied on equivalence proof+reviewers. Built (cli.py only). Reviews: output-reviewer PASS, risk-security LOW. tester: pytest 62 passed/0/0; db/ empty; 7/7 CLI --help identical; deps unchanged. Score S=19/19=1.00. All Must pass -> SHIP."
+  ]
 }
