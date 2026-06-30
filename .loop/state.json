@@ -1,13 +1,14 @@
 {
-  "iteration": 2,
-  "phase": "shipped",
-  "pass_rate": "7/7",
+  "iteration": 1,
+  "spec_frozen": true,
+  "pass_rate": "20/20",
   "S": 1.0,
   "best": 1.0,
   "triage": "ship",
   "decision_log": [
-    "it0: research+domain+spec persisted; baseline pytest=62 passed/0/0; spec 7 criteria (5 Must F3-F7, 2 Should F1-F2); frozen pending approval",
-    "it1: human approved -> spec frozen. plan-review REJECTED S1 (send_email requires >=1 attachment -> attachment-less alert would raise+swallow = F3 regression); replaced with S1' extract emailer._smtp_send shared by both call sites. Built S1'+S2+S3 (emailer.py,cli.py,statements.py). Reviews: output-reviewer PASS, risk-security LOW. tester: pytest 62 passed/0/0; db/ diff empty; 7/7 CLI --help identical; deps unchanged. Score S=earned19/max19=1.00 (Must F3-F7=3*5; Should F1,F2=2*2). All Must pass -> SHIP.",
-    "it2: planned S7 only (extract cli._resolve_group_recipients dedup of recipient-resolution+warn/skip from _send_group_report/_send_group_statements); S6 re-deferred (callable indirection in untested cmd_* bodies, marginal gain). plan-review PASS: two-%s template renders byte-identical warning; cmd bodies not test-guarded so relied on equivalence proof+reviewers. Built (cli.py only). Reviews: output-reviewer PASS, risk-security LOW. tester: pytest 62 passed/0/0; db/ empty; 7/7 CLI --help identical; deps unchanged. Score S=19/19=1.00. All Must pass -> SHIP."
+    "phase0: spec v1.0.0 frozen (20 criteria, 16 blocker Must). last-3=source-account selector. Awaiting plan.",
+    "it1: plan v1.0.0 -> plan-review=revise (0 blockers, 5 tightenings PR1-PR5 folded). Proceeding to build.",
+    "it1: build v1 -> tester 20/20 (152 suite, 62 baseline, db/ empty, 0 regressions). pass_rate=1.00; open review pts RS1(.4)+RS2(.1)+AN1(.1)+AN2(.1)=0.7; penalty=min(1,.7/5)=0.14; S=1.0*(1-0.5*0.14)=0.93. Shippable=TRUE; all 4 reviewers signed off. Electing build-PATCH for cheap high-value fixes before ship.",
+    "it1-patch: 7 findings fixed; suite 164 passed (62 baseline additive-intact, db/ empty, .env ignored); pass_rate=1.00; open review pts=0; penalty=0; S=1.00. SHIPPABLE=ship."
   ]
 }

@@ -1,0 +1,12 @@
+{
+  "lenses_fired": [
+    {"lens":"data-residency","reason":"Pipeline scans a personal Gmail inbox and parses payment + third-party sender PII; POPIA + minimisation are HARD constraints (F9,F12,F20).","trigger_paths":["src/invespend/payments/inbox.py","src/invespend/payments/store.py","src/invespend/payments/audit.py","src/invespend/payments/notify.py","src/invespend/payments/pipeline.py"]},
+    {"lens":"agent-native","reason":"New operable surface: approve-payments CLI subcommand + pipeline job an agent may drive (F16).","trigger_paths":["src/invespend/cli.py","src/invespend/payments/pipeline.py"]}
+  ],
+  "skipped": [
+    {"lens":"performance","why_not":"No hot path/large payload/DB query loop; inbox loop is small-N file/JSON IO."},
+    {"lens":"polish","why_not":"No user-facing UI/UX surface; CLI emits machine-readable JSON only."},
+    {"lens":"migration","why_not":"No schema change; db/ diff empty; state is file/JSON."}
+  ],
+  "confidence": 0.9
+}

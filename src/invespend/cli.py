@@ -258,6 +258,140 @@ def cmd_backfill_hashes(_args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_approve_payments(args: argparse.Namespace) -> int:
+    """Run one email-payment-approval cycle. Headless, machine-readable JSON,
+    deterministic exit code (F16). DRY-RUN unless live is configured (F8)."""
+    import json
+
+    # --live is advisory only: live still requires live_enabled() (flag AND cred).
+    requested_mode = "live" if getattr(args, "live", False) else "dry-run"
+    try:
+        settings = Settings.load()
+        from .investec_client import InvestecClient
+        from .payments.inbox import ImapInbox
+        from .payments.pipeline import run_approval_cycle
+
+        live = settings.live_enabled()
+        # F8/PR1: live mode uses the payment-capable credential (separate write
+        # trio if configured, else the user-declared payment-capable main key);
+        # dry-run uses the read credential.
+        if live:
+            cid, csec, akey = settings.payment_credentials()
+            client = InvestecClient(cid, csec, akey, settings.investec_base_url)
+        else:
+            client = InvestecClient(
+                settings.investec_client_id,
+                settings.investec_client_secret,
+                settings.investec_api_key,
+                settings.investec_base_url,
+            )
+        inbox = ImapInbox(settings)
+        # OQ2: select the payment-state backend. "file" (default) keeps the
+        # existing JSON-under-state_dir behaviour; "postgres" stores pending /
+        # daily-total / audit in the DB (reuses database_url) so a Railway deploy
+        # needs no persistent volume.
+        backend = getattr(settings, "payments_state_backend", "file")
+        if backend == "postgres":
+            from .payments.audit import PgAuditLog
+            from .payments.pg_store import PgPaymentStore
+
+            store = PgPaymentStore(settings.database_url)
+            audit = PgAuditLog(settings.database_url)
+            summary = run_approval_cycle(
+                settings, inbox=inbox, client=client, store=store, audit=audit
+            )
+        else:
+            summary = run_approval_cycle(settings, inbox=inbox, client=client)
+    except Exception as exc:  # noqa: BLE001 — surface as machine-readable envelope (F16)
+        print(json.dumps(
+            {"error": type(exc).__name__, "message": str(exc),
+             "requested_mode": requested_mode},
+            sort_keys=True,
+        ))
+        return 2
+    # F8/F16: surface the advisory flag and the effective gate so the flag's
+    # effect (or inertness) is explicit and assertable. credential_set names which
+    # creds the live client used (write trio vs the payment-capable main key);
+    # beneficiary_source (set by the pipeline) shows api vs static allowlist.
+    summary["requested_mode"] = requested_mode
+    summary["live_enabled"] = live
+    summary["state_backend"] = getattr(settings, "payments_state_backend", "file")
+    if live:
+        summary["credential_set"] = (
+            "write" if settings._has_write_trio() else "main"
+        )
+    else:
+        summary["credential_set"] = "read"
+    print(json.dumps(summary, sort_keys=True))
+    return 0
+
+
+def cmd_pay_selftest(args: argparse.Namespace) -> int:
+    """Operator-initiated single-payment self-test. Makes ONE explicit payment
+    from the command line to validate the live wiring WITHOUT waiting for an
+    inbound email, reusing every existing guardrail (caps, live gate, beneficiary
+    verification, audit, dedup). Headless, machine-readable JSON, deterministic
+    exit code (F16). DRY-RUN unless live is configured (F8)."""
+    import json
+
+    try:
+        settings = Settings.load()
+        from .investec_client import InvestecClient
+        from .payments.selftest import run_selftest
+
+        live = settings.live_enabled()
+        # F8/PR1: live mode uses the payment-capable credential (separate write
+        # trio if configured, else the user-declared payment-capable main key);
+        # dry-run uses the read credential.
+        if live:
+            cid, csec, akey = settings.payment_credentials()
+            client = InvestecClient(cid, csec, akey, settings.investec_base_url)
+        else:
+            client = InvestecClient(
+                settings.investec_client_id,
+                settings.investec_client_secret,
+                settings.investec_api_key,
+                settings.investec_base_url,
+            )
+        # OQ2: select the payment-state backend (same as approve-payments) so the
+        # self-test counts toward the persisted daily total and is audited there.
+        backend = getattr(settings, "payments_state_backend", "file")
+        store = audit = None
+        if backend == "postgres":
+            from .payments.audit import PgAuditLog
+            from .payments.pg_store import PgPaymentStore
+
+            store = PgPaymentStore(settings.database_url)
+            audit = PgAuditLog(settings.database_url)
+        summary = run_selftest(
+            settings,
+            client=client,
+            beneficiary_id=args.beneficiary,
+            amount=args.amount,
+            source_last3=getattr(args, "source", None),
+            reference=getattr(args, "reference", "") or "",
+            store=store,
+            audit=audit,
+        )
+    except Exception as exc:  # noqa: BLE001 — surface as machine-readable envelope (F16)
+        print(json.dumps(
+            {"error": type(exc).__name__, "message": str(exc), "self_test": True},
+            sort_keys=True,
+        ))
+        return 2
+
+    summary["live_enabled"] = live
+    summary["state_backend"] = getattr(settings, "payments_state_backend", "file")
+    if live:
+        summary["credential_set"] = "write" if settings._has_write_trio() else "main"
+    else:
+        summary["credential_set"] = "read"
+    print(json.dumps(summary, sort_keys=True))
+    # Exit 0 only on a clean dry-run or a successful live execution; non-zero on
+    # any fail-closed path or error.
+    return 0 if summary.get("committed") else 1
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="invespend", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
@@ -301,6 +435,34 @@ def build_parser() -> argparse.ArgumentParser:
         "backfill-hashes",
         help="One-off: re-key existing rows to the day_seq-aware hash (idempotent)",
     ).set_defaults(func=cmd_backfill_hashes)
+
+    p_pay = sub.add_parser(
+        "approve-payments",
+        help="Run one email-payment-approval cycle (DRY-RUN default; outputs JSON)",
+    )
+    pay_mode = p_pay.add_mutually_exclusive_group()
+    pay_mode.add_argument("--dry-run", dest="live", action="store_false",
+                          help="Never call the write endpoint (default)")
+    pay_mode.add_argument("--live", dest="live", action="store_true",
+                          help="Permit live execution (still needs flag+write cred)")
+    p_pay.set_defaults(live=False)
+    p_pay.add_argument("--once", action="store_true",
+                       help="Run a single cycle and exit (default)")
+    p_pay.set_defaults(func=cmd_approve_payments)
+
+    p_self = sub.add_parser(
+        "pay-selftest",
+        help="Make ONE explicit self-test payment (DRY-RUN default; outputs JSON)",
+    )
+    p_self.add_argument("--beneficiary", required=True,
+                        help="Registered Investec beneficiaryId to pay (never an account number)")
+    p_self.add_argument("--amount", required=True,
+                        help="Amount to pay (e.g. 1.00); subject to the per-payment + daily caps")
+    p_self.add_argument("--source", default=None,
+                        help="Last-3 digits selecting the source account (omit if you have one account)")
+    p_self.add_argument("--reference", default="",
+                        help="Optional payment reference")
+    p_self.set_defaults(func=cmd_pay_selftest)
 
     return parser
 
