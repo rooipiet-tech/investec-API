@@ -157,6 +157,13 @@ def _send_group_report(
     print(f"Report {tag} written: {path} ({info})")
     if not send:
         return
+    # A report with no transactions in the window carries nothing group-specific
+    # (only the unfiltered month/reconciliation sheets), so emailing it is just
+    # noise — most often the "default" bucket when every account is claimed by a
+    # named group. Skip the send; the workbook is still written for the record.
+    if info["rows"] == 0:
+        print(f"Report {tag} has no transactions in the window; skipping email.")
+        return
     recipients = _resolve_group_recipients(settings, group, label, "report")
     if not recipients:
         return
