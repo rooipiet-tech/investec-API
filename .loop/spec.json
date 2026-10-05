@@ -1,16 +1,33 @@
 {
-  "spec_version": "0.1.0",
+  "spec_version": "1.0.0",
   "run": "beneficiary-matching",
-  "frozen": false,
-  "inputs": [".loop/GOAL.md", ".loop/research.md", ".loop/domain.md"],
+  "frozen": true,
+  "inputs": [
+    ".loop/GOAL.md",
+    ".loop/research.md",
+    ".loop/domain.md"
+  ],
   "structure_reused_from": ".loop/archive/payments-run/spec.json (format + still-applicable constraint criteria: freeze, no-secrets, fail-closed, isolation, PII minimisation)",
   "baseline": {
     "pytest_floor": "211 passed, 0 failed, 0 errors (measured at HEAD ae2ac78 via /home/user/investec-API/.venv/bin/python -m pytest -q; CLAUDE.md '62' is stale and superseded for this run)",
-    "cli_subcommands_at_head": ["init-db", "ingest", "report", "statements", "backup", "backfill-hashes", "approve-payments", "pay-selftest"],
+    "cli_subcommands_at_head": [
+      "init-db",
+      "ingest",
+      "report",
+      "statements",
+      "backup",
+      "backfill-hashes",
+      "approve-payments",
+      "pay-selftest"
+    ],
     "migrations_at_head": "0001..0008, 0009_payment_approvals, 0009_security_invoker_rls, 0010, 0011; next free prefix 0012",
     "help_baseline_note": ".loop/baseline/help__top.txt is STALE (lists 6 of 8 subcommands); must be refreshed from the pre-change commit before use (F1)."
   },
-  "weights": {"Must": 3, "Should": 2, "Nice": 1},
+  "weights": {
+    "Must": 3,
+    "Should": 2,
+    "Nice": 1
+  },
   "acceptance_criteria": [
     {
       "id": "F1",
@@ -210,37 +227,59 @@
       "id": "Q1",
       "q": "Beneficiary account number: persist and display the FULL number, or last-3 only (masked ****709)? The user explicitly wants to see the account number; domain/repo convention (payments tables, L-0003, POPIA minimisation) is last-3.",
       "recommended_default": "Honour the user's request: persist the full accountNumber in the new beneficiary table only (behind deny_all RLS + security_invoker view, included in encrypted backups only if BACKUP_PASSPHRASE set), display it in full in the view, never log/print it and never put it in matched_token; do NOT store cellNo/emailAddress/raw. If the human prefers stricter POPIA posture: last-3 only + in-memory own-account check persisted as is_own_account boolean.",
-      "affects": ["F20", "F21"]
+      "affects": [
+        "F20",
+        "F21"
+      ],
+      "resolution": "APPROVED by human: store + show FULL beneficiary account number (new table only, deny_all RLS, never logged, not in matched_token; no cellNo/email/raw)."
     },
     {
       "id": "Q2",
       "q": "Which transactionType values count as payments/transfers (vocabulary is unverified in repo)?",
       "recommended_default": "Human runs `select transaction_type, count(*) from transactions where type='DEBIT' group by 1` on prod and the result is frozen as a code constant. Provisional allowlist until confirmed: OnlineBankingPayments, OnlineBankingTransfers, FasterPay; explicitly excluded: CardPurchases, FeesAndInterest, ATMWithdrawals, DebitOrders; NULL/unknown fail closed.",
-      "affects": ["F14"]
+      "affects": [
+        "F14"
+      ],
+      "resolution": "Human approved defaults without supplying prod query: provisional allowlist OnlineBankingPayments, OnlineBankingTransfers, FasterPay as a code constant; NULL/unknown fail closed. Revisit when human runs the type-count query."
     },
     {
       "id": "Q3",
       "q": "Trigger sync+match as a gated hook inside `ingest`, or via a new subcommand?",
       "recommended_default": "Gated ingest hook (flag off by default), mirroring the non-fatal balance-fetch pattern; no new subcommand, so CLI help stays byte-identical. A new subcommand would require additive-only help change + re-baseline.",
-      "affects": ["F3", "F9", "F11"]
+      "affects": [
+        "F3",
+        "F9",
+        "F11"
+      ],
+      "resolution": "Default approved: gated hook inside ingest, no new subcommand; CLI help byte-identical."
     },
     {
       "id": "Q4",
       "q": "Snapshot semantics: freeze past matches at match time, or recompute all against the latest beneficiary snapshot?",
       "recommended_default": "Freeze: existing 'matched' rows keep their beneficiary_id/rule/token/snapshot id; only unmatched/ambiguous rows (and new rows) are re-evaluated against the latest snapshot. Beneficiaries are soft-retired, never hard-deleted.",
-      "affects": ["F17", "F25"]
+      "affects": [
+        "F17",
+        "F25"
+      ],
+      "resolution": "Default approved: freeze existing matches; re-evaluate only unmatched/ambiguous/new rows; soft-retire beneficiaries."
     },
     {
       "id": "Q5",
       "q": "Name-field precedence: does referenceName (my-reference) rank above beneficiaryName, and where does `name` sit?",
       "recommended_default": "account-number digit signal (>=8 digits) > referenceName exact > beneficiaryName exact > name exact > guarded prefix (min length guard, e.g. >6 chars); confirm referenceName semantics against one real payload before freeze.",
-      "affects": ["F26"]
+      "affects": [
+        "F26"
+      ],
+      "resolution": "Default approved: account-digit signal (>=8 digits) > referenceName exact > beneficiaryName exact > name exact > guarded prefix (>6 chars)."
     },
     {
       "id": "Q6",
       "q": "Surface a 'Paid to' column in the weekly report and/or statement Excel?",
       "recommended_default": "No for this run: keep both workbooks unchanged (F10 strict); the DB view is the read surface. Revisit in a later run if wanted.",
-      "affects": ["F10"]
+      "affects": [
+        "F10"
+      ],
+      "resolution": "Default approved: no Excel change this run; F10 strict."
     }
   ],
   "out_of_scope": [

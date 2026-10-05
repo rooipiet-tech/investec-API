@@ -1,12 +1,13 @@
 {
   "run": "beneficiary-matching",
-  "iteration": 0,
-  "spec_frozen": false,
+  "iteration": 1,
+  "spec_frozen": true,
   "pass_rate": "0/32",
   "S": 0.0,
   "best": 0.0,
-  "triage": "halt",
+  "triage": "iterate",
   "decision_log": [
-    "phase0: research+domain done; spec v0.1.0 drafted (32 criteria: 24 Must/6 Should/2 Nice; baseline 211). STOPPED at spec gate awaiting human approval of criteria + Q1-Q6."
+    "phase0: research+domain done; spec v0.1.0 drafted (32 criteria: 24 Must/6 Should/2 Nice; baseline 211). STOPPED at spec gate awaiting human approval of criteria + Q1-Q6.",
+    "phase0: human approved spec -> frozen v1.0.0; Q1=full account number; Q2-Q6 recommended defaults (Q2 provisional allowlist)."
   ]
 }
