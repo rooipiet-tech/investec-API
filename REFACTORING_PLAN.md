@@ -366,3 +366,7 @@ F10 covers the Excel output, which is strict under Q6.
 8. **R8, LOW:** the full-history candidate scan runs every ingest (unmatched or ambiguous allowlisted debits only). Volume is small. No index is added on existing tables (F29).
 9. **R9, LOW (F15 wording):** the literal F15 pair "J Smith vs J Smithers" is pinned as "no FALSE match": the truncated "J SMIT" gives no match, and "J SMITHERS" never resolves to J Smith. A clean exact description is still a legitimate match. The output-reviewer should confirm this reading.
 10. **R10, LOW:** CLAUDE.md's "62" floor is stale. 211 is binding per the spec and is not edited here (out of scope).
+
+## Plan-review tightenings (binding for build)
+
+Plan-review verdict: **approve** (0 blockers). Tightenings T1–T13 in `.loop/plan-review.json` are folded into this plan and are binding on the builder.

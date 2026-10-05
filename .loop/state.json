@@ -8,6 +8,7 @@
   "triage": "iterate",
   "decision_log": [
     "phase0: research+domain done; spec v0.1.0 drafted (32 criteria: 24 Must/6 Should/2 Nice; baseline 211). STOPPED at spec gate awaiting human approval of criteria + Q1-Q6.",
-    "phase0: human approved spec -> frozen v1.0.0; Q1=full account number; Q2-Q6 recommended defaults (Q2 provisional allowlist)."
+    "phase0: human approved spec -> frozen v1.0.0; Q1=full account number; Q2-Q6 recommended defaults (Q2 provisional allowlist).",
+    "it1: plan v1 (S0-S7, agg MEDIUM, additive) -> plan-review=approve (0 blockers, 13 tightenings T1-T13 folded into build brief). Awaiting human go-ahead to build."
   ]
 }
