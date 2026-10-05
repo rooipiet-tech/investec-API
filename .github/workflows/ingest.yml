@@ -31,6 +31,8 @@ jobs:
           INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
           INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          # Link outgoing EFTs to registered beneficiaries (see README).
+          BENEFICIARY_MATCHING_ENABLED: "true"
           # Email secrets — used to alert when new accounts are detected.
           SMTP_HOST: ${{ secrets.SMTP_HOST }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
