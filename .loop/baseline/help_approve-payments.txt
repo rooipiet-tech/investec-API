@@ -1,0 +1,7 @@
+usage: invespend approve-payments [-h] [--dry-run | --live] [--once]
+
+options:
+  -h, --help  show this help message and exit
+  --dry-run   Never call the write endpoint (default)
+  --live      Permit live execution (still needs flag+write cred)
+  --once      Run a single cycle and exit (default)

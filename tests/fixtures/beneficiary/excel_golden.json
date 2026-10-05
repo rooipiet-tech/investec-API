@@ -1,0 +1,1248 @@
+{
+ "generated_at_base_sha": "c2bbfaed2d58e91658ab92e3bb2cd694a249030d",
+ "report": {
+  "content": {
+   "By Account": {
+    "cells": [
+     [
+      "A1",
+      "account_number",
+      "General"
+     ],
+     [
+      "B1",
+      "account_name",
+      "General"
+     ],
+     [
+      "C1",
+      "total_spend",
+      "General"
+     ],
+     [
+      "A2",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "B2",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "C2",
+      "1835.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": null,
+    "widths": {
+     "A": 16.0,
+     "B": 14.0,
+     "C": 13.0
+    }
+   },
+   "By Category": {
+    "cells": [
+     [
+      "A1",
+      "category",
+      "General"
+     ],
+     [
+      "B1",
+      "total_spend",
+      "General"
+     ],
+     [
+      "C1",
+      "transactions",
+      "General"
+     ],
+     [
+      "A2",
+      "Other",
+      "General"
+     ],
+     [
+      "B2",
+      1750,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "C2",
+      2,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A3",
+      "Groceries",
+      "General"
+     ],
+     [
+      "B3",
+      "85.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "C3",
+      1,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": null,
+    "widths": {
+     "A": 11.0,
+     "B": 13.0,
+     "C": 14.0
+    }
+   },
+   "Daily Trend": {
+    "cells": [
+     [
+      "A1",
+      "date",
+      "General"
+     ],
+     [
+      "B1",
+      "total_spend",
+      "General"
+     ],
+     [
+      "A2",
+      "2026-01-01T00:00:00",
+      "YYYY-MM-DD"
+     ],
+     [
+      "B2",
+      1500,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A3",
+      "2026-01-02T00:00:00",
+      "YYYY-MM-DD"
+     ],
+     [
+      "B3",
+      "85.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A4",
+      "2026-01-03T00:00:00",
+      "YYYY-MM-DD"
+     ],
+     [
+      "B4",
+      250,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": null,
+    "widths": {
+     "A": 12.0,
+     "B": 13.0
+    }
+   },
+   "Internal Transfers": {
+    "cells": [
+     [
+      "A1",
+      "effective_date",
+      "General"
+     ],
+     [
+      "B1",
+      "account_number",
+      "General"
+     ],
+     [
+      "C1",
+      "account_name",
+      "General"
+     ],
+     [
+      "D1",
+      "type",
+      "General"
+     ],
+     [
+      "E1",
+      "transaction_type",
+      "General"
+     ],
+     [
+      "F1",
+      "description",
+      "General"
+     ],
+     [
+      "G1",
+      "amount",
+      "General"
+     ],
+     [
+      "H1",
+      "running_balance",
+      "General"
+     ],
+     [
+      "I1",
+      "category",
+      "General"
+     ],
+     [
+      "J1",
+      "flow_type",
+      "General"
+     ],
+     [
+      "K1",
+      "day_seq",
+      "General"
+     ],
+     [
+      "A2",
+      "2026-01-04T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B2",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C2",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D2",
+      "DEBIT",
+      "General"
+     ],
+     [
+      "E2",
+      "OnlineBankingTransfers",
+      "General"
+     ],
+     [
+      "F2",
+      "Transfer to savings",
+      "General"
+     ],
+     [
+      "G2",
+      -1000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I2",
+      "Transfers",
+      "General"
+     ],
+     [
+      "J2",
+      "internal_transfer",
+      "General"
+     ],
+     [
+      "K2",
+      0,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A3",
+      "2026-01-05T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B3",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C3",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D3",
+      "CREDIT",
+      "General"
+     ],
+     [
+      "E3",
+      "OnlineBankingTransfers",
+      "General"
+     ],
+     [
+      "F3",
+      "Transfer from savings",
+      "General"
+     ],
+     [
+      "G3",
+      400,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "H3",
+      "27564.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I3",
+      "Transfers",
+      "General"
+     ],
+     [
+      "J3",
+      "internal_transfer",
+      "General"
+     ],
+     [
+      "K3",
+      0,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": null,
+    "widths": {
+     "A": 21.0,
+     "B": 16.0,
+     "C": 14.0,
+     "D": 8.0,
+     "E": 24.0,
+     "F": 23.0,
+     "G": 9.0,
+     "H": 17.0,
+     "I": 11.0,
+     "J": 19.0,
+     "K": 9.0
+    }
+   },
+   "Summary": {
+    "cells": [
+     [
+      "A1",
+      "Metric",
+      "General"
+     ],
+     [
+      "B1",
+      "Value",
+      "General"
+     ],
+     [
+      "A2",
+      "Total spend",
+      "General"
+     ],
+     [
+      "B2",
+      "1835.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A3",
+      "Total income",
+      "General"
+     ],
+     [
+      "B3",
+      20000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A4",
+      "Net",
+      "General"
+     ],
+     [
+      "B4",
+      "18164.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A5",
+      "Transactions",
+      "General"
+     ],
+     [
+      "B5",
+      6,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A6",
+      "Categories",
+      "General"
+     ],
+     [
+      "B6",
+      2,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A7",
+      "Internal transfers (excluded)",
+      "General"
+     ],
+     [
+      "B7",
+      2,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A8",
+      "Internal transfer volume",
+      "General"
+     ],
+     [
+      "B8",
+      400,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": null,
+    "widths": {
+     "A": 31.0,
+     "B": 9.0
+    }
+   },
+   "Top Merchants": {
+    "cells": [
+     [
+      "A1",
+      "description",
+      "General"
+     ],
+     [
+      "B1",
+      "total_spend",
+      "General"
+     ],
+     [
+      "A2",
+      "PAYMENT TO ACME TRADING",
+      "General"
+     ],
+     [
+      "B2",
+      1500,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A3",
+      "Transfer to J Smithers",
+      "General"
+     ],
+     [
+      "B3",
+      250,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A4",
+      "Corner Shop",
+      "General"
+     ],
+     [
+      "B4",
+      "85.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": null,
+    "widths": {
+     "A": 25.0,
+     "B": 13.0
+    }
+   },
+   "Transactions": {
+    "cells": [
+     [
+      "A1",
+      "effective_date",
+      "General"
+     ],
+     [
+      "B1",
+      "account_number",
+      "General"
+     ],
+     [
+      "C1",
+      "account_name",
+      "General"
+     ],
+     [
+      "D1",
+      "type",
+      "General"
+     ],
+     [
+      "E1",
+      "transaction_type",
+      "General"
+     ],
+     [
+      "F1",
+      "description",
+      "General"
+     ],
+     [
+      "G1",
+      "amount",
+      "General"
+     ],
+     [
+      "H1",
+      "running_balance",
+      "General"
+     ],
+     [
+      "I1",
+      "category",
+      "General"
+     ],
+     [
+      "J1",
+      "flow_type",
+      "General"
+     ],
+     [
+      "K1",
+      "day_seq",
+      "General"
+     ],
+     [
+      "A2",
+      "2026-01-01T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B2",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C2",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D2",
+      "DEBIT",
+      "General"
+     ],
+     [
+      "E2",
+      "OnlineBankingPayments",
+      "General"
+     ],
+     [
+      "F2",
+      "PAYMENT TO ACME TRADING",
+      "General"
+     ],
+     [
+      "G2",
+      -1500,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "H2",
+      8500,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I2",
+      "Other",
+      "General"
+     ],
+     [
+      "J2",
+      "external_outflow",
+      "General"
+     ],
+     [
+      "K2",
+      0,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A3",
+      "2026-01-02T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B3",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C3",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D3",
+      "DEBIT",
+      "General"
+     ],
+     [
+      "E3",
+      "CardPurchases",
+      "General"
+     ],
+     [
+      "F3",
+      "Corner Shop",
+      "General"
+     ],
+     [
+      "G3",
+      "-85.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "H3",
+      "8414.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I3",
+      "Groceries",
+      "General"
+     ],
+     [
+      "J3",
+      "external_outflow",
+      "General"
+     ],
+     [
+      "K3",
+      0,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A4",
+      "2026-01-02T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B4",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C4",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D4",
+      "CREDIT",
+      "General"
+     ],
+     [
+      "E4",
+      "Deposits",
+      "General"
+     ],
+     [
+      "F4",
+      "Salary",
+      "General"
+     ],
+     [
+      "G4",
+      20000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "H4",
+      "28414.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I4",
+      "Income",
+      "General"
+     ],
+     [
+      "J4",
+      "external_inflow",
+      "General"
+     ],
+     [
+      "K4",
+      1,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A5",
+      "2026-01-03T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B5",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C5",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D5",
+      "DEBIT",
+      "General"
+     ],
+     [
+      "E5",
+      "FasterPay",
+      "General"
+     ],
+     [
+      "F5",
+      "Transfer to J Smithers",
+      "General"
+     ],
+     [
+      "G5",
+      -250,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "H5",
+      "28164.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I5",
+      "Other",
+      "General"
+     ],
+     [
+      "J5",
+      "external_outflow",
+      "General"
+     ],
+     [
+      "K5",
+      0,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A6",
+      "2026-01-04T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B6",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C6",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D6",
+      "DEBIT",
+      "General"
+     ],
+     [
+      "E6",
+      "OnlineBankingTransfers",
+      "General"
+     ],
+     [
+      "F6",
+      "Transfer to savings",
+      "General"
+     ],
+     [
+      "G6",
+      -1000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I6",
+      "Transfers",
+      "General"
+     ],
+     [
+      "J6",
+      "internal_transfer",
+      "General"
+     ],
+     [
+      "K6",
+      0,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A7",
+      "2026-01-05T00:00:00",
+      "YYYY-MM-DD HH:MM:SS"
+     ],
+     [
+      "B7",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "C7",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "D7",
+      "CREDIT",
+      "General"
+     ],
+     [
+      "E7",
+      "OnlineBankingTransfers",
+      "General"
+     ],
+     [
+      "F7",
+      "Transfer from savings",
+      "General"
+     ],
+     [
+      "G7",
+      400,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "H7",
+      "27564.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "I7",
+      "Transfers",
+      "General"
+     ],
+     [
+      "J7",
+      "internal_transfer",
+      "General"
+     ],
+     [
+      "K7",
+      0,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": null,
+    "widths": {
+     "A": 21.0,
+     "B": 16.0,
+     "C": 14.0,
+     "D": 8.0,
+     "E": 24.0,
+     "F": 25.0,
+     "G": 9.0,
+     "H": 17.0,
+     "I": 11.0,
+     "J": 19.0,
+     "K": 9.0
+    }
+   }
+  },
+  "sheets": [
+   "Summary",
+   "By Category",
+   "By Account",
+   "Top Merchants",
+   "Daily Trend",
+   "Internal Transfers",
+   "Transactions"
+  ]
+ },
+ "report_columns": [
+  "effective_date",
+  "account_number",
+  "account_name",
+  "type",
+  "transaction_type",
+  "description",
+  "amount",
+  "category",
+  "flow_type"
+ ],
+ "statement": {
+  "content": {
+   "Statement": {
+    "cells": [
+     [
+      "A1",
+      "Account statement",
+      "General"
+     ],
+     [
+      "A2",
+      "Account name",
+      "General"
+     ],
+     [
+      "B2",
+      "Test Cheque",
+      "General"
+     ],
+     [
+      "A3",
+      "Account number",
+      "General"
+     ],
+     [
+      "B3",
+      "TEST-ACCT-01",
+      "General"
+     ],
+     [
+      "A4",
+      "Period",
+      "General"
+     ],
+     [
+      "B4",
+      "2026-01-01 to 2026-01-07",
+      "General"
+     ],
+     [
+      "A5",
+      "Currency",
+      "General"
+     ],
+     [
+      "B5",
+      "ZAR",
+      "General"
+     ],
+     [
+      "A6",
+      "Opening balance",
+      "General"
+     ],
+     [
+      "B6",
+      10000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A7",
+      "Money in (excl. transfers)",
+      "General"
+     ],
+     [
+      "B7",
+      20000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A8",
+      "Money out (excl. transfers)",
+      "General"
+     ],
+     [
+      "B8",
+      "1835.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A9",
+      "Transfers in",
+      "General"
+     ],
+     [
+      "B9",
+      400,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A10",
+      "Transfers out",
+      "General"
+     ],
+     [
+      "B10",
+      1000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A11",
+      "Closing balance",
+      "General"
+     ],
+     [
+      "B11",
+      "27564.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A12",
+      "Investec balance",
+      "General"
+     ],
+     [
+      "A13",
+      "Statement vs Investec",
+      "General"
+     ],
+     [
+      "A14",
+      "Reconciled",
+      "General"
+     ],
+     [
+      "B14",
+      "N/A \u2014 no balance snapshot",
+      "General"
+     ],
+     [
+      "A15",
+      "Date",
+      "General"
+     ],
+     [
+      "B15",
+      "Description",
+      "General"
+     ],
+     [
+      "C15",
+      "Category",
+      "General"
+     ],
+     [
+      "D15",
+      "Debit",
+      "General"
+     ],
+     [
+      "E15",
+      "Credit",
+      "General"
+     ],
+     [
+      "F15",
+      "Balance",
+      "General"
+     ],
+     [
+      "A16",
+      "2026-01-05T00:00:00",
+      "yyyy-mm-dd"
+     ],
+     [
+      "B16",
+      "Transfer from savings",
+      "General"
+     ],
+     [
+      "C16",
+      "Transfers",
+      "General"
+     ],
+     [
+      "D16",
+      null,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "E16",
+      400,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "F16",
+      "27564.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A17",
+      "2026-01-04T00:00:00",
+      "yyyy-mm-dd"
+     ],
+     [
+      "B17",
+      "Transfer to savings",
+      "General"
+     ],
+     [
+      "C17",
+      "Transfers",
+      "General"
+     ],
+     [
+      "D17",
+      1000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "E17",
+      null,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "F17",
+      "27164.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A18",
+      "2026-01-03T00:00:00",
+      "yyyy-mm-dd"
+     ],
+     [
+      "B18",
+      "Transfer to J Smithers",
+      "General"
+     ],
+     [
+      "C18",
+      "Other",
+      "General"
+     ],
+     [
+      "D18",
+      250,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "E18",
+      null,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "F18",
+      "28164.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A19",
+      "2026-01-02T00:00:00",
+      "yyyy-mm-dd"
+     ],
+     [
+      "B19",
+      "Salary",
+      "General"
+     ],
+     [
+      "C19",
+      "Income",
+      "General"
+     ],
+     [
+      "D19",
+      null,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "E19",
+      20000,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "F19",
+      "28414.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A20",
+      "2026-01-02T00:00:00",
+      "yyyy-mm-dd"
+     ],
+     [
+      "B20",
+      "Corner Shop",
+      "General"
+     ],
+     [
+      "C20",
+      "Groceries",
+      "General"
+     ],
+     [
+      "D20",
+      "85.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "E20",
+      null,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "F20",
+      "8414.5",
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "A21",
+      "2026-01-01T00:00:00",
+      "yyyy-mm-dd"
+     ],
+     [
+      "B21",
+      "PAYMENT TO ACME TRADING",
+      "General"
+     ],
+     [
+      "C21",
+      "Other",
+      "General"
+     ],
+     [
+      "D21",
+      1500,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "E21",
+      null,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ],
+     [
+      "F21",
+      8500,
+      "_-* #,##0.00_-;-* #,##0.00_-;_-* \"-\"??_-;_-@_-"
+     ]
+    ],
+    "freeze_panes": "A16",
+    "widths": {
+     "A": 12.0,
+     "B": 42.0,
+     "C": 16.0,
+     "D": 14.0,
+     "E": 14.0,
+     "F": 16.0
+    }
+   }
+  },
+  "sheets": [
+   "Statement"
+  ]
+ },
+ "statement_columns": [
+  "Date",
+  "Description",
+  "Category",
+  "Debit",
+  "Credit",
+  "Balance"
+ ]
+}
