@@ -1,5 +1,5 @@
 {
-  "spec_version": "1.0.0",
+  "spec_version": "1.1.0",
   "run": "beneficiary-matching",
   "frozen": true,
   "inputs": [
@@ -220,6 +220,30 @@
       "text": "Match status for non-matches is queryable (e.g. 'no_candidate' vs 'ambiguous') to aid tuning, without affecting existing outputs.",
       "priority": "Nice",
       "verify": "pytest: ambiguous and zero-candidate fixtures persist distinct status values; view or table exposes the status."
+    },
+    {
+      "id": "F33",
+      "text": "Payee identity: beneficiaries with the same non-empty digit-normalised account number (>= MIN_ACCOUNT_DIGITS) AND the same branch code (blank == blank) count as ONE payee when deciding matched vs ambiguous. A rule that hits several beneficiary ids of ONE payee yields 'matched'; hits on >1 distinct payee still yields 'ambiguous' (fail-closed). Beneficiaries with empty/short account number are their own payee (keyed by beneficiary_id).",
+      "priority": "Must",
+      "verify": "unit tests: same account+branch dup ids -> matched; different accounts same name -> ambiguous; blank/short account never merged; branch differs -> ambiguous"
+    },
+    {
+      "id": "F34",
+      "text": "Deterministic representative: when a payee has several beneficiary ids the stored beneficiary_id is min(beneficiary_id) of the payee's HITTING ids; result independent of input order.",
+      "priority": "Must",
+      "verify": "unit test with shuffled inputs; golden"
+    },
+    {
+      "id": "F35",
+      "text": "All other contracts unchanged: rule precedence and no fall-through, Q4 freeze (matched rows never rewritten; ambiguous/no_candidate re-evaluated), DB schema/migrations (zero diff under db/), view, CLI help, ingest summary/stdout, report/statement output, PAYMENT_TRANSACTION_TYPES unchanged, no new deps, no existing test or fixture edited (additions only).",
+      "priority": "Must",
+      "verify": "git diff --stat vs base; existing tests untouched; help baseline diff empty; full pytest green (>=310 + new)"
+    },
+    {
+      "id": "F36",
+      "text": "candidate_count in a result counts DISTINCT PAYEES hit (ambiguous => >=2).",
+      "priority": "Should",
+      "verify": "unit test"
     }
   ],
   "open_questions": [
@@ -280,6 +304,11 @@
         "F10"
       ],
       "resolution": "Default approved: no Excel change this run; F10 strict."
+    },
+    {
+      "id": "Q7",
+      "q": "Add SendCash/PayShap to PAYMENT_TRANSACTION_TYPES?",
+      "resolution": "Not in this change (human not asked to include); allowlist unchanged. OnlineBankingTransfers left in place (harmless; removal would touch existing tests)."
     }
   ],
   "out_of_scope": [
@@ -289,5 +318,6 @@
     "Fixing stale CLAUDE.md '62' figure or duplicate 0009 prefix (noted only)."
   ],
   "coverage_note": "Orchestrator-mandated constraints -> Musts: suite floor 211 (F2), help re-baseline precondition (F1,F3), additive 0012 only (F4,F5), deny_all RLS + security_invoker (F6), no FK to transaction_hash (F7), ingest/report/statement outputs frozen (F9,F10 conditional on Q6), off by default (F11), deterministic/DEBIT-only/fail-closed/explainable/idempotent (F12-F17), own-account exclusion (F18), no new deps (F23), no secrets + .env ignored (F24). Domain M1-M12 all mapped (M2->F14, M7->F8, M9->F25, M10->F7, M12->F19).",
-  "confidence": "high on freeze/schema/determinism invariants; medium on PII stance pending Q1; low on Investec transactionType vocabulary and referenceName semantics (Q2, Q5)."
+  "confidence": "high on freeze/schema/determinism invariants; medium on PII stance pending Q1; low on Investec transactionType vocabulary and referenceName semantics (Q2, Q5).",
+  "amendment_1": "Human approved (session, after prod data analysis): collapse duplicate beneficiary registrations of the same bank account into one payee for the ambiguity test. Prod evidence: 1059 beneficiaries / ~640 distinct names; 1445 of 2002 ambiguous reference_exact rows were duplicate registrations of one account; 116 truly different accounts."
 }
