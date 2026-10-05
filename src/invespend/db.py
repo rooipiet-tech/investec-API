@@ -390,3 +390,160 @@ def backfill_transaction_hashes(conn: psycopg.Connection) -> dict:
                     )
                     updated += cur.rowcount
     return {"scanned": scanned, "updated": updated}
+
+
+# ── Beneficiary matching (additive; writes ONLY beneficiaries / beneficiary_matches) ──
+# Read-only on accounts and transactions_flow. Never touches transactions,
+# balances, sync_runs or category_map. Types are imported for annotations only
+# (no import cycle: beneficiary_match is pure and imports nothing from here).
+from typing import TYPE_CHECKING, Sequence  # noqa: E402
+
+if TYPE_CHECKING:  # pragma: no cover
+    from .beneficiary_match import BeneficiaryRecord, MatchResult, TxCandidate
+
+# Rows per multi-row INSERT; keeps params far below Postgres's 65535 limit.
+BENEFICIARY_BATCH_SIZE = 500
+
+_BENEFICIARY_COLUMNS = (
+    "beneficiary_id", "beneficiary_name", "name", "reference_name", "bank",
+    "branch_code", "account_number",
+)
+
+
+def upsert_beneficiaries(
+    conn: psycopg.Connection,
+    records: Sequence["BeneficiaryRecord"],
+    synced_at: datetime,
+    batch_size: int = BENEFICIARY_BATCH_SIZE,
+) -> int:
+    """Insert/refresh the beneficiary snapshot (re-activates seen rows).
+
+    ``first_seen_at`` is set by the column default on first insert and never
+    updated; ``last_seen_at`` is the sync time of the latest fetch containing it.
+    """
+    written = 0
+    row_ph = "(" + ", ".join(["%s"] * (len(_BENEFICIARY_COLUMNS) + 1)) + ", true)"
+    for i in range(0, len(records), batch_size):
+        chunk = records[i:i + batch_size]
+        flat: list = []
+        for rec in chunk:
+            flat.extend(getattr(rec, col) for col in _BENEFICIARY_COLUMNS)
+            flat.append(synced_at)
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into beneficiaries ("
+                + ", ".join(_BENEFICIARY_COLUMNS)
+                + ", last_seen_at, active) values "
+                + ", ".join([row_ph] * len(chunk))
+                + " on conflict (beneficiary_id) do update set"
+                " beneficiary_name = excluded.beneficiary_name,"
+                " name = excluded.name,"
+                " reference_name = excluded.reference_name,"
+                " bank = excluded.bank,"
+                " branch_code = excluded.branch_code,"
+                " account_number = excluded.account_number,"
+                " last_seen_at = excluded.last_seen_at,"
+                " active = true;",
+                flat,
+            )
+            written += cur.rowcount
+    return written
+
+
+def retire_missing_beneficiaries(conn: psycopg.Connection, fetched_ids: Sequence[str]) -> int:
+    """Soft-retire active beneficiaries absent from this fetch (UPDATE only, never DELETE)."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "update beneficiaries set active = false "
+            "where active and not (beneficiary_id = any(%s));",
+            (sorted(fetched_ids),),
+        )
+        return cur.rowcount
+
+
+def load_own_account_numbers(conn: psycopg.Connection) -> list[str]:
+    """Our own account numbers (read-only), for the own-account exclusion."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "select account_number from accounts "
+            "where account_number is not null order by 1;"
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def load_active_beneficiaries(conn: psycopg.Connection) -> list["BeneficiaryRecord"]:
+    """The current (active) beneficiary snapshot, ordered by id."""
+    from .beneficiary_match import BeneficiaryRecord
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select " + ", ".join(_BENEFICIARY_COLUMNS) + " from beneficiaries "
+            "where active order by beneficiary_id;"
+        )
+        return [BeneficiaryRecord(*row) for row in cur.fetchall()]
+
+
+def load_match_candidates(
+    conn: psycopg.Connection, transaction_types: Sequence[str]
+) -> list["TxCandidate"]:
+    """Allowlisted outgoing payments not yet frozen as 'matched' (read-only)."""
+    from .beneficiary_match import TxCandidate
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "select f.transaction_hash, f.type, f.transaction_type, f.description, "
+            "f.amount, f.flow_type "
+            "from transactions_flow f "
+            "left join beneficiary_matches m on m.transaction_hash = f.transaction_hash "
+            "where upper(f.type) = 'DEBIT' and f.amount < 0 "
+            "and f.transaction_type = any(%s) "
+            "and f.flow_type is distinct from 'internal_transfer' "
+            "and (m.transaction_hash is null or m.status <> 'matched') "
+            "order by f.transaction_hash;",
+            (sorted(transaction_types),),
+        )
+        return [TxCandidate(*row) for row in cur.fetchall()]
+
+
+def upsert_beneficiary_matches(
+    conn: psycopg.Connection,
+    results: Sequence["MatchResult"],
+    snapshot_at: datetime,
+    batch_size: int = BENEFICIARY_BATCH_SIZE,
+) -> int:
+    """Upsert match outcomes keyed on transaction_hash.
+
+    Frozen: an existing 'matched' row is never rewritten. Other rows are only
+    rewritten when the outcome actually changes (no churn on re-runs).
+    """
+    written = 0
+    row_ph = "(" + ", ".join(["%s"] * 7) + ")"
+    for i in range(0, len(results), batch_size):
+        chunk = results[i:i + batch_size]
+        flat: list = []
+        for r in chunk:
+            flat.extend((r.transaction_hash, r.status, r.beneficiary_id, r.match_rule,
+                         r.matched_token, r.candidate_count, snapshot_at))
+        with conn.cursor() as cur:
+            cur.execute(
+                "insert into beneficiary_matches (transaction_hash, status, "
+                "beneficiary_id, match_rule, matched_token, candidate_count, "
+                "snapshot_at) values "
+                + ", ".join([row_ph] * len(chunk))
+                + " on conflict (transaction_hash) do update set"
+                " status = excluded.status,"
+                " beneficiary_id = excluded.beneficiary_id,"
+                " match_rule = excluded.match_rule,"
+                " matched_token = excluded.matched_token,"
+                " candidate_count = excluded.candidate_count,"
+                " snapshot_at = excluded.snapshot_at,"
+                " matched_at = now()"
+                " where beneficiary_matches.status <> 'matched'"
+                " and (beneficiary_matches.status, beneficiary_matches.beneficiary_id,"
+                " beneficiary_matches.match_rule, beneficiary_matches.matched_token)"
+                " is distinct from (excluded.status, excluded.beneficiary_id,"
+                " excluded.match_rule, excluded.matched_token);",
+                flat,
+            )
+            written += cur.rowcount
+    return written

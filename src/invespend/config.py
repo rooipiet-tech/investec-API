@@ -124,6 +124,10 @@ class Settings:
     # state_dir as JSON; "postgres" stores it in the DB (reuses database_url) so a
     # Railway deploy needs no persistent volume. File stays the default behaviour.
     payments_state_backend: str = "file"
+    # Beneficiary matching (off by default): after a successful ingest, label
+    # outgoing payments with the registered Investec beneficiary. Separate from
+    # payments_beneficiaries_from_api; never moves money.
+    beneficiary_matching_enabled: bool = False
 
     def require_signing_secret(self) -> str:
         """Return the approval signing secret only when it is valid; otherwise
@@ -213,6 +217,7 @@ class Settings:
             retention_days=int(_opt("RETENTION_DAYS", "90")),
             state_dir=_opt("PAYMENTS_STATE_DIR", ".invespend_state"),
             payments_state_backend=_opt("PAYMENTS_STATE_BACKEND", "file").lower(),
+            beneficiary_matching_enabled=_opt_bool("BENEFICIARY_MATCHING_ENABLED", False),
         )
 
     @property

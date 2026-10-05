@@ -187,6 +187,16 @@ def run_ingest(
             )
         raise
 
+    # Optional, off by default: label outgoing payments with the registered
+    # beneficiary. Runs only after a successful, already-recorded sync; never
+    # alters the summary/stdout and never fails the ingest (logs class name only).
+    if getattr(settings, "beneficiary_matching_enabled", False):
+        try:
+            from . import beneficiary_sync
+            beneficiary_sync.sync_and_match(client, url)
+        except Exception as exc:  # noqa: BLE001 - non-fatal, logging only
+            log.warning("Beneficiary matching skipped (%s)", type(exc).__name__)
+
     summary = {
         "from_date": from_date.isoformat(),
         "to_date": to_date.isoformat(),
