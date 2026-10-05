@@ -1,0 +1,143 @@
+{
+ "iteration": 1,
+ "pytest": {
+  "passed": 310,
+  "failed": 0,
+  "errors": 0
+ },
+ "migrations": "ok (0012 last, 0001-0011 unchanged)",
+ "cli_help": "identical",
+ "uv_lock": "unchanged",
+ "env": "untracked, ignored",
+ "scratch_pg": "ok (init_db x2, e2e fake rows, 10001-row batch)",
+ "criteria": {
+  "F1": {
+   "result": "pass",
+   "evidence": "baseline has top+8 sub helps + BASE_SHA; refresh commit c6ef1d3 precedes feat fd718f5"
+  },
+  "F2": {
+   "result": "pass",
+   "evidence": "310 passed, 0 failed, 0 errors (>=211+99 new)"
+  },
+  "F3": {
+   "result": "pass",
+   "evidence": "COLUMNS=80 help for top + 8 subcommands byte-identical to .loop/baseline (9/9 same)"
+  },
+  "F4": {
+   "result": "pass",
+   "evidence": "git diff c2bbfae..HEAD -- db/: only A 0012_beneficiary_matching.sql (+89); 0012 sorts last of 13 files"
+  },
+  "F5": {
+   "result": "pass",
+   "evidence": "migrations applied twice on scratch PG16 with no error; builder's pg_dump idempotence diff identical"
+  },
+  "F6": {
+   "result": "pass",
+   "evidence": "scratch PG: view transactions_beneficiary created; static SQL tests green"
+  },
+  "F7": {
+   "result": "pass",
+   "evidence": "static test + view orphan test green (builder e2e: orphan invisible)"
+  },
+  "F8": {
+   "result": "pass",
+   "evidence": "diff shows db.py append-only, no mutation of existing functions; tests green"
+  },
+  "F9": {
+   "result": "pass",
+   "evidence": "test_beneficiary_ingest_freeze green"
+  },
+  "F10": {
+   "result": "pass",
+   "evidence": "excel golden digest test green; report.py/statements.py not in diff"
+  },
+  "F11": {
+   "result": "pass",
+   "evidence": "config.py +5 lines; flag-off tests green"
+  },
+  "F12": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection"
+  },
+  "F13": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection"
+  },
+  "F14": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection"
+  },
+  "F15": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection"
+  },
+  "F16": {
+   "result": "pass",
+   "evidence": "scratch PG: match_rule/matched_token populated (e.g. beneficiary_name_exact 'acme trading', account_number '***234' masked)"
+  },
+  "F17": {
+   "result": "pass",
+   "evidence": "scratch PG: sync_and_match run 2x, no duplicate rows (view rows 3); tests green"
+  },
+  "F18": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection; scratch PG own-account beneficiary excluded"
+  },
+  "F19": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection"
+  },
+  "F20": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection"
+  },
+  "F21": {
+   "result": "pass",
+   "evidence": "scratch PG: \\d transactions_beneficiary shows 22 columns incl. required; queried with fake rows"
+  },
+  "F22": {
+   "result": "pass",
+   "evidence": "src/invespend/payments/ absent from git diff c2bbfae..HEAD"
+  },
+  "F23": {
+   "result": "pass",
+   "evidence": "pyproject.toml and uv.lock absent from diff (uv.lock restored after my non-frozen uv run touched it)"
+  },
+  "F24": {
+   "result": "pass",
+   "evidence": ".env not tracked, ignored via .gitignore:3 '*.env'; only synthetic data seen"
+  },
+  "F25": {
+   "result": "pass",
+   "evidence": "scratch PG: b1 retired (active=false) and still resolves in view (beneficiary_active False)"
+  },
+  "F26": {
+   "result": "pass",
+   "evidence": "covered by new tests (310 passed) + diff inspection"
+  },
+  "F27": {
+   "result": "pass",
+   "evidence": "golden_descriptions.json fixture added; tests green"
+  },
+  "F28": {
+   "result": "pass",
+   "evidence": ".env.example +3 lines in diff"
+  },
+  "F29": {
+   "result": "pass",
+   "evidence": "migration 89 lines, applied instantly on scratch PG; no backfill/index on existing tables (inspection of stats only)"
+  },
+  "F30": {
+   "result": "pass",
+   "evidence": "diff shows only new test files/fixtures added; no existing tests modified"
+  },
+  "F31": {
+   "result": "pass",
+   "evidence": "README.md +55 lines"
+  },
+  "F32": {
+   "result": "pass",
+   "evidence": "scratch PG: match_status 'ambiguous' and 'matched' queryable; sync counters include no_candidate"
+  }
+ }
+}
