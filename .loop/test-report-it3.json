@@ -1,0 +1,14 @@
+{
+  "head": "e85c70a",
+  "pytest": {"passed": 330, "failed": 0, "errors": 0, "floor": 330},
+  "uv_lock": "restored via git checkout; git diff clean",
+  "git": {
+    "diff_c512838_HEAD_files": ["README.md", "src/invespend/beneficiary_match.py", "tests/test_beneficiary_representative.py", ".loop/build-it3.md"],
+    "protected_paths_diff_7bc21e4_HEAD": "empty",
+    "tests_diff": "only tests/test_beneficiary_representative.py (new, +143)",
+    "cli_help_vs_baseline": "byte-identical for all 9 help outputs (COLUMNS=80)",
+    "env": "ignored (git check-ignore .env), not tracked"
+  },
+  "F37": {"status": "pass", "evidence": "JOS VAN ZYL vs {a: beneficiary_name HUIS/reference JOS VAN ZYL, b: beneficiary_name Jos van Zyl/reference X}, same acct+branch -> matched b (reference_exact, count 1); both input orders and id assignments (1/2, 2/1, 9/10) all return b (8 cases); old module returned lowest id (a)"},
+  "F38": {"status": "pass", "evidence": "2000 random synthetic tx x 60 beneficiaries vs old module from 7bc21e4: status/rule/token/candidate_count identical for every tx (0 mismatches; 1638 non-candidates, 150 matched, 26 ambiguous, 186 no_candidate). beneficiary_id differed in 0 random cases (random data rarely creates multi-record payees where representative differs); the targeted cases cover the id change."}
+}
