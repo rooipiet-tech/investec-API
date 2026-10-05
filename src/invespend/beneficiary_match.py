@@ -44,11 +44,14 @@ Fail-closed: the FIRST rule (in the order above) that hits any beneficiary
 decides. Hitting beneficiaries are first grouped by payee (``payee_key``: same
 account number of >= 8 digits AND same branch code, exact stripped string; a
 record without a usable account number is its own payee). Exactly one distinct
-payee -> ``matched``, labelled with the lowest hitting beneficiary id of that
-payee. More than one PAYEE -> ``ambiguous`` (no beneficiary id), with NO
-fall-through to a weaker rule to break the tie. Pooled accounts registered under
-different names collapse to the lowest hitting id (no name guard). Existing
-ambiguous rows keep their old candidate_count until status or token changes. No rule hits -> ``no_candidate``. Exact beats truncation by
+payee -> ``matched``. ``matched_token`` and ``match_rule`` come from the hitting
+record(s), but ``beneficiary_id`` is the representative record of that payee
+(any record with the same payee key, hitting or not): one whose
+``beneficiaryName`` equals a description variant, else one whose ``name`` does,
+else a hitting record, ties broken by lowest id. More than one PAYEE ->
+``ambiguous`` (no beneficiary id), with NO fall-through to a weaker rule to
+break the tie. Existing ambiguous rows keep their old candidate_count until
+status or token changes. No rule hits -> ``no_candidate``. Exact beats truncation by
 precedence: with beneficiaries "J Smith" and "J Smithers", the description
 "J SMITH" matches J Smith (exact) and "J SMITHERS" matches J Smithers (exact);
 "J SMIT" matches neither (too short). There is no fuzzy or edit-distance
@@ -319,6 +322,33 @@ def payee_key(bene: BeneficiaryRecord) -> str:
     return f"id:{bene.beneficiary_id}"
 
 
+def _representative(key: str, benes: Sequence[BeneficiaryRecord],
+                    hit_ids: set[str], variants: tuple[str, ...]) -> str:
+    """Pick the id that labels a matched payee.
+
+    Among ALL records of the payee, prefer one whose ``beneficiaryName`` equals
+    a description variant, then one whose ``name`` does (same normalisation and
+    minimum length as the exact rules), then a hitting record, then the lowest
+    id. The result is a pure function of the record set.
+    """
+    best: tuple[int, int, str] | None = None
+    for bene in benes:
+        if payee_key(bene) != key:
+            continue
+        if _exact_hit(bene.beneficiary_name, variants) is not None:
+            tier = 0
+        elif _exact_hit(bene.name, variants) is not None:
+            tier = 1
+        else:
+            tier = 2
+        cand = (tier, 0 if bene.beneficiary_id in hit_ids else 1,
+                bene.beneficiary_id)
+        if best is None or cand < best:
+            best = cand
+    assert best is not None
+    return best[2]
+
+
 def match_transaction(tx: TxCandidate,
                       benes: Sequence[BeneficiaryRecord]) -> MatchResult | None:
     """Match one transaction; None when it is not a candidate at all."""
@@ -339,8 +369,10 @@ def match_transaction(tx: TxCandidate,
         if not payees:
             continue
         if len(payees) == 1:
-            (ids,) = payees.values()
-            return MatchResult(tx.transaction_hash, STATUS_MATCHED, min(ids),
+            (key,) = payees
+            ids = payees[key]
+            rep = _representative(key, benes, set(ids), variants)
+            return MatchResult(tx.transaction_hash, STATUS_MATCHED, rep,
                                rule, min(ids.values()), 1)
         return MatchResult(tx.transaction_hash, STATUS_AMBIGUOUS, None, rule,
                            min(t for ids in payees.values() for t in ids.values()),

@@ -130,9 +130,11 @@ it never moves money and never changes the report, statements or ingest output.
      description, or a truncated description (7+ characters, 2+ words) is a
      prefix of a name.
 - **Payee collapse:** beneficiary records with the same account number (8+
-  digits) and the same branch code count as one payee; a match is labelled with
-  the lowest hitting beneficiary id. Pooled accounts under different names also
-  collapse (no name check). Already-ambiguous rows keep their old candidate
+  digits) and the same branch code count as one payee; the matched token and
+  rule come from the hitting record(s), but the labelled beneficiary id is the
+  payee's representative record (possibly a non-hitting one): the record whose
+  beneficiary name equals the description, else whose name does, else a hitting
+  record, ties by lowest id. Already-ambiguous rows keep their old candidate
   count until their status or token changes.
 - **Fail-closed:** the first rule that hits decides. One payee: `matched`.
   Several: `ambiguous` (no beneficiary shown, no fall-through to a weaker rule).
