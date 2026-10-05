@@ -1,0 +1,254 @@
+{
+  "spec_version": "0.1.0",
+  "run": "beneficiary-matching",
+  "frozen": false,
+  "inputs": [".loop/GOAL.md", ".loop/research.md", ".loop/domain.md"],
+  "structure_reused_from": ".loop/archive/payments-run/spec.json (format + still-applicable constraint criteria: freeze, no-secrets, fail-closed, isolation, PII minimisation)",
+  "baseline": {
+    "pytest_floor": "211 passed, 0 failed, 0 errors (measured at HEAD ae2ac78 via /home/user/investec-API/.venv/bin/python -m pytest -q; CLAUDE.md '62' is stale and superseded for this run)",
+    "cli_subcommands_at_head": ["init-db", "ingest", "report", "statements", "backup", "backfill-hashes", "approve-payments", "pay-selftest"],
+    "migrations_at_head": "0001..0008, 0009_payment_approvals, 0009_security_invoker_rls, 0010, 0011; next free prefix 0012",
+    "help_baseline_note": ".loop/baseline/help__top.txt is STALE (lists 6 of 8 subcommands); must be refreshed from the pre-change commit before use (F1)."
+  },
+  "weights": {"Must": 3, "Should": 2, "Nice": 1},
+  "acceptance_criteria": [
+    {
+      "id": "F1",
+      "text": "PRECONDITION: before any code change, refresh .loop/baseline/ by capturing `invespend --help` and `invespend <sub> --help` for all 8 current subcommands (incl. approve-payments, pay-selftest) from the unmodified base commit; record the base commit SHA. All CLI-surface comparisons in this spec use this refreshed baseline, never the stale one.",
+      "priority": "Must",
+      "verify": "Baseline files exist for top + 8 subcommands with a recorded base SHA; `git stash`/checkout of base SHA regenerates byte-identical files; refresh commit/timestamp precedes the first source diff."
+    },
+    {
+      "id": "F2",
+      "text": "Full test suite stays green: at least 211 pre-existing tests pass plus all new tests, 0 failures, 0 errors.",
+      "priority": "Must",
+      "verify": "`.venv/bin/python -m pytest -q` reports passed >= 211 + (number of new tests), failed == 0, errors == 0."
+    },
+    {
+      "id": "F3",
+      "text": "CLI surface frozen: help output for top-level and all 8 existing subcommands is byte-identical to the refreshed baseline. CONDITIONAL on Q3: if the human chooses a new subcommand, the 8 existing subcommand helps stay byte-identical and top-level help differs ONLY by the added subcommand line(s).",
+      "priority": "Must",
+      "verify": "diff of freshly captured help vs .loop/baseline/* is empty (Q3=ingest hook), or diff shows only additive lines for the new subcommand (Q3=new subcommand)."
+    },
+    {
+      "id": "F4",
+      "text": "Schema changes are additive only: exactly one new migration file db/migrations/0012_<name>.sql (unique 0012 prefix, sorts after 0011); zero diff to every existing file under db/ (0001-0011, roles.sql, etc.).",
+      "priority": "Must",
+      "verify": "`git diff --stat <base> -- db/` shows only the added 0012_*.sql; `sorted(Path('db/migrations').glob('*.sql'))[-1]` is the new file; no other path under db/ modified or deleted."
+    },
+    {
+      "id": "F5",
+      "text": "Migration 0012 is idempotent and safe to re-run on every ingest (init_db re-applies all migrations): `create table if not exists`, `create or replace view` only for NEW views, `drop policy if exists` before `create policy`, no unguarded INSERT/seed, no ALTER/DROP/REPLACE of any existing table or view (transactions_normalized, transactions_categorized, spend_by_category, monthly_movement, balance_reconciliation, transactions_flow, monthly_flows, existing tables).",
+      "priority": "Must",
+      "verify": "pytest static test over 0012 SQL asserts guards present and no statement names an existing table/view as ALTER/DROP/REPLACE target; if a Postgres is available, apply all migrations twice in a row with no error and identical pg_dump --schema-only of pre-existing objects."
+    },
+    {
+      "id": "F6",
+      "text": "Every new table has RLS enabled plus a `deny_all` policy (for all to public using (false) with check (false)) following the 0011 pattern, inside 0012; every new view is created with `security_invoker = on`. 0011's hard-coded target list is not edited.",
+      "priority": "Must",
+      "verify": "pytest static test parses 0012: for each `create table` there is `enable row level security` + `drop policy if exists deny_all` + `create policy deny_all ... using (false) with check (false)`; each `create ... view` carries `with (security_invoker = on)` or a matching `alter view ... set (security_invoker = on)`."
+    },
+    {
+      "id": "F7",
+      "text": "No foreign key references transactions.transaction_hash (0008 DELETEs and backfill-hashes UPDATEs it on every run); match rows are keyed by transaction_hash without FK, and the read view inner-joins transactions so orphaned matches are invisible.",
+      "priority": "Must",
+      "verify": "grep -i 'references' in 0012 finds no reference to transactions; view SQL shows inner join to transactions (or transactions_flow) on transaction_hash; test/inspection confirms orphan row not surfaced."
+    },
+    {
+      "id": "F8",
+      "text": "Non-mutating: new code never INSERTs/UPDATEs/DELETEs transactions, accounts, balances, sync_runs or category_map, never changes description/transaction_hash/day_seq/category/raw, and does not touch _TX_COLUMNS or the hash/day_seq functions.",
+      "priority": "Must",
+      "verify": "git diff shows no change to db.py transaction_hash/assign_day_seq/_TX_COLUMNS/_tx_params/upsert_transaction(s); grep of new code for insert/update/delete targets only new tables; tests/test_db.py unchanged and green."
+    },
+    {
+      "id": "F9",
+      "text": "Ingest observable output frozen: `Ingest: {summary}` stdout (keys from_date, to_date, accounts, transactions_upserted, balances_captured, new_accounts, same order), new-account alert lines, and sync_runs counters/status are identical with the feature OFF and with it ON. Any beneficiary diagnostics go to logging (stderr) only.",
+      "priority": "Must",
+      "verify": "pytest: run_ingest with fake client + fake DB, flag off vs on -> returned summary dict equal (keys+order) and captured stdout of cmd_ingest equal; sync_runs finish args identical."
+    },
+    {
+      "id": "F10",
+      "text": "Weekly report and account statement Excel outputs unchanged: same sheets/order, COLUMNS, STATEMENT_COLUMNS, header block, cell values, number formats, column widths, filenames, and stdout lines; statement 'Description' is never replaced by a beneficiary name. CONDITIONAL on Q6: if the human approves a 'Paid to' column, the only permitted difference is that column (in the approved position) and existing columns/cells remain identical.",
+      "priority": "Must",
+      "verify": "git diff shows no change to report.py/statements.py (Q6=no); pytest golden comparison of workbooks generated from a fixed DataFrame fixture pre vs post, compared cell-by-cell via openpyxl (values, number_format, sheet names, column widths) since xlsx zip metadata timestamps are not byte-stable; tests/test_report.py and tests/test_statements.py unchanged and green."
+    },
+    {
+      "id": "F11",
+      "text": "Feature is OFF by default behind a new Settings bool (e.g. BENEFICIARY_MATCHING_ENABLED, read via _opt_bool, default False, field has a default and is read with getattr fallback). When off: zero calls to get_beneficiaries, zero writes to new tables, zero extra stdout. Separate from PAYMENTS_BENEFICIARIES_FROM_API.",
+      "priority": "Must",
+      "verify": "pytest: Settings.load() with env unset -> flag False; run_ingest with flag off and a spy client -> get_beneficiaries call_count == 0 and fake DB receives no SQL touching new tables; existing Settings(**kwargs) constructions in tests still work."
+    },
+    {
+      "id": "F12",
+      "text": "Matcher is a pure, deterministic function (transactions x beneficiary snapshot -> matches): output independent of input ordering, dict/set iteration, DB row order, clock and locale. Normalisation (casefold, whitespace collapse, documented punctuation handling) is pure and unit-tested. Rule precedence is a fixed ordered list, highest confidence first.",
+      "priority": "Must",
+      "verify": "pytest: same inputs under several permutations of transactions and beneficiaries -> identical match output; normalisation unit tests; no datetime.now/random usage inside the matcher module (grep)."
+    },
+    {
+      "id": "F13",
+      "text": "DEBIT-only: only rows with upper(type)='DEBIT' / amount < 0 are candidates; CREDIT rows never match, regardless of description.",
+      "priority": "Must",
+      "verify": "pytest: CREDIT row whose description exactly equals a beneficiary name/reference -> no match; equivalent DEBIT row -> match."
+    },
+    {
+      "id": "F14",
+      "text": "Payment-type gate: only rows whose transaction_type is in an explicit, code-defined allowlist are candidates; NULL/unknown types fail closed; card purchases, fees, ATM and debit orders never match. CONDITIONAL on Q2 for the allowlist contents.",
+      "priority": "Must",
+      "verify": "pytest parametrized: each allowlisted type matches; CardPurchases, FeesAndInterest, ATMWithdrawals, DebitOrders, None, and an unknown string -> no match; allowlist is a single module-level constant."
+    },
+    {
+      "id": "F15",
+      "text": "Fail-closed: 0 candidates -> no match; >1 distinct beneficiaryIds under the highest-precedence rule that fired -> no match (status 'ambiguous' if stored), with no fall-through to a weaker rule to break ties. Minimum token-length guards apply; no fuzzy/edit-distance matching (no difflib/Levenshtein).",
+      "priority": "Must",
+      "verify": "pytest golden fixtures: 'Acme' vs 'Acme Trading', 'J Smith' vs 'J Smithers', two beneficiaries with same name, short tokens ('Mom','Rent') below guard -> no match; single clean candidate -> match; grep matcher for difflib/SequenceMatcher -> none."
+    },
+    {
+      "id": "F16",
+      "text": "Explainable: every stored match records match_rule (e.g. reference_exact, name_exact, reference_prefix) and matched_token (the normalised beneficiary-side token that hit, never a full account number), plus beneficiary_id and the snapshot identifier/matched_at.",
+      "priority": "Must",
+      "verify": "pytest: each positive fixture yields non-empty match_rule from the documented rule set and matched_token equal to the expected normalised token; 0012 table has match_rule and matched_token NOT NULL columns."
+    },
+    {
+      "id": "F17",
+      "text": "Idempotent: re-running sync+match with the same transactions and snapshot produces an identical match set with no duplicate rows and no flip-flop (upsert keyed on transaction_hash or full deterministic recompute).",
+      "priority": "Must",
+      "verify": "pytest: run match persistence twice against fake DB -> identical SQL params / identical resulting rows; unique key on transaction_hash in 0012 (or equivalent)."
+    },
+    {
+      "id": "F18",
+      "text": "Own-account transfers excluded: rows with transactions_flow.flow_type='internal_transfer' are never matched, and any beneficiary whose digit-normalised accountNumber equals an own accounts.account_number is never a candidate (own account at another bank remains eligible).",
+      "priority": "Must",
+      "verify": "pytest: beneficiary with own Investec account number + matching DEBIT description -> no match; internal_transfer-flagged row -> no match; view SQL filters flow_type <> 'internal_transfer'."
+    },
+    {
+      "id": "F19",
+      "text": "API-failure isolation: if the beneficiaries fetch raises or returns a malformed payload, ingest still completes with identical summary/stdout, sync_runs status is unaffected, the existing snapshot is NOT wiped, and no new matches are produced. No DB transaction is open during the API call.",
+      "priority": "Must",
+      "verify": "pytest: fake client get_beneficiaries raises (and separately returns non-list data) with flag on -> run_ingest returns same summary, no exception, a warning is logged, no delete/update of snapshot rows issued; call ordering shows API call before db.connect for the snapshot write."
+    },
+    {
+      "id": "F20",
+      "text": "PII minimisation for the snapshot: rows are built field-by-field from an allowlist (beneficiary_id, beneficiary_name, name, reference_name, bank, branch code, account number per Q1, sync/seen timestamps). Never stored: cellNo, emailAddress, referenceAccountNumber, or a raw JSON blob. Beneficiary account numbers are never logged, printed, or put in matched_token. CONDITIONAL on Q1 for whether the full account number or last-3 is persisted/displayed.",
+      "priority": "Must",
+      "verify": "pytest: snapshot builder given a full API dict incl. cellNo/emailAddress -> output keys == allowlist exactly; caplog during sync+match contains no beneficiary account number digits; 0012 has no jsonb raw column on the beneficiary table; (Q1=last-3) no column holds >3 account digits."
+    },
+    {
+      "id": "F21",
+      "text": "A readable result exists: a new view (e.g. transactions_beneficiary, security_invoker=on) built beside transactions_flow, exposing at least transaction_hash, account_id, effective_date, description, amount, flow_type, beneficiary_id, beneficiary name, bank, account number (full or masked per Q1), match_rule, matched_token.",
+      "priority": "Must",
+      "verify": "Static test on 0012 asserts the view exists with these column names and selects from transactions_flow/transactions (not replacing either)."
+    },
+    {
+      "id": "F22",
+      "text": "Payment-safety code untouched: src/invespend/payments/ (beneficiaries.py from_api/resolve_beneficiary exact-match semantics, pipeline.py, selftest.py) is not modified; matching lives in a new isolated module (e.g. src/invespend/beneficiary_match.py).",
+      "priority": "Must",
+      "verify": "`git diff --stat <base> -- src/invespend/payments/ tests/test_payment_*.py tests/test_pay_selftest.py` empty; those tests green."
+    },
+    {
+      "id": "F23",
+      "text": "No new dependencies (runtime or dev).",
+      "priority": "Must",
+      "verify": "`git diff <base> -- pyproject.toml requirements*.txt` shows no dependency additions; new code imports only stdlib + existing deps."
+    },
+    {
+      "id": "F24",
+      "text": "No secrets committed; .env remains git-ignored; no credentials, tokens, or real beneficiary/account data in code, tests, fixtures or .loop files.",
+      "priority": "Must",
+      "verify": "`git check-ignore .env` succeeds; `git ls-files | grep -x .env` empty; grep of diff for secret-like patterns (client_secret, api_key=, Bearer, 10+ digit real-looking account numbers outside synthetic fixtures) finds none."
+    },
+    {
+      "id": "F25",
+      "text": "Snapshot semantics per Q4: each sync is timestamped (synced_at/snapshot id); beneficiaries missing from a later fetch are soft-retired (last_seen_at / active=false), never hard-deleted, so prior matches still resolve; past matches are not silently rewritten without trace.",
+      "priority": "Should",
+      "verify": "pytest: sync A then sync B without beneficiary X -> X row retained with active=false/last_seen_at from A; existing match to X still resolvable through the view; behaviour for re-matching follows the Q4 decision."
+    },
+    {
+      "id": "F26",
+      "text": "Rule precedence per Q5 is documented in the module docstring and pinned by tests (recommended: account-number digit signal (long-number guard) > referenceName exact > beneficiaryName exact > name exact > guarded prefix).",
+      "priority": "Should",
+      "verify": "pytest: a row matching beneficiary A by referenceName and beneficiary B by name -> resolves per documented precedence (A), and two hits within the same top rule -> ambiguous."
+    },
+    {
+      "id": "F27",
+      "text": "Golden fixture coverage of realistic description shapes: uppercase, truncated, bank-prefixed ('Transfer to', 'PAYMENT TO'), digit-grouped account number, ambiguous, renamed and deleted beneficiary cases.",
+      "priority": "Should",
+      "verify": "New test file contains parametrized cases for each listed shape with expected match/no-match outcome; all pass."
+    },
+    {
+      "id": "F28",
+      "text": "New setting documented in .env.example (commented, default false) without any real value; get_beneficiaries non-list `data` handled defensively by the matcher/sync path.",
+      "priority": "Should",
+      "verify": "git diff .env.example shows only the added documented flag; pytest covers dict/None `data` -> treated as fetch failure (F19 behaviour)."
+    },
+    {
+      "id": "F29",
+      "text": "Migration 0012 stays cheap under init_db's 15s lock_timeout: no heavy backfill, no table rewrite, no index on existing tables.",
+      "priority": "Should",
+      "verify": "Inspection of 0012: only DDL on new objects; no `create index` on existing tables, no UPDATE/INSERT ... SELECT over transactions."
+    },
+    {
+      "id": "F30",
+      "text": "Existing test files are not edited (additions only in new test files), except where an approved Q decision requires it.",
+      "priority": "Should",
+      "verify": "`git diff --name-status <base> -- tests/` shows only A (added) entries."
+    },
+    {
+      "id": "F31",
+      "text": "README/operator docs describe the feature, flag, view name, matching rules and fail-closed behaviour, plus a sample SQL query against the view.",
+      "priority": "Nice",
+      "verify": "git diff shows a docs section mentioning the flag, view, and rule list."
+    },
+    {
+      "id": "F32",
+      "text": "Match status for non-matches is queryable (e.g. 'no_candidate' vs 'ambiguous') to aid tuning, without affecting existing outputs.",
+      "priority": "Nice",
+      "verify": "pytest: ambiguous and zero-candidate fixtures persist distinct status values; view or table exposes the status."
+    }
+  ],
+  "open_questions": [
+    {
+      "id": "Q1",
+      "q": "Beneficiary account number: persist and display the FULL number, or last-3 only (masked ****709)? The user explicitly wants to see the account number; domain/repo convention (payments tables, L-0003, POPIA minimisation) is last-3.",
+      "recommended_default": "Honour the user's request: persist the full accountNumber in the new beneficiary table only (behind deny_all RLS + security_invoker view, included in encrypted backups only if BACKUP_PASSPHRASE set), display it in full in the view, never log/print it and never put it in matched_token; do NOT store cellNo/emailAddress/raw. If the human prefers stricter POPIA posture: last-3 only + in-memory own-account check persisted as is_own_account boolean.",
+      "affects": ["F20", "F21"]
+    },
+    {
+      "id": "Q2",
+      "q": "Which transactionType values count as payments/transfers (vocabulary is unverified in repo)?",
+      "recommended_default": "Human runs `select transaction_type, count(*) from transactions where type='DEBIT' group by 1` on prod and the result is frozen as a code constant. Provisional allowlist until confirmed: OnlineBankingPayments, OnlineBankingTransfers, FasterPay; explicitly excluded: CardPurchases, FeesAndInterest, ATMWithdrawals, DebitOrders; NULL/unknown fail closed.",
+      "affects": ["F14"]
+    },
+    {
+      "id": "Q3",
+      "q": "Trigger sync+match as a gated hook inside `ingest`, or via a new subcommand?",
+      "recommended_default": "Gated ingest hook (flag off by default), mirroring the non-fatal balance-fetch pattern; no new subcommand, so CLI help stays byte-identical. A new subcommand would require additive-only help change + re-baseline.",
+      "affects": ["F3", "F9", "F11"]
+    },
+    {
+      "id": "Q4",
+      "q": "Snapshot semantics: freeze past matches at match time, or recompute all against the latest beneficiary snapshot?",
+      "recommended_default": "Freeze: existing 'matched' rows keep their beneficiary_id/rule/token/snapshot id; only unmatched/ambiguous rows (and new rows) are re-evaluated against the latest snapshot. Beneficiaries are soft-retired, never hard-deleted.",
+      "affects": ["F17", "F25"]
+    },
+    {
+      "id": "Q5",
+      "q": "Name-field precedence: does referenceName (my-reference) rank above beneficiaryName, and where does `name` sit?",
+      "recommended_default": "account-number digit signal (>=8 digits) > referenceName exact > beneficiaryName exact > name exact > guarded prefix (min length guard, e.g. >6 chars); confirm referenceName semantics against one real payload before freeze.",
+      "affects": ["F26"]
+    },
+    {
+      "id": "Q6",
+      "q": "Surface a 'Paid to' column in the weekly report and/or statement Excel?",
+      "recommended_default": "No for this run: keep both workbooks unchanged (F10 strict); the DB view is the read surface. Revisit in a later run if wanted.",
+      "affects": ["F10"]
+    }
+  ],
+  "out_of_scope": [
+    "Any money movement or change to the payments pipeline/allowlist semantics.",
+    "Editing migrations 0001-0011, existing views, or existing tables.",
+    "Fuzzy/ML matching; beneficiary-categories endpoint.",
+    "Fixing stale CLAUDE.md '62' figure or duplicate 0009 prefix (noted only)."
+  ],
+  "coverage_note": "Orchestrator-mandated constraints -> Musts: suite floor 211 (F2), help re-baseline precondition (F1,F3), additive 0012 only (F4,F5), deny_all RLS + security_invoker (F6), no FK to transaction_hash (F7), ingest/report/statement outputs frozen (F9,F10 conditional on Q6), off by default (F11), deterministic/DEBIT-only/fail-closed/explainable/idempotent (F12-F17), own-account exclusion (F18), no new deps (F23), no secrets + .env ignored (F24). Domain M1-M12 all mapped (M2->F14, M7->F8, M9->F25, M10->F7, M12->F19).",
+  "confidence": "high on freeze/schema/determinism invariants; medium on PII stance pending Q1; low on Investec transactionType vocabulary and referenceName semantics (Q2, Q5)."
+}
