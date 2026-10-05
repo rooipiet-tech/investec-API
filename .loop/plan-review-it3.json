@@ -1,0 +1,7 @@
+{"verdict":"approve","blockers":[],"tightenings":[
+{"id":"T1","fix":"Compute both label tiers with the existing _exact_hit(field, variants) is not None (same normalisation + MIN_EXACT_LEN guard for beneficiary_name and name)."},
+{"id":"T2","fix":"Call the representative helper ONLY inside the len(payees)==1 branch, replacing min(ids); rule, min(ids.values()) token and count 1 unchanged; return an id; last tuple element beneficiary_id."},
+{"id":"T3","fix":"No existing test conflicts: do NOT edit any existing test; additions only in tests/test_beneficiary_representative.py; permutation fixtures <=7 records."},
+{"id":"T4","fix":"Respect full banned list of test_module_has_no_clock_random_fuzzy (see tests/test_beneficiary_match.py:114-116: time., print(, open(, datetime, random., logging., difflib, SequenceMatcher, levenshtein, .now() ) in docstrings too; imports subset of {__future__, re, unicodedata, dataclasses, decimal, typing}."},
+{"id":"T5","fix":"Rewrite (not append) docstring lines ~47-50 that say 'lowest hitting id' / 'no name guard'; state matched_token/match_rule come from hitting record(s) while beneficiary_id may be a non-hitting record of the same payee; same in README."},
+{"id":"T9","fix":"Rollout of Q8 stays a separate human-gated step: snapshot first, explicit go-ahead."}]}

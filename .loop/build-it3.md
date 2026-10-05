@@ -1,0 +1,2 @@
+# Build it3
+Added _representative() in beneficiary_match.py, used only in the single-payee branch of match_transaction (tier: beneficiary_name label, name label via _exact_hit; then hitting; then lowest id). Docstring and README rewritten. New tests/test_beneficiary_representative.py (10 tests). pytest: 330 passed (baseline 320). uv.lock restored. Rollout of Q8 (clearing matched rows) NOT done; needs human go-ahead after snapshot.
