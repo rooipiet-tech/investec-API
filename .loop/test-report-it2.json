@@ -1,0 +1,8 @@
+{"head":"767ed77","pytest":{"passed":320,"failed":0,"errors":0,"floor":320},
+"scope_diff_5b60e4c_HEAD":["src/invespend/beneficiary_match.py","README.md","tests/test_beneficiary_payee.py",".loop/build-it2.md"],
+"protected_diff_13be5e1_HEAD_empty":true,"cli_help_identical_to_baseline":true,"env_tracked":false,"env_ignored":true,"uv_lock_unchanged":true,
+"existing_tests_edited":false,"tests_numstat":"95 add / 0 del (new file only)",
+"F33":{"pass":true,"evidence":"sim: 3 dup regs same acct+branch -> matched; Zed Co 2 distinct accounts -> ambiguous; unit tests for blank/short/branch-differs pass"},
+"F34":{"pass":true,"evidence":"sim over all 120 permutations of 5 benes -> single result matched d1 (min hitting id)"},
+"F35":{"pass":true,"evidence":"protected paths diff empty; help byte-identical; tests additions only; 320 green"},
+"F36":{"pass":true,"evidence":"sim: ambiguous candidate_count=2 (distinct payees); matched=1 despite 3 ids"}}

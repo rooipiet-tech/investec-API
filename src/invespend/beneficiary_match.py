@@ -41,9 +41,14 @@ Rules, highest precedence first (``RULES``):
    truncated description, "acme trad" -> "acme trading").
 
 Fail-closed: the FIRST rule (in the order above) that hits any beneficiary
-decides. Exactly one distinct beneficiary -> ``matched``. More than one ->
-``ambiguous`` (no beneficiary id), with NO fall-through to a weaker rule to
-break the tie. No rule hits -> ``no_candidate``. Exact beats truncation by
+decides. Hitting beneficiaries are first grouped by payee (``payee_key``: same
+account number of >= 8 digits AND same branch code, exact stripped string; a
+record without a usable account number is its own payee). Exactly one distinct
+payee -> ``matched``, labelled with the lowest hitting beneficiary id of that
+payee. More than one PAYEE -> ``ambiguous`` (no beneficiary id), with NO
+fall-through to a weaker rule to break the tie. Pooled accounts registered under
+different names collapse to the lowest hitting id (no name guard). Existing
+ambiguous rows keep their old candidate_count until status or token changes. No rule hits -> ``no_candidate``. Exact beats truncation by
 precedence: with beneficiaries "J Smith" and "J Smithers", the description
 "J SMITH" matches J Smith (exact) and "J SMITHERS" matches J Smithers (exact);
 "J SMIT" matches neither (too short). There is no fuzzy or edit-distance
@@ -301,6 +306,19 @@ def _rule_hit(rule: str, bene: BeneficiaryRecord, variants: tuple[str, ...],
     raise ValueError(f"unknown rule {rule!r}")
 
 
+def payee_key(bene: BeneficiaryRecord) -> str:
+    """Identity of the real-world payee behind a beneficiary record.
+
+    Records with a usable account number (>= ``MIN_ACCOUNT_DIGITS`` digits) share
+    a payee when digits and branch code (exact, stripped string; None equals
+    blank) are equal. Any other record is its own payee, keyed by its id.
+    """
+    digits = digits_only(bene.account_number)
+    if len(digits) >= MIN_ACCOUNT_DIGITS:
+        return f"acct:{digits}|{bene.branch_code or ''}"
+    return f"id:{bene.beneficiary_id}"
+
+
 def match_transaction(tx: TxCandidate,
                       benes: Sequence[BeneficiaryRecord]) -> MatchResult | None:
     """Match one transaction; None when it is not a candidate at all."""
@@ -309,21 +327,24 @@ def match_transaction(tx: TxCandidate,
     variants = description_variants(tx.description)
     digit_runs = _description_digit_runs(tx.description)
     for rule in RULES:
-        hits: dict[str, str] = {}
+        # payee key -> {hitting beneficiary id -> token}
+        payees: dict[str, dict[str, str]] = {}
         for bene in benes:
             token = _rule_hit(rule, bene, variants, digit_runs)
             if token is None:
                 continue
-            prev = hits.get(bene.beneficiary_id)
-            hits[bene.beneficiary_id] = token if prev is None else min(prev, token)
-        if not hits:
+            ids = payees.setdefault(payee_key(bene), {})
+            prev = ids.get(bene.beneficiary_id)
+            ids[bene.beneficiary_id] = token if prev is None else min(prev, token)
+        if not payees:
             continue
-        if len(hits) == 1:
-            (bene_id, token), = hits.items()
-            return MatchResult(tx.transaction_hash, STATUS_MATCHED, bene_id,
-                               rule, token, 1)
-        return MatchResult(tx.transaction_hash, STATUS_AMBIGUOUS, None,
-                           rule, min(hits.values()), len(hits))
+        if len(payees) == 1:
+            (ids,) = payees.values()
+            return MatchResult(tx.transaction_hash, STATUS_MATCHED, min(ids),
+                               rule, min(ids.values()), 1)
+        return MatchResult(tx.transaction_hash, STATUS_AMBIGUOUS, None, rule,
+                           min(t for ids in payees.values() for t in ids.values()),
+                           len(payees))
     return MatchResult(tx.transaction_hash, STATUS_NO_CANDIDATE, None,
                        NO_RULE, "", 0)
 

@@ -129,7 +129,12 @@ it never moves money and never changes the report, statements or ingest output.
   5. `name_prefix`: a name of 7+ characters is a whole-word prefix of the
      description, or a truncated description (7+ characters, 2+ words) is a
      prefix of a name.
-- **Fail-closed:** the first rule that hits decides. One beneficiary: `matched`.
+- **Payee collapse:** beneficiary records with the same account number (8+
+  digits) and the same branch code count as one payee; a match is labelled with
+  the lowest hitting beneficiary id. Pooled accounts under different names also
+  collapse (no name check). Already-ambiguous rows keep their old candidate
+  count until their status or token changes.
+- **Fail-closed:** the first rule that hits decides. One payee: `matched`.
   Several: `ambiguous` (no beneficiary shown, no fall-through to a weaker rule).
   None: `no_candidate`. Exact beats truncation: with "J Smith" and "J Smithers",
   "J SMITH" is J Smith, "J SMITHERS" is J Smithers, "J SMIT" is neither. Short
