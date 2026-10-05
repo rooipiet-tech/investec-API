@@ -1,0 +1,1 @@
+{"suite":"164 passed, 0 failed, 0 errors","baseline_non_payment":"67 passed (62 baseline additive-intact)","payment_tests":97,"db_diff":"empty","env_ignored":true,"criteria":"20/20 pass (tester verified pre-patch; patch strengthened F2/F6/F7/F8/F9/F11/F16, re-run green)"}

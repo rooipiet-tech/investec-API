@@ -1,0 +1,14 @@
+{"verdict":"approve","blockers":[],"tightenings":[
+{"id":"T1","stage":"S5/S6","issue":"F9 flag-on scenario can pass without the hook running if beneficiary_sync binds connect via `from .db import connect`.","fix":"Call db.connect via module attribute; assert get_beneficiaries.call_count==1 and fake SQL log shows writes to beneficiaries and beneficiary_matches; patch db._open to raise as tripwire."},
+{"id":"T2","stage":"S2/S6","issue":"F15 exact-beats-truncation reading not pinned.","fix":"Golden fixtures: J Smith + J Smithers, 'J SMITH' -> J Smith (exact); Acme Trading + Acme Trading Two, 'ACME TRADING' -> Acme Trading. Document in docstring + README."},
+{"id":"T3","stage":"S2","issue":"name_prefix truncation branch lacks word-count guard; generic one-word descriptions could match.","fix":"Require >=2 normalised words for truncation branch; fixture one-word generic description -> no_candidate."},
+{"id":"T4","stage":"S2","issue":"account_number rule joins separate digit runs.","fix":"Match within a single digit run (\\d[\\d -]*\\d stripped to digits); fixture cross-boundary -> no match; digit-grouped still matches."},
+{"id":"T5","stage":"S6","issue":"Static SQL tests could false-positive on regexp_replace/comments.","fix":"Strip -- comments, match statement heads only; pin transactions_beneficiary ordered column list."},
+{"id":"T6","stage":"S1/S7","issue":"View columns are append-only forever.","fix":"SQL comment in 0012 + T5 pinned-column test."},
+{"id":"T7","stage":"S6","issue":"Idempotency test compares now()-dependent params.","fix":"Inject fixed now= into sync_and_match or compare post-upsert rows."},
+{"id":"T8","stage":"S0/S6","issue":"F10 off-vs-on workbook comparison is vacuous.","fix":"Generate tests/fixtures/beneficiary/excel_golden.json at base SHA and commit with S0; F9 fixture returns all account ids so new_accounts==[]."},
+{"id":"T9","stage":"S3","issue":"First-run match upsert can exceed Postgres 65535-param limit (~9.3k rows), error swallowed.","fix":"Batch <=500 rows; test with >1 batch."},
+{"id":"T10","stage":"S3","issue":"Retirement relies on clock monotonicity.","fix":"Retire where active and not (beneficiary_id = any(fetched_ids)); UPDATE only, never DELETE."},
+{"id":"T11","stage":"S7","issue":"report_readonly has no grant on new objects; README query works only as owner/service role.","fix":"Document in README; do not edit roles.sql."},
+{"id":"T12","stage":"S0","issue":"211 floor measured at ae2ac78, plan base acb973d.","fix":"Tester re-measures pytest at BASE_SHA in S0."},
+{"id":"T13","stage":"S7","issue":"Frozen match drops from view if later reclassified internal_transfer or beneficiary becomes own account; view not deduped like report.py.","fix":"Document in README; no code change."}]}

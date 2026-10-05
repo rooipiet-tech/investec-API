@@ -100,3 +100,58 @@ pytest                      # run the unit tests
 
 > **Security:** secrets live only in `.env` (git-ignored) locally and in GitHub
 > encrypted secrets in CI. Never commit credentials.
+
+## Optional: beneficiary matching
+
+Labels outgoing payments with the Investec beneficiary you paid. Off by default;
+it never moves money and never changes the report, statements or ingest output.
+
+- **Flag:** set `BENEFICIARY_MATCHING_ENABLED=true` (env / GitHub secret). It is
+  separate from `PAYMENTS_BENEFICIARIES_FROM_API`.
+- **When it runs:** at the end of `invespend ingest`, only after the sync run was
+  recorded as successful. It is non-fatal: if the beneficiary fetch fails or
+  returns a malformed or empty list, a warning is logged (stderr), the existing
+  beneficiary snapshot is kept and ingest finishes exactly as before.
+- **Where the result lives:** the view `transactions_beneficiary` (migration
+  `0012_beneficiary_matching.sql`, tables `beneficiaries` and
+  `beneficiary_matches`). The view's column list is append-only.
+- **Candidates:** DEBIT rows with a negative amount whose `transaction_type` is
+  `OnlineBankingPayments`, `OnlineBankingTransfers` or `FasterPay` (provisional
+  allowlist; NULL/unknown types never match). Internal transfers and
+  beneficiaries that are one of your own accounts are excluded.
+- **Rules, highest precedence first** (`match_rule`):
+  1. `account_number`: the beneficiary account number (8+ digits) appears in one
+     digit run of the description, spaces/hyphens allowed (`9999 0000 1234`);
+  2. `reference_exact`: your reference name for the beneficiary equals the
+     description (after normalising case, punctuation and spacing, and dropping
+     a leading "Payment to" / "Transfer to" style prefix);
+  3. `beneficiary_name_exact`, then 4. `name_exact`: same, for those fields;
+  5. `name_prefix`: a name of 7+ characters is a whole-word prefix of the
+     description, or a truncated description (7+ characters, 2+ words) is a
+     prefix of a name.
+- **Fail-closed:** the first rule that hits decides. One beneficiary: `matched`.
+  Several: `ambiguous` (no beneficiary shown, no fall-through to a weaker rule).
+  None: `no_candidate`. Exact beats truncation: with "J Smith" and "J Smithers",
+  "J SMITH" is J Smith, "J SMITHERS" is J Smithers, "J SMIT" is neither. Short
+  names ("Mom", "Rent") never match. No fuzzy matching.
+- **Freeze:** a `matched` row is never rewritten. `ambiguous` and `no_candidate`
+  rows are re-evaluated on each run. Beneficiaries missing from a later fetch
+  are soft-retired (`beneficiary_active = false`), never deleted, so old matches
+  still show their name; `matched_token` keeps the token as it was at match time.
+- **Caveats:** a frozen match disappears from the view if the transaction is
+  later classified `internal_transfer` or the beneficiary becomes one of your own
+  accounts. The view is not de-duplicated the way the weekly report is.
+- **Privacy:** the full beneficiary account number is stored in `beneficiaries`
+  (deny-all RLS, never logged; `matched_token` shows only `***` + last 3 digits).
+  Cell numbers, email addresses and raw payloads are not stored. Backups include
+  this table, so set `BACKUP_PASSPHRASE`.
+- **Access:** the read-only reporting role in `db/roles.sql` has no grant on the
+  new objects, so query the view as the database owner / service role:
+
+```sql
+select effective_date, description, amount, beneficiary_name, beneficiary_bank,
+       beneficiary_account_number, match_rule
+from transactions_beneficiary
+where match_status = 'matched'
+order by effective_date desc;
+```
