@@ -1,0 +1,1 @@
+{"verdict":"PASS","findings":[{"id":"N1","severity":"info","file":"src/invespend/beneficiary_match.py","line":0,"issue":"Optional: matcher/sql/hook all conform to T1-T13; 310 pytest pass. No behaviour-moving issues found. Note a retired beneficiary can still be matched in view by design.","fix":"none"}]}

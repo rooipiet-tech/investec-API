@@ -1,0 +1,5 @@
+{"verdict":"LOW","findings":[
+{"id":"R1","severity":"info","file":"src/invespend/backup.py","line":43,"issue":"Backup is a full pg_dump so new tables are included; full beneficiary account numbers will appear in dumps (RLS does not apply to dumps).","fix":"Accept/document: treat backup artifacts as sensitive."},
+{"id":"R2","severity":"low","file":"db/migrations/0012_beneficiary_matching.sql","line":1,"issue":"Runs every ingest; create-if-not-exists/policy drop+create takes brief ACCESS EXCLUSIVE on new tables only; no lock_timeout set, create or replace view column list append-only.","fix":"Optional: set local lock_timeout; keep view append-only."},
+{"id":"R3","severity":"info","file":"src/invespend/ingest.py","line":190,"issue":"Hook is after sync_runs recorded, flag default false, wrapped in except Exception logging class only; SQL fully parameterized; fixtures synthetic (999900001234); .env ignored, uv.lock untouched.","fix":"none"}
+]}
