@@ -1,0 +1,12 @@
+{
+  "run": "email-payment-v2",
+  "iteration": 0,
+  "spec_frozen": false,
+  "pass_rate": "0/31",
+  "S": 0.0,
+  "best": 0.0,
+  "triage": "halt",
+  "decision_log": [
+    "phase0: research+domain done; spec v0.1.0 drafted (31 criteria, F1-F31; baseline 330 passing; rollout gates G1-G3). Q1 resolved by human (notify). STOPPED at spec gate awaiting human approval of criteria + Q2-Q9."
+  ]
+}

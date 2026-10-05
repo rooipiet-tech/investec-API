@@ -1,0 +1,273 @@
+{
+  "spec_version": "0.1.0",
+  "run": "email-payment-v2",
+  "frozen": false,
+  "inputs": [
+    ".loop/GOAL.md",
+    ".loop/research.md",
+    ".loop/investec-api-research.md",
+    ".loop/domain.md"
+  ],
+  "structure_reused_from": [
+    ".loop/archive/payments-run/spec.json",
+    ".loop/archive/beneficiary-matching-run/spec.json"
+  ],
+  "baseline": {
+    "pytest_floor": "330 passed, 0 failed, 0 errors (measured at HEAD 2eee10c via `uv run pytest -q`; uv.lock then reverted with `git checkout uv.lock`)",
+    "migrations_at_head": "0001..0008, 0009_payment_approvals, 0009_security_invoker_rls, 0010, 0011, 0012_beneficiary_matching; next free prefix 0013",
+    "defects_verified_by_reading_source": [
+      "cli.py cmd_approve_payments calls run_approval_cycle without approval_recipients (pipeline.py only emails if approval_recipients truthy)",
+      "payments/dedup.py hashes message_id into dedup_key, so a reply's different Message-ID changes the key"
+    ]
+  },
+  "weights": {
+    "Must": 3,
+    "Should": 2,
+    "Nice": 1
+  },
+  "acceptance_criteria": [
+    {
+      "id": "F1",
+      "text": "PRECONDITION: before any code change, refresh .loop/baseline/ by capturing `invespend --help` and every `invespend <sub> --help` from the unmodified base commit (2eee10c) and record the SHA; all CLI-surface comparisons use this baseline.",
+      "priority": "Must",
+      "verify": "Baseline files exist for top + all current subcommands with recorded base SHA; regenerating at the base SHA is byte-identical; refresh precedes first source diff."
+    },
+    {
+      "id": "F2",
+      "text": "Test-suite floor: at least 330 pre-existing tests pass (measured at HEAD 2eee10c via `uv run pytest -q` -> '330 passed', then `git checkout uv.lock`) plus all new tests; 0 failures, 0 errors. CLAUDE.md '62' is stale.",
+      "priority": "Must",
+      "verify": "`uv run pytest -q` reports >=330 passed + new tests, 0 failed, 0 errors; `git checkout uv.lock` run afterwards and `git status` shows uv.lock unmodified."
+    },
+    {
+      "id": "F3",
+      "text": "Dry-run is the default and the live gate is retained unchanged: live requires explicit live_enabled() (flag AND payment-capable credential); in dry-run no write endpoint (paymultiple/_post) is called and the result is recorded 'dry-run'. No default (code, .env.example, workflow) turns live on.",
+      "priority": "Must",
+      "verify": "pytest: default -> client write mock not_called, outcome 'executed:dry-run'; flag without cred -> stays dry-run; both -> mocked write invoked and live enablement audited. grep workflow/.env.example: live flag absent or false."
+    },
+    {
+      "id": "F4",
+      "text": "Trigger grammar: body contains the token 'pay' followed by exactly 3 digits (case-insensitive, word-bounded, e.g. 'pay 123' / 'pay123'); digits-only (letters not accepted) unless human changes Q5. No trigger -> message ignored (no pending, no reply, audit 'ignored'). 'pay' with 2 or 4 digits -> ignored/parked, not guessed.",
+      "priority": "Must",
+      "verify": "pytest parametrised: 'pay 123','Pay123' trigger; 'pay abc','pay 12','pay 1234','payment 123','repay 123' do not; no-trigger mail creates no state and sends no email."
+    },
+    {
+      "id": "F5",
+      "text": "The 3 digits select the SOURCE account by exact match on last-3 of the user's real accounts (get_accounts). Zero or >1 matching accounts (ambiguity across profiles/accounts) -> fail closed (parked, notify, no execute). Last-3 is never an authorization factor.",
+      "priority": "Must",
+      "verify": "pytest: unique match resolves sourceAccountId bound into approval; 0 matches and 2 matches across profiles -> parked, execute not_called."
+    },
+    {
+      "id": "F6",
+      "text": "PRIMARY CONTROL sender authentication: a message is processed only if (a) the OUTER From address is on a configured allowlist AND (b) Authentication-Results from the receiving mail host shows dkim=pass and spf=pass aligned with that From domain. Reply-To is never used for identity or routing. Missing/failed/absent headers -> fail closed (ignored+audited).",
+      "priority": "Must",
+      "verify": "pytest: allowlisted From + dkim/spf pass -> processed; spoofed From (fail/none), allowlisted display-name with foreign address, Reply-To set to allowlisted address with foreign From, missing Authentication-Results -> not processed, no state, audit reason."
+    },
+    {
+      "id": "F7",
+      "text": "Forwarded mail: authentication is applied to the OUTER (forwarding) sender only; From/headers/addresses inside the forwarded body or message/rfc822 attachment are never trusted for identity. Content of the forward is searched for payment data but cannot satisfy sender auth.",
+      "priority": "Must",
+      "verify": "pytest: forward by allowlisted+authenticated user with inner message from stranger -> processed; forward by non-allowlisted outer sender with inner allowlisted From -> rejected."
+    },
+    {
+      "id": "F8",
+      "text": "Search scope: for a triggered message the pipeline searches reply and forward body, quoted text, and pdf/xlsx/csv attachments for payment amount/currency/payee (existing extraction reused). Conflicting figures (two amounts, two payees, currency mismatch, corrupt attachment) -> parked, never executed. Image OCR stays out of scope (graceful skip).",
+      "priority": "Must",
+      "verify": "pytest fixtures: body, quoted, forwarded, pdf, xlsx, csv each yield the expected candidate; conflicting figures across body vs attachment -> 'parked'; image-only -> skipped, no pending."
+    },
+    {
+      "id": "F9",
+      "text": "Beneficiary resolution is exact and registered-only: payee resolves only to an exact existing beneficiaryId from the account's registered beneficiaries; a parsed account number is never paid directly; fuzzy/partial match never auto-resolves.",
+      "priority": "Must",
+      "verify": "pytest: exact match -> candidate with registered beneficiaryId; near-miss/ambiguous/no match -> not resolved; value passed to execute is the registered id."
+    },
+    {
+      "id": "F10",
+      "text": "Unregistered payee (Q1, resolved): notify the user by email that the payee must be added in Investec Online/app, with details (name, bank, account number, branch code, reference, email/cell if present) in the Investec mobile-app field order (order per Q6). The system NEVER calls any beneficiary-creating endpoint and no payment is scheduled for it.",
+      "priority": "Must",
+      "verify": "pytest: unregistered payee -> exactly one notification email with fields in the configured order; no create-beneficiary call exists (grep src for beneficiar creation endpoints finds none); client write mock not_called; no pending execute_after."
+    },
+    {
+      "id": "F11",
+      "text": "Notification emails mask or minimise data: full account number appears only in the unregistered-payee paste-details email to the verified user (necessary for the purpose), never in logs/audit/state/other emails.",
+      "priority": "Must",
+      "verify": "pytest: captured logs, audit rows, stored state and summary/reminder emails contain no full account number; paste-details email goes only to the authenticated allowlisted sender."
+    },
+    {
+      "id": "F12",
+      "text": "24h hold implemented app-side (the Investec API has no scheduled/delayed payment): on accepting a valid instruction a pending record is persisted with execute_after = accepted_at + 24h (configurable, default 24h) and expires_at; nothing is sent to paymultiple at acceptance.",
+      "priority": "Must",
+      "verify": "pytest with injected clock: at t0 record has execute_after=t0+24h, write mock not_called; run at t0+23h59m -> not executed; at t0+24h -> eligible."
+    },
+    {
+      "id": "F13",
+      "text": "On acceptance a summary email is sent immediately (source last-3, payee name, amount, execute_after, how to cancel) and a reminder is sent before execution (default ~1h before; once only).",
+      "priority": "Must",
+      "verify": "pytest: acceptance -> one summary email; run in reminder window -> one reminder; rerun -> no duplicate reminder; emails contain no token secret or full account number."
+    },
+    {
+      "id": "F14",
+      "text": "Cancel by reply: an authenticated (F6) reply from the allowlisted sender with a cancel keyword referencing the pending payment cancels it; cancel is atomic versus execute (compare-and-set on status in one DB transaction) so exactly one of cancel/execute wins, never both.",
+      "priority": "Must",
+      "verify": "pytest: cancel before execute_after -> status cancelled, never executed; concurrent cancel vs execute (two threads/transactions against test DB or store fake with CAS) -> exactly one winner; unauthenticated cancel ignored."
+    },
+    {
+      "id": "F15",
+      "text": "At execution time (>= execute_after) re-verify: beneficiary still registered and unchanged, source account still resolves uniquely, sufficient available balance, per-payment and daily caps; any failure -> parked + notified, not executed. Obtain a fresh OAuth token for the payment call (never reuse a token cached from acceptance).",
+      "priority": "Must",
+      "verify": "pytest: beneficiary removed/changed, balance short, cap now exceeded each -> parked, write mock not_called; token fetch occurs at execution (client token mock call count incremented after the hold)."
+    },
+    {
+      "id": "F16",
+      "text": "Expiry window: a pending payment not executed within a configured window after execute_after (default 24h; Q2) is expired and notified rather than executed late; behaviour after the hold follows Q2 proposal (auto-pay unless cancelled, within expiry window).",
+      "priority": "Must",
+      "verify": "pytest: now > execute_after+expiry -> status expired, write mock not_called, one notification; within window -> executes."
+    },
+    {
+      "id": "F17",
+      "text": "Idempotency: the paymultiple POST is NEVER automatically retried (no retry/backoff on the write); a 200 response whose body carries ErrorMessage or AuthorisationRequired (or any non-success item status) is treated as FAILURE. Unknown outcome (timeout) -> marked 'unknown/needs_review', notified, never re-sent automatically. Same payment cannot execute twice.",
+      "priority": "Must",
+      "verify": "pytest: write mock raising timeout -> call_count==1, status needs_review; 200 {ErrorMessage:...} and AuthorisationRequired -> status failed, not 'executed'; re-run cycle -> call_count still 1; urllib3/requests retry adapter absent on the write path."
+    },
+    {
+      "id": "F18",
+      "text": "Caps fail closed: per-payment cap and persisted daily aggregate cap are enforced pre-execution (and re-checked at execution, F15); an unset cap, 0, negative or unparsable value means NO payment allowed. Daily total survives restart.",
+      "priority": "Must",
+      "verify": "pytest: cap unset/0/'abc' -> blocked; over per-payment -> blocked; aggregate pushing over daily -> blocked; reloaded store retains total; write mock not_called when blocked."
+    },
+    {
+      "id": "F19",
+      "text": "Append-only audit trail records every step (received, auth result, ignored, parked, accepted, reminder, cancel, execute, fail, expire) with timestamps; never contains full account numbers, PAN, tokens, signing secret or other PII beyond hashed message id and last-3.",
+      "priority": "Must",
+      "verify": "pytest: full lifecycle -> ordered entries, none mutated/deleted; scan of audit text finds no 9+ digit run, no secret, no email body."
+    },
+    {
+      "id": "F20",
+      "text": "Defect fix #1 (verify first): CLI approve-payments never passes approval_recipients to run_approval_cycle (cli.py ~L307), so pending approval/summary emails are never sent in production. Reproduce with a failing test, then fix so summary/notification recipients come from config (the authenticated allowlisted user), without changing existing flags' meaning.",
+      "priority": "Must",
+      "verify": "A new test fails at base 2eee10c and passes after fix: CLI cycle with a pending item invokes smtp send to the configured recipient; existing approve-payments --help unchanged unless Q-approved additive flag."
+    },
+    {
+      "id": "F21",
+      "text": "Defect fix #2 (verify first): dedup key includes the inbound Message-ID, so a reply (new Message-ID) yields a different key and token/cancel replies are rejected or create duplicates. Reproduce with a failing test, then key cancel/approval matching on the pending record's stable id/nonce (carried in Subject/References/In-Reply-To), not the reply's Message-ID. Dedup of the same original email remains.",
+      "priority": "Must",
+      "verify": "New test fails at base and passes after: original mail then reply with different Message-ID matches the same pending; same original mail twice -> one pending; different payments -> different keys."
+    },
+    {
+      "id": "F22",
+      "text": "Frozen behaviour: ingest, report, statements, backfill-hashes, backup, init-db and beneficiary-matching outputs are unchanged; no change to existing CLI flags/help; any new CLI surface is additive only and approved.",
+      "priority": "Must",
+      "verify": "Refreshed baseline --help byte-identical for all pre-existing subcommands; existing ingest/report/statement/beneficiary tests unmodified and green; git diff shows no edits to ingest/report/statements modules' logic."
+    },
+    {
+      "id": "F23",
+      "text": "Schema: only additive migrations (next free prefix 0013+), state stored in Postgres via the existing pg_store pattern, RLS enabled with deny_all policies for new tables (matching 0010/0011); no edits to existing migrations, tables or views.",
+      "priority": "Must",
+      "verify": "git diff -- db/migrations shows only new files; migrations apply in numeric order on a scratch DB; new tables have ROW LEVEL SECURITY and deny_all policy; migration-order test green; views definitions unchanged."
+    },
+    {
+      "id": "F24",
+      "text": "No secrets committed: .env stays git-ignored; credentials, signing secret, IMAP/SMTP creds and Investec keys come from env/Actions secrets only and never appear in code, logs, emails, audit or workflow files.",
+      "priority": "Must",
+      "verify": "git check-ignore .env succeeds; grep of tracked files/diff for key patterns finds none; test asserts secrets absent from logs, emails, audit."
+    },
+    {
+      "id": "F25",
+      "text": "No new third-party dependencies unless justified in the plan and approved (stdlib email/imaplib/zoneinfo preferred); any addition recorded in pyproject with rationale.",
+      "priority": "Must",
+      "verify": "git diff -- pyproject.toml uv.lock shows no new deps (uv.lock reverted after test runs), or each added dep has a written justification approved at plan gate."
+    },
+    {
+      "id": "F26",
+      "text": "Agent-native: the cycle runs headlessly from the CLI with mocked inbox/SMTP/Investec, machine-readable JSON output and deterministic exit codes; state and audit are assertable in tests.",
+      "priority": "Must",
+      "verify": "pytest: invoke entry point with mocks -> JSON summary and expected exit code for ignore/accept/park/cancel/execute paths."
+    },
+    {
+      "id": "F27",
+      "text": "Credential scope split (Q9): live mode may use a separate payment-capable credential distinct from the read credential used for ingest/report; read credential never performs writes. Default recommended: separate pay key.",
+      "priority": "Should",
+      "verify": "pytest: dry-run builds client with read credential; live uses payment_credentials(); config docs list distinct env vars."
+    },
+    {
+      "id": "F28",
+      "text": "Scheduled job spec (proposal, Q4): a GitHub Actions workflow runs the cycle on a cron (e.g. every 15 min) with live mode OFF by default (dry-run), secrets via Actions secrets, concurrency group to prevent overlapping runs, and no live flag set in the file.",
+      "priority": "Should",
+      "verify": "Workflow YAML parses (actionlint/yaml load); contains schedule + workflow_dispatch + concurrency; grep shows no live-enable value true; live enablement requires a manually set repo variable/secret."
+    },
+    {
+      "id": "F29",
+      "text": "Retention/minimisation: persisted records hold only needed fields (ids as last-3/hash), terminal records are purged after a retention window, and cleanup is covered by tests.",
+      "priority": "Should",
+      "verify": "pytest: stored row has no full account number; cleanup removes terminal records older than window and keeps active ones."
+    },
+    {
+      "id": "F30",
+      "text": "ARC policy (Q8): handling of ARC-forwarded/mailing-list rewritten messages is explicit and tested; default is reject (do not trust ARC) when direct DKIM/SPF alignment fails.",
+      "priority": "Should",
+      "verify": "pytest: message with arc=pass but dkim/spf fail -> rejected under default policy."
+    },
+    {
+      "id": "F31",
+      "text": "Operator documentation (README/runbook section) describes trigger grammar, auth requirements, 24h hold, cancel, rollout gates and how to keep live off.",
+      "priority": "Nice",
+      "verify": "docs file contains each topic heading; reviewer checklist."
+    }
+  ],
+  "out_of_scope": [
+    "Playwright (or any browser/app-automation) helper that adds beneficiaries or pastes details into the Investec app/online banking: separate future run with its own security review; no automation of banking login/2FA.",
+    "Creating beneficiaries via the API (not available; Q1 resolved to notify).",
+    "Native Investec scheduled/future-dated payments (not offered by the API; hold is app-side).",
+    "Image OCR / cloud OCR egress.",
+    "Changes to ingest, report, statements, backfill-hashes, backup or beneficiary-matching behaviour and outputs.",
+    "Enabling live money movement in this run; live stays off."
+  ],
+  "open_questions": [
+    {
+      "id": "Q2",
+      "q": "Behaviour after the 24h hold.",
+      "recommended_default": "Pay automatically at execute_after unless cancelled by reply; summary email now + reminder before execution; expire if not executed within window."
+    },
+    {
+      "id": "Q3",
+      "q": "Sender checks.",
+      "recommended_default": "From allowlist + Authentication-Results dkim=pass and spf=pass (outer sender); optional shared secret code in body as an extra factor, off by default."
+    },
+    {
+      "id": "Q4",
+      "q": "Where the cycle runs.",
+      "recommended_default": "GitHub Actions scheduled workflow (every ~15 min), dry-run by default."
+    },
+    {
+      "id": "Q5",
+      "q": "Trigger digits-only or allow letters?",
+      "recommended_default": "Digits-only: 'pay' + exactly 3 digits."
+    },
+    {
+      "id": "Q6",
+      "q": "Exact field order in the Investec mobile app add-beneficiary form (for the unregistered-payee notification).",
+      "recommended_default": "Name, bank, account number, branch code, beneficiary reference, own reference, email, cell; configurable constant, human to confirm against the app."
+    },
+    {
+      "id": "Q7",
+      "q": "Cap values (per-payment, daily aggregate).",
+      "recommended_default": "Unset=0=blocked; human sets values explicitly; suggest low initial values (e.g. R1,000 per payment, R2,000 per day) for the soak."
+    },
+    {
+      "id": "Q8",
+      "q": "ARC policy for forwarded/relayed mail.",
+      "recommended_default": "Do not trust ARC; require direct dkim/spf pass on the outer sender."
+    },
+    {
+      "id": "Q9",
+      "q": "Separate payment-scoped Investec credential?",
+      "recommended_default": "Yes: separate pay key used only in live mode; read key for everything else."
+    }
+  ],
+  "rollout_gates": [
+    "G1 Dry-run soak: run scheduled dry-run only for a minimum period (recommended 14 days / at least 5 real instructions) with audit reviewed and zero unexpected outcomes.",
+    "G2 Sandbox test: end-to-end payment exercised against openapisandbox.investec.com (mocked-money) including error bodies (ErrorMessage/AuthorisationRequired) and no-retry behaviour.",
+    "G3 Human enables live explicitly: human sets the live flag and pay credential and caps; recorded in audit; never enabled by default or by the loop."
+  ],
+  "coverage_note": "Maps GOAL.md request + Q1 decision and Q2-Q4 proposals to F3-F21; frozen-behaviour and no-secrets constraints are Musts (F2,F22,F23,F24,F25).",
+  "confidence": "high on guardrails; medium on Investec API write semantics (verify in sandbox, G2)."
+}
