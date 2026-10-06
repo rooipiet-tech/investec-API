@@ -1,12 +1,13 @@
 {
-  "spec_version": "0.1.0",
+  "spec_version": "1.0.0",
   "run": "email-payment-v2",
-  "frozen": false,
+  "frozen": true,
   "inputs": [
     ".loop/GOAL.md",
     ".loop/research.md",
     ".loop/investec-api-research.md",
-    ".loop/domain.md"
+    ".loop/domain.md",
+    ".loop/decisions.md"
   ],
   "structure_reused_from": [
     ".loop/archive/payments-run/spec.json",
@@ -58,7 +59,7 @@
     },
     {
       "id": "F6",
-      "text": "PRIMARY CONTROL sender authentication: a message is processed only if (a) the OUTER From address is on a configured allowlist AND (b) Authentication-Results from the receiving mail host shows dkim=pass and spf=pass aligned with that From domain. Reply-To is never used for identity or routing. Missing/failed/absent headers -> fail closed (ignored+audited).",
+      "text": "PRIMARY CONTROL sender authentication: a message is processed only if (a) the OUTER From address is on a configured allowlist AND (b) Authentication-Results from the receiving mail host shows dkim=pass and spf=pass aligned with that From domain. Reply-To is never used for identity or routing. Missing/failed/absent headers -> fail closed (ignored+audited). No secret code or shared-secret factor is used (Q3 resolved).",
       "priority": "Must",
       "verify": "pytest: allowlisted From + dkim/spf pass -> processed; spoofed From (fail/none), allowlisted display-name with foreign address, Reply-To set to allowlisted address with foreign From, missing Authentication-Results -> not processed, no state, audit reason."
     },
@@ -70,9 +71,9 @@
     },
     {
       "id": "F8",
-      "text": "Search scope: for a triggered message the pipeline searches reply and forward body, quoted text, and pdf/xlsx/csv attachments for payment amount/currency/payee (existing extraction reused). Conflicting figures (two amounts, two payees, currency mismatch, corrupt attachment) -> parked, never executed. Image OCR stays out of scope (graceful skip).",
+      "text": "Search scope: for a triggered message the pipeline searches reply and forward body, quoted text, pdf/xlsx/csv attachments AND images (see F32-F38) for payment amount/currency/payee (existing extraction reused). Conflicting figures (two amounts, two payees, currency mismatch, corrupt attachment) -> parked, never executed.",
       "priority": "Must",
-      "verify": "pytest fixtures: body, quoted, forwarded, pdf, xlsx, csv each yield the expected candidate; conflicting figures across body vs attachment -> 'parked'; image-only -> skipped, no pending."
+      "verify": "pytest fixtures: body, quoted, forwarded, pdf, xlsx, csv each yield the expected candidate; conflicting figures across body vs attachment -> 'parked'; image handling per F32-F38."
     },
     {
       "id": "F9",
@@ -82,45 +83,45 @@
     },
     {
       "id": "F10",
-      "text": "Unregistered payee (Q1, resolved): notify the user by email that the payee must be added in Investec Online/app, with details (name, bank, account number, branch code, reference, email/cell if present) in the Investec mobile-app field order (order per Q6). The system NEVER calls any beneficiary-creating endpoint and no payment is scheduled for it.",
+      "text": "Unregistered/new payee (Q1, resolved): notify the user by email that the payee must be added in Investec Online/app, with details in EXACTLY this ordered field list (Q6): Beneficiary name, Bank, Account number, Amount, Their reference, My reference, Payment notification, Beneficiary email address, Beneficiary mobile number. Branch code, if known, appears only as a separate 'reference only' line outside the ordered list. A parked 'awaiting beneficiary' instruction is recorded (F12). The system NEVER calls any beneficiary-creating endpoint and no payment is sent for it at this stage.",
       "priority": "Must",
-      "verify": "pytest: unregistered payee -> exactly one notification email with fields in the configured order; no create-beneficiary call exists (grep src for beneficiar creation endpoints finds none); client write mock not_called; no pending execute_after."
+      "verify": "pytest: unregistered payee -> exactly one notification email whose ordered fields equal the nine-item list above in that order, with branch code only in a separate 'reference only' line; awaiting-beneficiary instruction persisted; no create-beneficiary call exists (grep src finds none); client write mock not_called."
     },
     {
       "id": "F11",
-      "text": "Notification emails mask or minimise data: full account number appears only in the unregistered-payee paste-details email to the verified user (necessary for the purpose), never in logs/audit/state/other emails.",
+      "text": "Notification emails mask or minimise data: full account number appears only in the new-payee paste-details email to the verified user (necessary for the purpose), never in logs/audit/state/other emails (including the post-payment confirmation).",
       "priority": "Must",
       "verify": "pytest: captured logs, audit rows, stored state and summary/reminder emails contain no full account number; paste-details email goes only to the authenticated allowlisted sender."
     },
     {
       "id": "F12",
-      "text": "24h hold implemented app-side (the Investec API has no scheduled/delayed payment): on accepting a valid instruction a pending record is persisted with execute_after = accepted_at + 24h (configurable, default 24h) and expires_at; nothing is sent to paymultiple at acceptance.",
+      "text": "Two-path routing (Q2, replaces blanket 24h hold). (A) REGISTERED payee (exact beneficiaryId, F9): executes IMMEDIATELY in the same cycle, no hold and no cancel window, still subject to F3 (dry-run default/live gate), F15 pre-POST re-verification, F17 idempotency, F18 caps, F19 audit and F13 confirmation. (B) NEW/unregistered payee: F10 notification + a parked 'awaiting beneficiary' instruction is persisted; nothing is sent to paymultiple. Once the payee appears in the live beneficiary list, pay only after a configurable hold (default 24h; see F39), then re-verify (F15) and execute.",
       "priority": "Must",
-      "verify": "pytest with injected clock: at t0 record has execute_after=t0+24h, write mock not_called; run at t0+23h59m -> not executed; at t0+24h -> eligible."
+      "verify": "pytest with injected clock and fake client: registered payee -> write invoked once in the same cycle (live-mocked) or recorded dry-run, no execute_after; unregistered -> parked awaiting_beneficiary, write not_called; beneficiary appears in list at t0 -> not executed before t0+hold, executed at t0+hold after re-verification."
     },
     {
       "id": "F13",
-      "text": "On acceptance a summary email is sent immediately (source last-3, payee name, amount, execute_after, how to cancel) and a reminder is sent before execution (default ~1h before; once only).",
+      "text": "Emails: registered path -> a post-payment confirmation email to the authenticated user after the payment outcome is known (payee name, amount, source last-3, outcome; no full account number). New-payee path -> F10 paste-details email at park time, a notice when the beneficiary is first observed and the hold starts (with execute_after and how to cancel), and a reminder before execution (default ~1h before; once only). Failures/expiry/unknown outcomes also notify.",
       "priority": "Must",
-      "verify": "pytest: acceptance -> one summary email; run in reminder window -> one reminder; rerun -> no duplicate reminder; emails contain no token secret or full account number."
+      "verify": "pytest: registered success -> one confirmation email after execution (dry-run says dry-run); new payee -> one paste-details email, one hold-started email on first observation, one reminder in window, no duplicates on rerun; emails contain no token/secret or full account number (except F10 paste details)."
     },
     {
       "id": "F14",
-      "text": "Cancel by reply: an authenticated (F6) reply from the allowlisted sender with a cancel keyword referencing the pending payment cancels it; cancel is atomic versus execute (compare-and-set on status in one DB transaction) so exactly one of cancel/execute wins, never both.",
+      "text": "Cancel by reply remains available while an instruction is parked or held (new-payee path): an authenticated (F6) reply from the allowlisted sender with a cancel keyword referencing the pending instruction cancels it; cancel is atomic versus execute (compare-and-set on status in one DB transaction) so exactly one of cancel/execute wins. Registered-payee payments execute immediately and have no cancel window (Q2).",
       "priority": "Must",
-      "verify": "pytest: cancel before execute_after -> status cancelled, never executed; concurrent cancel vs execute (two threads/transactions against test DB or store fake with CAS) -> exactly one winner; unauthenticated cancel ignored."
+      "verify": "pytest: cancel while awaiting_beneficiary or during hold -> status cancelled, never executed; concurrent cancel vs execute (CAS) -> exactly one winner; unauthenticated cancel ignored; registered path has no pending cancel state."
     },
     {
       "id": "F15",
-      "text": "At execution time (>= execute_after) re-verify: beneficiary still registered and unchanged, source account still resolves uniquely, sufficient available balance, per-payment and daily caps; any failure -> parked + notified, not executed. Obtain a fresh OAuth token for the payment call (never reuse a token cached from acceptance).",
+      "text": "Immediately before the paymultiple POST (BOTH paths, no delay between check and POST beyond the call itself): re-verify beneficiary still registered and unchanged, source account still resolves uniquely, sufficient available balance, per-payment and daily caps; any failure -> parked + notified, not executed. Obtain a fresh OAuth token for the payment call (never reuse a cached token from acceptance/an earlier cycle).",
       "priority": "Must",
-      "verify": "pytest: beneficiary removed/changed, balance short, cap now exceeded each -> parked, write mock not_called; token fetch occurs at execution (client token mock call count incremented after the hold)."
+      "verify": "pytest: beneficiary removed/changed, balance short, cap exceeded each -> parked, write mock not_called, for registered and held paths; token fetch occurs at execution time (token mock call count incremented after the hold)."
     },
     {
       "id": "F16",
-      "text": "Expiry window: a pending payment not executed within a configured window after execute_after (default 24h; Q2) is expired and notified rather than executed late; behaviour after the hold follows Q2 proposal (auto-pay unless cancelled, within expiry window).",
+      "text": "Expiry window: a parked 'awaiting beneficiary' or held instruction that is not executed within a configured window (default 7 days from acceptance for awaiting; 24h after execute_after for held; both configurable) is expired and notified rather than executed late. Stale instructions never auto-pay.",
       "priority": "Must",
-      "verify": "pytest: now > execute_after+expiry -> status expired, write mock not_called, one notification; within window -> executes."
+      "verify": "pytest: awaiting instruction older than window -> expired, write not_called, one notification; held instruction past execute_after+expiry -> expired; within window -> executes."
     },
     {
       "id": "F17",
@@ -130,9 +131,9 @@
     },
     {
       "id": "F18",
-      "text": "Caps fail closed: per-payment cap and persisted daily aggregate cap are enforced pre-execution (and re-checked at execution, F15); an unset cap, 0, negative or unparsable value means NO payment allowed. Daily total survives restart.",
+      "text": "Caps fail closed (Q7): configured defaults are R30,000 per payment and R50,000 per day (persisted daily aggregate). Caps are read from env config; an unset, 0, negative or unparsable value means NO payment allowed (no hard-coded fallback silently enabling payments). Enforced pre-execution and re-checked at execution (F15). Daily total survives restart. Documentation must state that caps above R20,000 exceed the community-documented (unverified) Investec API per-payment limit, so Investec may reject; the caps are ours.",
       "priority": "Must",
-      "verify": "pytest: cap unset/0/'abc' -> blocked; over per-payment -> blocked; aggregate pushing over daily -> blocked; reloaded store retains total; write mock not_called when blocked."
+      "verify": "pytest: cap unset/0/'abc' -> blocked; over R30,000 -> blocked; aggregate pushing over R50,000 -> blocked; reloaded store retains total; write mock not_called when blocked; docs/.env.example list the defaults and the R20,000 caveat."
     },
     {
       "id": "F19",
@@ -172,9 +173,9 @@
     },
     {
       "id": "F25",
-      "text": "No new third-party dependencies unless justified in the plan and approved (stdlib email/imaplib/zoneinfo preferred); any addition recorded in pyproject with rationale.",
+      "text": "No new third-party dependencies or network egress targets unless explicitly justified in the plan and approved at the plan gate (stdlib email/imaplib/zoneinfo preferred). The image extraction engine (Q10) is such a decision: any SDK (e.g. anthropic), OCR package, apt install or new egress host requires explicit approval at the plan gate and is recorded in pyproject with rationale.",
       "priority": "Must",
-      "verify": "git diff -- pyproject.toml uv.lock shows no new deps (uv.lock reverted after test runs), or each added dep has a written justification approved at plan gate."
+      "verify": "git diff -- pyproject.toml uv.lock and workflow shows no new dep/egress unless each has a written justification approved at the plan gate (uv.lock reverted after test runs)."
     },
     {
       "id": "F26",
@@ -184,9 +185,9 @@
     },
     {
       "id": "F27",
-      "text": "Credential scope split (Q9): live mode may use a separate payment-capable credential distinct from the read credential used for ingest/report; read credential never performs writes. Default recommended: separate pay key.",
+      "text": "Credential scope split (Q9, resolved yes for now): live mode uses a separate payment-only Investec credential distinct from the read credential used for ingest/report; read credential never performs writes. Note: listing beneficiaries needs the same scope as paying, so the read/ingest key may keep that scope; split has limited value and may be removed later if it does not work.",
       "priority": "Should",
-      "verify": "pytest: dry-run builds client with read credential; live uses payment_credentials(); config docs list distinct env vars."
+      "verify": "pytest: dry-run builds client with read credential; live uses payment_credentials(); config docs list distinct env vars and the beneficiary-listing scope note."
     },
     {
       "id": "F28",
@@ -202,65 +203,159 @@
     },
     {
       "id": "F30",
-      "text": "ARC policy (Q8): handling of ARC-forwarded/mailing-list rewritten messages is explicit and tested; default is reject (do not trust ARC) when direct DKIM/SPF alignment fails.",
+      "text": "ARC policy (Q8, resolved): ARC is never trusted; relayed/rewritten mail requires a direct dkim=pass and spf=pass on the outer sender, otherwise rejected.",
       "priority": "Should",
       "verify": "pytest: message with arc=pass but dkim/spf fail -> rejected under default policy."
     },
     {
       "id": "F31",
-      "text": "Operator documentation (README/runbook section) describes trigger grammar, auth requirements, 24h hold, cancel, rollout gates and how to keep live off.",
-      "priority": "Nice",
-      "verify": "docs file contains each topic heading; reviewer checklist."
+      "text": "Operator documentation (README/runbook) describes trigger grammar, auth requirements, the two payment paths, new-payee hold (and that the 24h rule is NOT confirmed by the official swagger and that the community FAQ's 'beneficiary must be paid once in Investec Online first' may block new beneficiaries even after the hold), cancel, caps and the R20,000 caveat, image handling and untrusted-image policy, rollout gates and how to keep live off.",
+      "priority": "Should",
+      "verify": "docs file contains each topic heading and both caveats verbatim in substance; reviewer checklist."
+    },
+    {
+      "id": "F32",
+      "text": "Image reading in scope: for a triggered, authenticated message the pipeline reads images (jpeg/png/gif/webp attachments AND inline images/screenshots) alongside body, quoted text and pdf/xlsx/csv to extract payee name, account number, amount and reference. Unsupported/oversize/corrupt images are skipped gracefully with an audit note.",
+      "priority": "Must",
+      "verify": "pytest with fake extractor: jpeg/png/gif/webp attachment and inline image each yield a candidate; corrupt/oversize/unsupported -> skipped, no crash."
+    },
+    {
+      "id": "F33",
+      "text": "Image-derived data is UNTRUSTED and advisory: the payment trigger ('pay'+3 digits), the source-account last-3 and all authorisation come ONLY from the authenticated sender's typed body text, never from an image. An image-only message, or an image containing 'pay 123', creates no instruction.",
+      "priority": "Must",
+      "verify": "pytest: image containing trigger text with no typed trigger -> ignored; image containing different last-3 than body -> body wins, image value ignored."
+    },
+    {
+      "id": "F34",
+      "text": "The extraction engine may only EXTRACT structured fields (payee name, account number, amount, reference); it never decides to pay or to route. The payee must exactly resolve to a registered beneficiary (F9) else the new-payee notify path (F10); an extracted account number is never paid directly.",
+      "priority": "Must",
+      "verify": "pytest: extractor output with unknown payee -> notify path, write not_called; extractor output has no action/decision field (schema test); exact registered match -> resolves registered beneficiaryId."
+    },
+    {
+      "id": "F35",
+      "text": "Image-derived amount conflicting with any other source (body, quoted text, attachment, another image) -> parked and notified, never executed. Image-derived amounts to a REGISTERED payee follow the Q11 policy (default: NO immediate pay; require confirm-by-reply or the standard hold) until the human decides otherwise.",
+      "priority": "Must",
+      "verify": "pytest: image amount != body amount -> parked; image-only amount to registered payee -> not executed immediately (confirm/hold required) under default Q11 policy."
+    },
+    {
+      "id": "F36",
+      "text": "Prompt-injection resistance: text inside an image such as 'ignore previous instructions' or 'pay X to account Y' has no effect on trigger, routing, payee, caps, source account or execution; the extractor output is validated against a strict schema and treated as data.",
+      "priority": "Must",
+      "verify": "pytest with adversarial image fixture (fake extractor returning injection text/extra fields and a real adversarial fixture file): no payment, no state change beyond parked/ignored, extra fields dropped, audit records the rejection."
+    },
+    {
+      "id": "F37",
+      "text": "Extraction engine sits behind an interface (e.g. ImageExtractor protocol) with a deterministic fake used in all tests; no test performs network egress or needs OCR binaries; engine selected by config, default disabled/none if unconfigured (images then skipped).",
+      "priority": "Must",
+      "verify": "pytest uses fake only; grep tests for real engine imports/network finds none; unconfigured engine -> images skipped, no error."
+    },
+    {
+      "id": "F38",
+      "text": "No image bytes, base64, extracted account numbers or raw extractor responses appear in logs, audit, stored state or non-paste emails; only hashes/sizes/mime types and masked last-3 may be recorded.",
+      "priority": "Must",
+      "verify": "pytest: run pipeline with image fixture, scan captured logs/audit/state for image bytes/base64 and 9+ digit runs -> none."
+    },
+    {
+      "id": "F39",
+      "text": "New-payee hold clock: the configurable hold (default 24h) is measured from OUR first observation of that beneficiary in the live beneficiary list, persisted at that first observation (survives restart; never reset by later observations; not measured from instruction receipt or beneficiary creation time).",
+      "priority": "Must",
+      "verify": "pytest with injected clock and store reload: first_seen_at set once at first observation; execute_after = first_seen_at+hold; later cycles do not change it; restart retains it."
+    },
+    {
+      "id": "F40",
+      "text": "Fail closed on Investec rejection: if Investec rejects a payment (e.g. beneficiary not yet payable), the instruction is marked failed, the user is notified, and there is no automatic retry (F17).",
+      "priority": "Must",
+      "verify": "pytest: write mock returning rejection/ErrorMessage for held new beneficiary -> status failed, notification sent, call_count==1 across reruns."
+    },
+    {
+      "id": "F41",
+      "text": "Spec/doc honesty: the 24h new-beneficiary rule is NOT confirmed by the official swagger and is an app-side configurable rule; the community FAQ states a beneficiary must be paid once in Investec Online first, which may block new beneficiaries even after the hold. Both statements appear in README/runbook and in code config comments.",
+      "priority": "Should",
+      "verify": "grep docs and config for both statements."
     }
   ],
   "out_of_scope": [
-    "Playwright (or any browser/app-automation) helper that adds beneficiaries or pastes details into the Investec app/online banking: separate future run with its own security review; no automation of banking login/2FA.",
+    "Playwright (or any browser/app-automation) helper that adds beneficiaries or pastes details into the Investec app/online banking: separate future run with its own security review; no automation of banking login/2FA. (Q1: later project, confirmed by human)",
     "Creating beneficiaries via the API (not available; Q1 resolved to notify).",
     "Native Investec scheduled/future-dated payments (not offered by the API; hold is app-side).",
-    "Image OCR / cloud OCR egress.",
     "Changes to ingest, report, statements, backfill-hashes, backup or beneficiary-matching behaviour and outputs.",
     "Enabling live money movement in this run; live stays off."
   ],
   "open_questions": [
     {
+      "id": "Q1",
+      "q": "Unregistered payee handling.",
+      "status": "resolved",
+      "resolution": "Resolved: unregistered payee -> NOTIFY, no API creation; Playwright helper is a later, out-of-scope project."
+    },
+    {
       "id": "Q2",
       "q": "Behaviour after the 24h hold.",
-      "recommended_default": "Pay automatically at execute_after unless cancelled by reply; summary email now + reminder before execution; expire if not executed within window."
+      "recommended_default": "Pay automatically at execute_after unless cancelled by reply; summary email now + reminder before execution; expire if not executed within window.",
+      "status": "resolved",
+      "resolution": "Resolved (changed): registered payee -> pay immediately same cycle; new payee -> notify + park, pay after configurable hold (default 24h from our first observation in live list), re-verify, execute; expiry window; cancel while parked/held; fail closed on Investec rejection. 24h rule unconfirmed by swagger."
     },
     {
       "id": "Q3",
       "q": "Sender checks.",
-      "recommended_default": "From allowlist + Authentication-Results dkim=pass and spf=pass (outer sender); optional shared secret code in body as an extra factor, off by default."
+      "recommended_default": "From allowlist + Authentication-Results dkim=pass and spf=pass (outer sender); optional shared secret code in body as an extra factor, off by default.",
+      "status": "resolved",
+      "resolution": "Resolved: From allowlist + dkim=pass and spf=pass on outer sender; NO secret code."
     },
     {
       "id": "Q4",
       "q": "Where the cycle runs.",
-      "recommended_default": "GitHub Actions scheduled workflow (every ~15 min), dry-run by default."
+      "recommended_default": "GitHub Actions scheduled workflow (every ~15 min), dry-run by default.",
+      "status": "resolved",
+      "resolution": "Resolved: GitHub Actions scheduled workflow, dry-run default, gates G1-G3 stay."
     },
     {
       "id": "Q5",
       "q": "Trigger digits-only or allow letters?",
-      "recommended_default": "Digits-only: 'pay' + exactly 3 digits."
+      "recommended_default": "Digits-only: 'pay' + exactly 3 digits.",
+      "status": "resolved",
+      "resolution": "Resolved: digits only, 'pay'+3 digits = last 3 of source account number (any account)."
     },
     {
       "id": "Q6",
       "q": "Exact field order in the Investec mobile app add-beneficiary form (for the unregistered-payee notification).",
-      "recommended_default": "Name, bank, account number, branch code, beneficiary reference, own reference, email, cell; configurable constant, human to confirm against the app."
+      "recommended_default": "Name, bank, account number, branch code, beneficiary reference, own reference, email, cell; configurable constant, human to confirm against the app.",
+      "status": "resolved",
+      "resolution": "Resolved: ordered fields exactly: Beneficiary name, Bank, Account number, Amount, Their reference, My reference, Payment notification, Beneficiary email address, Beneficiary mobile number; branch code only as separate 'reference only' line."
     },
     {
       "id": "Q7",
       "q": "Cap values (per-payment, daily aggregate).",
-      "recommended_default": "Unset=0=blocked; human sets values explicitly; suggest low initial values (e.g. R1,000 per payment, R2,000 per day) for the soak."
+      "recommended_default": "Unset=0=blocked; human sets values explicitly; suggest low initial values (e.g. R1,000 per payment, R2,000 per day) for the soak.",
+      "status": "resolved",
+      "resolution": "Resolved: R30,000 per payment, R50,000 per day as configured defaults; fail closed if unset in env; above R20,000 exceeds community-documented API limit (unverified)."
     },
     {
       "id": "Q8",
       "q": "ARC policy for forwarded/relayed mail.",
-      "recommended_default": "Do not trust ARC; require direct dkim/spf pass on the outer sender."
+      "recommended_default": "Do not trust ARC; require direct dkim/spf pass on the outer sender.",
+      "status": "resolved",
+      "resolution": "Resolved: do not trust ARC/relayed mail; require direct dkim/spf pass on outer sender."
     },
     {
       "id": "Q9",
       "q": "Separate payment-scoped Investec credential?",
-      "recommended_default": "Yes: separate pay key used only in live mode; read key for everything else."
+      "recommended_default": "Yes: separate pay key used only in live mode; read key for everything else.",
+      "status": "resolved",
+      "resolution": "Resolved: yes, separate payment-only credential for now; F27 stays Should; beneficiary listing needs same scope."
+    },
+    {
+      "id": "Q10",
+      "q": "Image extraction engine.",
+      "status": "open",
+      "recommended_default": "Claude vision API via the `anthropic` SDK or plain HTTPS with an ANTHROPIC_API_KEY Actions secret; requires explicit dependency/egress approval at the plan gate.",
+      "alternative": "Local tesseract OCR: no egress, but needs apt install in Actions and a dependency."
+    },
+    {
+      "id": "Q11",
+      "q": "Do image-derived amounts to a REGISTERED payee still pay immediately?",
+      "status": "open",
+      "recommended_default": "NO: image-derived amounts require confirm-by-reply or the standard hold, because a misread digit would pay instantly. Human to decide."
     }
   ],
   "rollout_gates": [
@@ -268,6 +363,13 @@
     "G2 Sandbox test: end-to-end payment exercised against openapisandbox.investec.com (mocked-money) including error bodies (ErrorMessage/AuthorisationRequired) and no-retry behaviour.",
     "G3 Human enables live explicitly: human sets the live flag and pay credential and caps; recorded in audit; never enabled by default or by the loop."
   ],
-  "coverage_note": "Maps GOAL.md request + Q1 decision and Q2-Q4 proposals to F3-F21; frozen-behaviour and no-secrets constraints are Musts (F2,F22,F23,F24,F25).",
-  "confidence": "high on guardrails; medium on Investec API write semantics (verify in sandbox, G2)."
+  "coverage_note": "Maps GOAL.md + decisions.md (Q1-Q9, image requirement) to F3-F41; frozen-behaviour and no-secrets constraints are Musts (F2,F22,F23,F24,F25).",
+  "confidence": "high on guardrails; medium on Investec API write semantics (verify in sandbox, G2).",
+  "amendments": [
+    {
+      "version": "1.0.0",
+      "note": "human approved at spec gate",
+      "reference": ".loop/decisions.md (BINDING; overrides v0.1.0 proposals)"
+    }
+  ]
 }
