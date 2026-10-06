@@ -1,0 +1,16 @@
+{"verdict":"approve","round":7,"blockers":[],
+"tightenings":[
+{"id":"R7-T1","p":"P1","fix":"S7 Source bullet and 3a NB3 rationale 'a missed cancel only lets the item expire' is FALSE for items already 'accepted' (approved items still run next cycle). Correct the text; put C1 (bare cancel) to the human. Preferred fail-safe: (a) bare 'cancel' on a batch-linked reply cancels every unclaimed item of that batch; and/or (b) cancel-only fallback: a batch-linked reply whose raw first line matches 'cancel N..' honoured even when unconfident (cancel only reduces payments). At minimum not-understood notice for any line starting 'cancel' must say approved items WILL still run next cycle. Test: accepted item + bare/unconfident cancel behaves as decided."},
+{"id":"R7-T2","p":"P1","fix":"0013 table CHECK: status in ('accepted','submitting','executed','failed','needs_review','needs_authorisation') implies approved_at is not null AND batch_ref is not null. Migration static test + store test."},
+{"id":"R7-T3","p":"P1","fix":"make_msgid(idstring=X) yields '<timeval.pid.rand.X@domain>': S2 regexes/loop guard must be UNANCHORED: batch refs '\\.invespend-notification\\.(B-[0-9]{4}-[0-9a-f]{4})@', instruction refs same with 12-hex, own-Message-ID '\\.invespend-notification(\\.[^@]*)?@'. Test with a real make_msgid output."},
+{"id":"R7-T4","p":"P2","fix":"Do not unoffer_batch on send failure after DATA may have been accepted; leave batch offered with batch_notified_at null and let the unnotified-batch resend deliver the SAME ref; unoffer only on positive pre-DATA connection/auth failure."},
+{"id":"R7-T5","p":"P2","fix":"Loop guard also ignores Precedence bulk/junk/list/auto_reply, X-Autoreply, X-Autorespond, X-Auto-Response-Suppress; or cap not-understood/batch-not-matched notices per address per cycle. Test."},
+{"id":"R7-T6","p":"P2","fix":"2a wording: message handling runs AFTER (1)/(1b) and BEFORE (2)-(6)."},
+{"id":"R7-T7","p":"P2","fix":"Canonical offer_digest serialisation in instructions.offer_digest: amount quantize(0.01) string, None as '', fixed field order + separator; Memory vs Pg parity test."},
+{"id":"R7-T8","p":"P3","fix":"cas_status refuses awaiting_beneficiary->held (set_held only); extend state-table test (h)."},
+{"id":"R7-T9","p":"P3","fix":"Pending-section lines render as '<batch_ref> #n ...' never starting with '<n>.'; test cannot be confused with the numbered list."},
+{"id":"R7-T10","p":"P3","fix":"Exempt 'ref' from the 6+ digit audit scrub only when it fully matches ^[0-9a-f]{12}$ or the batch-ref regex (or document)."},
+{"id":"R7-T11","p":"P3","fix":"Stale approve / approve predating its batch: send command ack with reason 'expired'/'not applied' to the AUTHENTICATED sender only."},
+{"id":"R7-T12","p":"P3","fix":"validate_extraction audit: count + only dropped key names matching ^[a-z_]{1,32}$."},
+{"id":"R7-T13","p":"P3","fix":"both_verbs_in_text scan stops at RFC 3676 '-- ' signature delimiter (or document in runbook)."},
+{"id":"R7-T14","p":"P3","fix":"PENDING_APPROVAL = 'awaiting_approval' alias constant referenced in F12 tests."}]}
