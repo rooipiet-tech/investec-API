@@ -10,6 +10,7 @@
     "phase0: research+domain done; spec v0.1.0 drafted (31 criteria, F1-F31; baseline 330 passing; rollout gates G1-G3). Q1 resolved by human (notify). STOPPED at spec gate awaiting human approval of criteria + Q2-Q9.",
     "phase0: human approved spec -> v1.0.0 frozen (41 criteria; baseline 330). Q1-Q9 resolved; Q10 (image engine) + Q11 (image-derived amounts to registered payee) OPEN with defaults. Proceeding to plan.",
     "it1-plan: plan-review gate APPROVED at round 6 (rounds: r1 9 blockers, r2 6, r3 5, r4 3, r5 1, r6 0) after human retired legacy flow (spec v1.1.0, F20/F21 dropped, F42 added); tightenings R6-T1..T7 folded. Awaiting human go-ahead for build slice 1 (S0-S6). Open human decisions: 16 (migration-test carve-out, blocks S9/S11-S13), Q10 (image engine, blocks S14), Q11 (default confirm), confirm items 13-15.",
-    "it1-replan: human confirmed batch approval + items 13-16 (decisions Amendment 3); spec v1.2.0 (48 criteria; F43-F48 added). Replanning for batch approval (hold default 0h; Q10 Claude vision configurable; no tokens)."
+    "it1-replan: human confirmed batch approval + items 13-16 (decisions Amendment 3); spec v1.2.0 (48 criteria; F43-F48 added). Replanning for batch approval (hold default 0h; Q10 Claude vision configurable; no tokens).",
+    "it1-plan: batch-approval replan (r7) APPROVED by plan-review gate (0 blockers); R7-T1..T14 folded. Awaiting human go-ahead for build slice 1 (S0-S6). Confirmations open: C1 cancel semantics, C7 pay-key scope, C9 R20k vs R30k."
   ]
 }
