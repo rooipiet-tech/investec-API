@@ -1,5 +1,5 @@
 {
-  "spec_version": "1.0.0",
+  "spec_version": "1.1.0",
   "run": "email-payment-v2",
   "frozen": true,
   "inputs": [
@@ -143,14 +143,14 @@
     },
     {
       "id": "F20",
-      "text": "Defect fix #1 (verify first): CLI approve-payments never passes approval_recipients to run_approval_cycle (cli.py ~L307), so pending approval/summary emails are never sent in production. Reproduce with a failing test, then fix so summary/notification recipients come from config (the authenticated allowlisted user), without changing existing flags' meaning.",
-      "priority": "Must",
+      "text": "[DROPPED by human decision, spec amendment_2 / F42] Defect fix #1 (verify first): CLI approve-payments never passes approval_recipients to run_approval_cycle (cli.py ~L307), so pending approval/summary emails are never sent in production. Reproduce with a failing test, then fix so summary/notification recipients come from config (the authenticated allowlisted user), without changing existing flags' meaning.",
+      "priority": "Dropped",
       "verify": "A new test fails at base 2eee10c and passes after fix: CLI cycle with a pending item invokes smtp send to the configured recipient; existing approve-payments --help unchanged unless Q-approved additive flag."
     },
     {
       "id": "F21",
-      "text": "Defect fix #2 (verify first): dedup key includes the inbound Message-ID, so a reply (new Message-ID) yields a different key and token/cancel replies are rejected or create duplicates. Reproduce with a failing test, then key cancel/approval matching on the pending record's stable id/nonce (carried in Subject/References/In-Reply-To), not the reply's Message-ID. Dedup of the same original email remains.",
-      "priority": "Must",
+      "text": "[DROPPED by human decision, spec amendment_2 / F42] Defect fix #2 (verify first): dedup key includes the inbound Message-ID, so a reply (new Message-ID) yields a different key and token/cancel replies are rejected or create duplicates. Reproduce with a failing test, then key cancel/approval matching on the pending record's stable id/nonce (carried in Subject/References/In-Reply-To), not the reply's Message-ID. Dedup of the same original email remains.",
+      "priority": "Dropped",
       "verify": "New test fails at base and passes after: original mail then reply with different Message-ID matches the same pending; same original mail twice -> one pending; different payments -> different keys."
     },
     {
@@ -272,6 +272,12 @@
       "text": "Spec/doc honesty: the 24h new-beneficiary rule is NOT confirmed by the official swagger and is an app-side configurable rule; the community FAQ states a beneficiary must be paid once in Investec Online first, which may block new beneficiaries even after the hold. Both statements appear in README/runbook and in code config comments.",
       "priority": "Should",
       "verify": "grep docs and config for both statements."
+    },
+    {
+      "id": "F42",
+      "priority": "Must",
+      "text": "Legacy token-approval flow is RETIRED, not fixed: the legacy code path (payments/pipeline.py approval-token flow, token.py, legacy inbox token parsing) is left byte-identical (zero diff), is never fixed to email approval tokens, and is never scheduled. The scheduled GitHub Actions workflow runs v2 only (PAYMENTS_MODE=v2 pinned) and refuses to run the legacy flow. Legacy is reachable only by explicit operator action (PAYMENTS_MODE unset or 'legacy', e.g. a manual `approve-payments --once`), is documented as DEPRECATED/unsupported in the runbook, and no v2 or workflow code path sends a legacy approval email or token. Existing tests that exercise legacy behaviour stay unmodified and green.",
+      "verify": "git diff --stat vs base shows no change to payments/pipeline.py, payments/token.py and the legacy parts of payments/inbox.py (additive v2 modules only); workflow test asserts PAYMENTS_MODE=v2 and no legacy invocation; docs contain the deprecation note; all pre-existing tests pass unmodified"
     }
   ],
   "out_of_scope": [
@@ -371,5 +377,6 @@
       "note": "human approved at spec gate",
       "reference": ".loop/decisions.md (BINDING; overrides v0.1.0 proposals)"
     }
-  ]
+  ],
+  "amendment_2": "Human decision (after plan-review rounds 1-3): RETIRE the legacy token-approval flow instead of fixing it. F20 and F21 are DROPPED (retired by human decision); replaced by F42. Rationale: the v2 flow authenticates by sender and does not use approval tokens; fixing the legacy flow (emailing approval tokens to the owner) created a bot-approves-its-own-payments loop and quoted-token approval risk and would break existing tests; nothing deploys the legacy flow."
 }

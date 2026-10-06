@@ -18,3 +18,6 @@ APPROVED the spec subject to these decisions:
   read/ingest key may keep that scope anyway — the split has limited value unless beneficiary listing for matching also moves; spec F27 stays Should.)
 - NEW REQUIREMENT: the bot must also read IMAGES in the email (JPEG screenshots, photos, etc.) for payment details, in addition to body, quoted text, pdf/xlsx/csv.
   (Previously 'Image OCR / cloud OCR egress' was out of scope — now IN scope. Engine choice is open: Q10.)
+
+## Amendment (after plan-review round 3)
+- RETIRE the legacy token-approval flow instead of fixing it (human: "2, retire the old flow"). F20/F21 dropped; F42 added. Legacy code stays byte-identical, is not scheduled, is documented as deprecated; the v2 workflow pins PAYMENTS_MODE=v2.
