@@ -9,7 +9,6 @@ import requests
 
 from tests.v2_harness import ACME_RAW, OWNER, SUCCESS_BODY, Env, body_for, mod, offered
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: execute/cycle not built yet")
 
 
 @pytest.fixture
@@ -333,7 +332,7 @@ def test_stale_claim_cas_lost_race_sends_no_notice(tmp_path, monkeypatch):
 
 def test_daily_cap_claim_refusal_parks_and_never_retries_next_day(tmp_path):
     env = Env(tmp_path, live=True, daily_aggregate_cap=150.0)
-    to_accepted(env, "100.00", "100.00")
+    to_accepted(env, "100.00", "100.01")
     env.cycle()
     rows = rows_by_no(env)
     assert rows[1]["status"] == "executed" and rows[2]["status"] == "parked" and rows[2]["outcome_code"] == "daily_cap"
@@ -347,19 +346,19 @@ def test_daily_cap_claim_refusal_parks_and_never_retries_next_day(tmp_path):
 
 def test_batch_total_over_daily_cap_executes_in_order_until_cap_then_parks_rest_notified(tmp_path):
     env = Env(tmp_path, live=True)
-    to_accepted(env, "20000.00", "20000.00", "20000.00")
+    to_accepted(env, "20000.00", "19999.99", "19999.98")
     env.cycle()
     rows = rows_by_no(env)
     assert [rows[i]["status"] for i in (1, 2, 3)] == ["executed", "executed", "parked"] and rows[3]["outcome_code"] == "daily_cap"
     assert env.payment_calls() == 2 and len(subjects(env, "not actioned")) == 1
-    assert [c[2] for c in env.client.payment_calls] == ["20000.00", "20000.00"]
+    assert [c[2] for c in env.client.payment_calls] == ["20000.00", "19999.99"]
 
 
 def test_definite_failure_releases_daily_reservation_so_next_payment_fits(tmp_path):
     env = Env(tmp_path, live=True, daily_aggregate_cap=150.0)
     bodies = iter([lambda: (_ for _ in ()).throw(mod("outcome").PaymentRejected(400, "no")), lambda: SUCCESS_BODY])
     env.client.responder = lambda: next(bodies)()
-    to_accepted(env, "100.00", "100.00")
+    to_accepted(env, "100.00", "100.01")
     env.cycle()
     rows = rows_by_no(env)
     assert rows[1]["status"] == "failed" and rows[2]["status"] == "executed" and env.payment_calls() == 2

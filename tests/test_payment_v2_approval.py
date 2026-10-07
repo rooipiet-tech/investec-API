@@ -7,7 +7,6 @@ import pytest
 
 from tests.v2_harness import BAD_AUTH, OWNER, QUOTE, Env, body_for, instruct_many, make_mail, mod, offered, second_sender
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: approval/cycle not built yet")
 
 
 @pytest.fixture

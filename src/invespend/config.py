@@ -77,6 +77,49 @@ def _opt_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _csv_lower(name: str) -> tuple[str, ...]:
+    """Comma-separated list, trimmed and lower-cased; empty items dropped."""
+    return tuple(p.strip().lower() for p in os.getenv(name, "").split(",") if p.strip())
+
+
+def _window(name: str, default: float) -> float:
+    """Age/expiry window in hours or days (v2): unset/empty -> ``default``; unparsable, non-finite or
+    non-positive -> 0.0, i.e. "already expired" (fail closed, parsed like the caps)."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return float(default)
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return 0.0
+    return value if math.isfinite(value) and value > 0 else 0.0
+
+
+def _positive_int(name: str, default: int) -> int:
+    """Count-like v2 setting: unset, unparsable or non-positive -> ``default`` (never crashes)."""
+    raw = os.getenv(name)
+    try:
+        value = int(raw.strip()) if raw is not None and raw.strip() else default
+    except ValueError:
+        return default
+    return value if value > 0 else default
+
+
+def _hold_hours(name: str) -> tuple[float, bool]:
+    """New-beneficiary hold (F39, C5): unset/empty -> 0; a SET value that is unparsable, negative or
+    non-finite falls back to 24 hours (the safe direction). Returns (hours, fell_back)."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return 0.0, False
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return 24.0, True
+    if not math.isfinite(value) or value < 0:
+        return 24.0, True
+    return value, False
+
+
 @dataclass(frozen=True)
 class Settings:
     # Investec Open API
@@ -143,6 +186,40 @@ class Settings:
     # outgoing payments with the registered Investec beneficiary. Separate from
     # payments_beneficiaries_from_api; never moves money.
     beneficiary_matching_enabled: bool = False
+
+    # ── Email-payment v2 (batch approval; ALL optional, safe defaults, read via getattr elsewhere) ──
+    # PAYMENTS_MODE: "legacy" (default, the retired token flow) or "v2". Unknown values are an error envelope.
+    payments_mode: str = "legacy"
+    # Senders allowed to instruct AND to approve (exact addresses, lower-cased). Empty = nobody (fail closed).
+    payments_allowed_senders: tuple[str, ...] = ()
+    # Owner-only failure notices; falls back to the allowed senders.
+    payments_notify_recipients: tuple[str, ...] = ()
+    # Authentication-Results authserv-id(s) of OUR receiving MTA (e.g. mx.google.com). Empty = nothing authenticates.
+    payments_authserv_id: str = ""
+    payments_authserv_ids: tuple[str, ...] = ()
+    # Windows (hours/days). Unparsable or <= 0 means 0 = already expired (fail closed).
+    payments_max_message_age_hours: float = 24.0
+    payments_approval_expiry_hours: float = 24.0
+    payments_approved_grace_hours: float = 24.0
+    payments_held_expiry_hours: float = 24.0
+    payments_awaiting_expiry_days: float = 7.0
+    payments_max_batch_items: int = 50
+    payments_submitting_stale_minutes: int = 30
+    payments_stuck_message_minutes: int = 30
+    payments_duplicate_window_days: int = 7
+    # HMAC key for beneficiary fingerprints / account hashes. Secret, never logged. Unset: offers and executions park.
+    payments_fingerprint_key: str = field(default="", repr=False)
+    payments_hold_registered_recent: bool = True
+    # New-beneficiary hold (F39): default 0 hours. NOTE: the 24h rule is NOT in the official Investec swagger; the
+    # community FAQ's "a beneficiary must be paid once in Investec Online first" may still block a brand-new
+    # beneficiary even at hold 0 (the payment then ends `failed` with Investec's message).
+    payments_hold_hours: float = 0.0
+    payments_hold_hours_fallback: bool = False
+    # Image reading (S14 adapter): NO default model id; disabled until key AND model are both set.
+    image_extractor_model: str = ""
+    anthropic_api_key: str = field(default="", repr=False)
+    payments_max_image_bytes: int = 5_000_000
+    image_extractor_retries: int = 0
 
     def require_signing_secret(self) -> str:
         """Return the approval signing secret only when it is valid; otherwise
@@ -233,6 +310,29 @@ class Settings:
             state_dir=_opt("PAYMENTS_STATE_DIR", ".invespend_state"),
             payments_state_backend=_opt("PAYMENTS_STATE_BACKEND", "file").lower(),
             beneficiary_matching_enabled=_opt_bool("BENEFICIARY_MATCHING_ENABLED", False),
+            # ── Email-payment v2 ──────────────────────────────────────────────
+            payments_mode=_opt("PAYMENTS_MODE", "legacy").lower(),
+            payments_allowed_senders=_csv_lower("PAYMENTS_ALLOWED_SENDERS"),
+            payments_notify_recipients=_csv_lower("PAYMENTS_NOTIFY_RECIPIENTS"),
+            payments_authserv_id=_opt("PAYMENTS_AUTHSERV_ID").lower(),
+            payments_authserv_ids=_csv_lower("PAYMENTS_AUTHSERV_IDS"),
+            payments_max_message_age_hours=_window("PAYMENTS_MAX_MESSAGE_AGE_HOURS", 24),
+            payments_approval_expiry_hours=_window("PAYMENTS_APPROVAL_EXPIRY_HOURS", 24),
+            payments_approved_grace_hours=_window("PAYMENTS_APPROVED_GRACE_HOURS", 24),
+            payments_held_expiry_hours=_window("PAYMENTS_HELD_EXPIRY_HOURS", 24),
+            payments_awaiting_expiry_days=_window("PAYMENTS_AWAITING_EXPIRY_DAYS", 7),
+            payments_max_batch_items=_positive_int("PAYMENTS_MAX_BATCH_ITEMS", 50),
+            payments_submitting_stale_minutes=_positive_int("PAYMENTS_SUBMITTING_STALE_MINUTES", 30),
+            payments_stuck_message_minutes=_positive_int("PAYMENTS_STUCK_MESSAGE_MINUTES", 30),
+            payments_duplicate_window_days=_positive_int("PAYMENTS_DUPLICATE_WINDOW_DAYS", 7),
+            payments_fingerprint_key=_opt("PAYMENTS_FINGERPRINT_KEY"),
+            payments_hold_registered_recent=_opt_bool("PAYMENTS_HOLD_REGISTERED_RECENT", True),
+            payments_hold_hours=_hold_hours("PAYMENTS_HOLD_HOURS")[0],
+            payments_hold_hours_fallback=_hold_hours("PAYMENTS_HOLD_HOURS")[1],
+            image_extractor_model=_opt("IMAGE_EXTRACTOR_MODEL"),
+            anthropic_api_key=_opt("ANTHROPIC_API_KEY"),
+            payments_max_image_bytes=_positive_int("PAYMENTS_MAX_IMAGE_BYTES", 5_000_000),
+            image_extractor_retries=int(_window("IMAGE_EXTRACTOR_RETRIES", 0)),
         )
 
     @property

@@ -13,7 +13,6 @@ import pytest
 
 from tests.v2_harness import Env, FakeClient, FakeInbox, FakeSMTP, OWNER, make_settings, mod
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: preflight/v2_cli not built yet")
 
 ROOT = Path(__file__).resolve().parent.parent
 
@@ -106,7 +105,7 @@ def stub_cli_env(monkeypatch, settings, *, inbox=None, store=None, client=None, 
     from invespend import cli, config
     inbox, client, smtp = inbox or FakeInbox(), client or FakeClient(), smtp or FakeSMTP()
     store = store or mod("instructions").MemoryInstructionStore()
-    monkeypatch.setattr(config.Settings, "load", classmethod(lambda cls: settings))
+    monkeypatch.setattr(cli.Settings, "load", classmethod(lambda cls: settings))
     monkeypatch.setattr("invespend.payments.v2_inbox.V2ImapInbox", lambda s: inbox)
     monkeypatch.setattr("invespend.investec_client.InvestecClient", lambda *a, **k: client)
     monkeypatch.setattr("invespend.emailer._smtp_send", lambda s, msg: smtp(msg))
@@ -254,7 +253,7 @@ class LegacyStub:
 def test_minimal_stub_settings_runs_legacy_rc0(monkeypatch, capsys):
     from invespend import cli, config
     called = {}
-    monkeypatch.setattr(config.Settings, "load", classmethod(lambda cls: LegacyStub()))
+    monkeypatch.setattr(cli.Settings, "load", classmethod(lambda cls: LegacyStub()))
     monkeypatch.setattr("invespend.payments.inbox.ImapInbox", lambda s: "inbox")
     monkeypatch.setattr("invespend.investec_client.InvestecClient", lambda *a, **k: "client")
     monkeypatch.setattr("invespend.payments.pipeline.run_approval_cycle", lambda settings, **k: called.update(k) or {"processed": 0})
@@ -271,7 +270,7 @@ def test_payments_mode_unset_or_legacy_runs_legacy(monkeypatch, value):
     called = []
     stub = LegacyStub()
     stub.payments_mode = value
-    monkeypatch.setattr(config.Settings, "load", classmethod(lambda cls: stub))
+    monkeypatch.setattr(cli.Settings, "load", classmethod(lambda cls: stub))
     monkeypatch.setattr("invespend.payments.inbox.ImapInbox", lambda s: "inbox")
     monkeypatch.setattr("invespend.investec_client.InvestecClient", lambda *a, **k: "client")
     monkeypatch.setattr("invespend.payments.pipeline.run_approval_cycle", lambda settings, **k: called.append(1) or {})

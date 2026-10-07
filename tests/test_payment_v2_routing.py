@@ -8,7 +8,6 @@ import pytest
 
 from tests.v2_harness import ACME_RAW, BETA_RAW, KEY, T0, mod
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: routing/execute/fingerprints not built yet")
 
 
 def cand(amount=None, currency=None, payee=None, origin="typed"):

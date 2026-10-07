@@ -7,7 +7,6 @@ import pytest
 
 from tests.v2_harness import BAD_AUTH, Env, instruct_many, mod, offered
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: cycle not built yet")
 
 
 def scenario_no_reply(env):

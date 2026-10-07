@@ -13,7 +13,6 @@ import pytest
 from tests.notify_cases import render_all
 from tests.v2_harness import BAD_AUTH, GOOD_AUTH, OWNER, SENDER, T0, Env, body_for, make_mail, mod, offered
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: cycle not built yet")
 
 IMAGES = Path(__file__).parent / "fixtures" / "payments_v2" / "images"
 PNG = (IMAGES / "tiny.png").read_bytes()
@@ -79,9 +78,9 @@ def test_forward_by_stranger_with_inner_owner_from_is_rejected(env):
 
 def test_third_party_pay_123_in_an_unrecognised_forward_is_ignored_and_the_extractor_not_called(env):
     body = "Hi\n\nBegin doorgestuurde boodskap:\nVan: X <x@evil.example>\n\npay 123\nPayee: Acme Trading\nAmount: R100\n"
-    env.instruct(body, inline=(("p.png", "image", "png", PNG),))
+    env.instruct(body, subject="Fwd: invoice", inline=(("p.png", "image", "png", PNG),))
     env.cycle()
-    assert env.rows() == [] and env.extractor.calls == []
+    assert env.rows() == [] and env.extractor.calls == [] and env.audit_entries("typed_text_unsplittable")
 
 
 @pytest.mark.parametrize("auth,accepted", [

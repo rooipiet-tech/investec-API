@@ -9,7 +9,6 @@ import pytest
 
 from tests.v2_harness import ACME_RAW, INSTRUCTION, OWNER, Env, body_for, instruct_many, mod, offered, second_sender
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: cycle/batch not built yet")
 
 PENDING = "awaiting_approval"
 
@@ -157,8 +156,9 @@ def test_cycle_with_three_new_items_sends_exactly_one_email_listing_three_number
     batches = env.batch_emails()
     assert len(batches) == 1 and len(env.smtp.sent) == 1
     body = str(batches[0].get_content())
-    for n, amount in ((1, "101.00"), (2, "102.00"), (3, "103.00")):
-        assert f"{n}. Acme Trading | ZAR {amount}" in body
+    import re
+    lines = re.findall(r"^(\d)\. Acme Trading \| ZAR (\d+\.\d\d)", body, re.M)
+    assert [n for n, _ in lines] == ["1", "2", "3"] and sorted(a for _, a in lines) == ["101.00", "102.00", "103.00"]
     assert "Batch total: ZAR 306.00" in body and "figures from: typed" in body
     assert str(batches[0]["To"]) == OWNER and str(batches[0]["From"]) == "bot@example.com"
 

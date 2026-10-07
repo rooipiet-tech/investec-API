@@ -9,7 +9,6 @@ import pytest
 
 from tests.v2_harness import ACME_RAW, INSTRUCTION, KEY, OWNER, T0, Env, body_for, make_mail, mod, offered
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: cycle not built yet")
 
 
 @pytest.fixture

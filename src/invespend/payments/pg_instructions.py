@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Callable, Collection
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 import psycopg
@@ -17,7 +17,7 @@ import psycopg
 from .. import db
 from .caps import check_daily_aggregate
 from .instructions import (
-    ACTIVE_STATUSES, BENEFICIARY_SEEN_COLUMNS, BOOTSTRAP_KEY, DUPLICATE_GUARD_STATUSES, EXECUTION_MODES,
+    ACTIVE_STATUSES, BOOTSTRAP_KEY, DUPLICATE_GUARD_STATUSES, EXECUTION_MODES,
     INSTRUCTION_COLUMNS, MESSAGE_SEEN_COLUMNS, TERMINAL_STATUSES, ApproveResult, BeneficiaryObservation, ClaimResult,
     StoreNotInitialised, _amount, _check_cas_edge, check_finalize, check_notified_field, message_for, offer_digest,
     sast_day, validate_create_record,

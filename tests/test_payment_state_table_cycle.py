@@ -9,7 +9,6 @@ import pytest
 from tests.instr_helpers import rec
 from tests.v2_harness import Env, mod, offered, body_for
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: cycle not built yet")
 
 
 def to_accepted(env):

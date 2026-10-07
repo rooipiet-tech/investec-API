@@ -274,6 +274,13 @@ def cmd_approve_payments(args: argparse.Namespace) -> int:
     requested_mode = "live" if getattr(args, "live", False) else "dry-run"
     try:
         settings = Settings.load()
+        from .payments.mode import payments_mode
+
+        if payments_mode(settings) != "legacy":
+            # v2 (batch approval) lives in payments/v2_cli.py; an unknown mode is an error envelope there.
+            from .payments.v2_cli import run_v2
+
+            return run_v2(args, settings, requested_mode)
         from .investec_client import InvestecClient
         from .payments.inbox import ImapInbox
         from .payments.pipeline import run_approval_cycle

@@ -3,6 +3,7 @@
 red stage can collect the tests before the modules exist."""
 from __future__ import annotations
 
+import email.policy
 import importlib
 import re
 from datetime import datetime, timedelta, timezone
@@ -110,7 +111,8 @@ def make_mail(plain: str, *, subject: str = "Payment", frm: str = f"Piet <{OWNER
               attachments=(), inline=(), internaldate: datetime | None = T0 - timedelta(minutes=5), received_header=None,
               html: str | None = None):
     _counter["n"] += 1
-    msg = EmailMessage()
+    # real clients fold long ids at whitespace; never RFC 2047-encode them (our batch Message-ID is > 78 chars)
+    msg = EmailMessage(policy=email.policy.default.clone(max_line_length=998))
     msg["From"] = frm
     msg["To"] = SENDER
     msg["Subject"] = subject
@@ -160,15 +162,16 @@ def make_settings(**over):
     ns = SimpleNamespace(**values)
     ns.live_enabled = lambda: live
     ns._has_write_trio = lambda: False
+    ns.payment_credentials = lambda: ("write-id", "write-secret", "write-key")
     return ns
 
 
 class Env:
     """A v2 cycle environment with registered payee 'Acme Trading' (established), hold 0, an injected clock."""
 
-    def __init__(self, tmp_path, *, live: bool = False, bootstrap: bool = True, **settings_over) -> None:
+    def __init__(self, tmp_path, *, live: bool = False, bootstrap: bool = True, store=None, **settings_over) -> None:
         self.settings = make_settings(live=live, **settings_over)
-        self.store = mod("instructions").MemoryInstructionStore()
+        self.store = store if store is not None else mod("instructions").MemoryInstructionStore()
         self.audit = mod("audit").AuditLog(tmp_path)
         self.client = FakeClient()
         self.inbox = FakeInbox()
@@ -278,7 +281,13 @@ def body_for(amount: str = "100.00", payee: str = "Acme Trading", last3: str = "
 
 
 def instruct_many(env: Env, *amounts: str, **kw) -> list:
-    return [env.instruct(body_for(a), **kw) for a in amounts]
+    """Queue one instruction per amount; received times increase so the batch numbering follows the argument order."""
+    out = []
+    for i, amount in enumerate(amounts):
+        opts = dict(kw)
+        opts.setdefault("internaldate", env.now - timedelta(minutes=len(amounts) - i + 1))
+        out.append(env.instruct(body_for(amount), **opts))
+    return out
 
 
 def offered(env: Env, *amounts: str, **kw) -> str:

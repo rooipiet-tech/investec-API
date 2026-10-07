@@ -9,7 +9,6 @@ import pytest
 
 from tests.v2_harness import make_settings, mod
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S11 red: config/mode/v2_cli not built yet")
 
 REQUIRED = {"INVESTEC_CLIENT_ID": "cid", "INVESTEC_CLIENT_SECRET": "csec", "INVESTEC_API_KEY": "akey", "DATABASE_URL": "postgresql://x/y"}
 
