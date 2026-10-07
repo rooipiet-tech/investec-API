@@ -48,7 +48,7 @@ def test_non_empty_error_message_is_failed():
 @pytest.mark.parametrize("body", [{}, {"data": {}}, {"data": {"TransferResponses": []}}, {"data": None}, None, [], "x",
                                   {"data": "x"}, {"error": "x"}, {"data": {"ErrorMessage": ""}}, {"data": {"ErrorMessage": "  "}}])
 def test_unrecognised_shape_is_unknown_not_failed(body):
-    out = _o().parse_payment_response(body, unrecognised_is_unknown=True)
+    out = _o().parse_payment_response(body)
     assert (out.status, out.reason) == ("unknown", "unrecognised_shape")
 
 
@@ -320,20 +320,20 @@ def test_per_payment_boundary_unchanged(tmp_path):
     assert env2.row()["outcome_code"] == "over_per_payment_cap" and env2.batch_emails() == []
 
 
-@pytest.mark.xfail(strict=True, reason="BLOCKED: the existing test_caps_unset_or_zero_block_everything[daily_aggregate_cap] pins "
-                   "'daily unset => offered, then parked daily_cap at claim'; moving it earlier needs that assertion edited")
 @pytest.mark.parametrize("over", [{"daily_aggregate_cap": 0.0}, {"daily_aggregate_cap": None}])
-def test_daily_cap_unset_parks_at_offer_time_BLOCKED(tmp_path, over):
+def test_daily_cap_unset_parks_at_offer_time(tmp_path, over):
     env = Env(tmp_path, **over)
     env.instruct()
     env.cycle()
     assert env.row()["outcome_code"] == "caps_not_configured" and env.batch_emails() == []
 
 
-def test_daily_cap_unset_is_still_fail_closed_at_claim_nothing_posts(tmp_path):
-    env = Env(tmp_path, live=True, daily_aggregate_cap=0.0)
+def test_daily_cap_unset_after_offer_is_still_fail_closed_at_claim_nothing_posts(tmp_path):
+    env = Env(tmp_path, live=True)
     env.instruct()
     env.cycle()
+    assert env.row()["status"] == "awaiting_approval"
+    env.settings.daily_aggregate_cap = 0.0   # claim-time re-check: cap removed after the offer
     env.advance(15)
     env.reply("approve")
     env.cycle()

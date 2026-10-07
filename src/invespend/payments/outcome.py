@@ -15,9 +15,8 @@ auto-resent (a caller must treat it like ``PaymentUnknownOutcome``):
 * an entry without a non-empty ``PaymentReferenceNumber`` and no positive
   rejection                                                  -> ``unknown`` (``no_reference``)
 * every entry has a reference and a clean/absent status       -> ``success``
-* no entries (strict) / not a ``data`` object                 -> ``failed`` (``unrecognised_shape``) by
-  default, but ``unknown`` when ``unrecognised_is_unknown=True`` (the v2 executor): after the POST was sent an
-  unrecognised 200 is NOT proof that no money moved, so it keeps the reservation and is never resent
+* no entries (strict) / not a ``data`` object                 -> ``unknown`` (``unrecognised_shape``): after the
+  POST was sent an unrecognised 200 is NOT proof that no money moved, so it keeps the reservation and is never resent
 
 Across several entries the precedence is needs_authorisation, failed, unknown,
 success. Response field names are UNVERIFIED until the G2 sandbox run.
@@ -127,12 +126,11 @@ def _non_blank(value: object) -> bool:
     return value is not None and str(value).strip() != ""
 
 
-def parse_payment_response(body: dict | None, *, strict: bool = True, unrecognised_is_unknown: bool = False) -> PaymentOutcome:
+def parse_payment_response(body: dict | None, *, strict: bool = True) -> PaymentOutcome:
     """Interpret a decoded 200 body. ``strict=False`` exists for symmetry only (unused by v2).
 
-    ``unrecognised_is_unknown`` (v2 executor): a 200 that is not the expected shape maps to ``unknown`` instead of
-    ``failed`` (the legacy default is kept for the existing callers/tests)."""
-    shape_status = "unknown" if unrecognised_is_unknown else "failed"
+    A 200 that is not the expected shape is ``unknown`` (never ``failed``): the POST was already sent."""
+    shape_status = "unknown"
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, dict):
         return PaymentOutcome(shape_status, None, "unrecognised_shape", "")

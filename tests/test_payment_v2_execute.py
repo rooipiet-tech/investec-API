@@ -397,16 +397,12 @@ def test_caps_unset_or_zero_block_everything(tmp_path, cap_name):
     env = Env(tmp_path, live=True, **{cap_name: 0.0})
     env.instruct()
     env.cycle()
-    if cap_name == "per_payment_cap":
-        assert env.row()["status"] == "parked" and env.batch_emails() == []
-    else:
-        to_accepted_parked = env
-        to_accepted_parked.advance(15)
-        env.reply("approve")
-        env.cycle()
-        env.advance(15)
-        env.cycle()
-        assert env.row()["status"] == "parked" and env.row()["outcome_code"] == "daily_cap"
+    # both caps must be configured: either unset parks caps_not_configured at creation/offer, never offered
+    assert env.row()["status"] == "parked" and env.row()["outcome_code"] == "caps_not_configured"
+    assert env.batch_emails() == []
+    env.advance(15)
+    env.cycle()
+    assert env.row()["status"] == "parked" and env.batch_emails() == []
     assert env.payment_calls() == 0
 
 

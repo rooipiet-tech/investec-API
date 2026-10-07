@@ -252,11 +252,11 @@ def test_parse_authorisation_required_is_needs_authorisation():
     assert out.message == "Awaiting authorisation"
 
 
-def test_parse_missing_transferresponses_strict_is_failure():
+def test_parse_missing_transferresponses_is_unknown_by_default():
     for body in ({"data": {"ErrorMessage": None}}, {"data": {"TransferResponses": []}},
                  {"data": None}, {}, None, {"data": "x"}):
         out = _o().parse_payment_response(body)
-        assert (out.status, out.reason, out.message) == ("failed", "unrecognised_shape", ""), body
+        assert (out.status, out.reason, out.message) == ("unknown", "unrecognised_shape", ""), body
 
 
 def test_parse_error_message_beats_authorisation():
