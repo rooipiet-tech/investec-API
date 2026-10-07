@@ -105,6 +105,9 @@ def _positive_int(name: str, default: int) -> int:
     return value if value > 0 else default
 
 
+_MAX_HOLD_HOURS = 24 * 365       # RS3A-4: a larger value (1e308 overflows timedelta) falls back to 24 hours
+
+
 def _hold_hours(name: str) -> tuple[float, bool]:
     """New-beneficiary hold (F39, C5): unset/empty -> 0; a SET value that is unparsable, negative or
     non-finite falls back to 24 hours (the safe direction). Returns (hours, fell_back)."""
@@ -115,7 +118,7 @@ def _hold_hours(name: str) -> tuple[float, bool]:
         value = float(raw.strip())
     except ValueError:
         return 24.0, True
-    if not math.isfinite(value) or value < 0:
+    if not math.isfinite(value) or value < 0 or value > _MAX_HOLD_HOURS:
         return 24.0, True
     return value, False
 

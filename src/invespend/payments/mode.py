@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 KNOWN_MODES = ("legacy", "v2")
+MAX_HOLD_HOURS = 24 * 365          # RS3A-4: also keeps timedelta(hours=...) from overflowing
 
 
 def payments_mode(settings: object) -> str:
@@ -119,7 +120,7 @@ def v2_settings(settings: object) -> V2Settings:
         hold_hours = float(hold)
     except (TypeError, ValueError):
         hold_hours = 24.0
-    if not math.isfinite(hold_hours) or hold_hours < 0:
+    if not math.isfinite(hold_hours) or hold_hours < 0 or hold_hours > MAX_HOLD_HOURS:
         hold_hours = 24.0
     return V2Settings(
         allowed_senders=allowed,

@@ -197,7 +197,7 @@ _BIG = {"1e308", "1e10", "8761"}
 
 
 def _hold_params(cases):
-    return [pytest.param(c, marks=RED) if str(c) in _BIG or (isinstance(c, float) and math.isfinite(c) and c > 24 * 365) else c for c in cases]
+    return [pytest.param(c) if str(c) in _BIG or (isinstance(c, float) and math.isfinite(c) and c > 24 * 365) else c for c in cases]
 
 
 @pytest.mark.parametrize("raw", _hold_params(HOLD_CASES))
@@ -228,7 +228,6 @@ def test_v2_settings_hold_blank_string_and_missing():
     assert mod("mode").v2_settings(SimpleNamespace(payments_hold_hours="")).hold_hours == 24.0
 
 
-@RED
 def test_huge_hold_does_not_abort_the_cycle(tmp_path):
     env = Env(tmp_path, payments_hold_hours=1e308)
     env.instruct()
