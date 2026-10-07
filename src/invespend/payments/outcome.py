@@ -1,6 +1,23 @@
 """Payment outcome model and exceptions for the hardened write path (S3, F17/F40).
 
 Stdlib only. Imported lazily by ``investec_client`` to avoid a circular import.
+
+Mapping of a decoded HTTP 200 body (``parse_payment_response``). Money may have
+moved on any 200, so SUCCESS is the narrowest outcome and "unknown" is never
+auto-resent (a caller must treat it like ``PaymentUnknownOutcome``):
+
+* data-level ``ErrorMessage`` present (not ``None``)          -> ``failed``
+* data-level or per-entry ``AuthorisationRequired`` true, or an
+  entry ``Status`` that says authori[sz]ation is awaited/required -> ``needs_authorisation``
+* entry ``ErrorMessage`` non-empty, or an entry ``Status`` that positively says
+  fail/reject/decline/deny/invalid/insufficient/error/cancel/expire -> ``failed``
+* an entry without a non-empty ``PaymentReferenceNumber`` and no positive
+  rejection                                                  -> ``unknown`` (``no_reference``)
+* every entry has a reference and a clean/absent status       -> ``success``
+* no entries (strict) / not a ``data`` object                 -> ``failed`` (``unrecognised_shape``)
+
+Across several entries the precedence is needs_authorisation, failed, unknown,
+success. Response field names are UNVERIFIED until the G2 sandbox run.
 """
 from __future__ import annotations
 
@@ -30,7 +47,10 @@ class PaymentRejected(Exception):
 
 
 _ADDRESS = re.compile(r"\S+@\S+")
-_DIGITS = re.compile(r"\d{6,}")
+# 6+ digits, optionally grouped by spaces or hyphens (up to 3 between digits) (1000-2000-3000); linear:
+# the group continues only while it keeps matching, no nested quantifier.
+_DIGITS = re.compile(r"\d(?:[ \-]{0,3}\d){5,}")
+_PRE_CUT = 2000  # bound the regex input first (provider text is untrusted), cut to _MAX last
 _TOKEN = re.compile(r"[A-Za-z0-9_\-]{24,}")
 _WS = re.compile(r"\s+")
 _MAX = 200
@@ -41,12 +61,14 @@ def sanitize_provider_message(text: object) -> str:
     """F40: the provider text made safe to store, email and audit. Never raises.
 
     str-coerce, collapse whitespace, drop other control characters, redact
-    addresses, 6+ digit runs and token-like strings, truncate to 200 characters.
+    addresses, 6+ digit runs (also space/hyphen grouped) and token-like strings,
+    truncate to 200 characters. The input is first bounded to 2000 characters so
+    every regex runs on a small string.
     """
     try:
         if text is None:
             return ""
-        s = str(text)
+        s = str(text)[:_PRE_CUT]
         s = _WS.sub(" ", s)
         s = "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
         s = _ADDRESS.sub(REDACTED, s)
@@ -79,7 +101,7 @@ def provider_message_from_body(body: object) -> str:
 
 @dataclass(frozen=True)
 class PaymentOutcome:
-    status: str            # "success" | "failed" | "needs_authorisation"
+    status: str            # "success" | "failed" | "needs_authorisation" | "unknown"
     reference: str | None  # PaymentReferenceNumber when present
     reason: str            # short code, never raw body
     message: str           # F40: sanitised provider text for failed/needs_authorisation, "" otherwise
@@ -101,16 +123,40 @@ def parse_payment_response(body: dict | None, *, strict: bool = True) -> Payment
     entries = [e for e in raw_entries if isinstance(e, dict)] if isinstance(raw_entries, list) else []
     if _truthy(data.get("AuthorisationRequired")):
         return PaymentOutcome("needs_authorisation", None, "authorisation_required", "")
-    for entry in entries:
-        if _truthy(entry.get("AuthorisationRequired")):
-            ref = entry.get("PaymentReferenceNumber")
-            return PaymentOutcome(
-                "needs_authorisation", str(ref) if ref else None, "authorisation_required",
-                sanitize_provider_message(entry.get("Status")),
-            )
     if not entries:
         if strict:
             return PaymentOutcome("failed", None, "unrecognised_shape", "")
         return PaymentOutcome("success", None, "ok", "")
-    ref = entries[0].get("PaymentReferenceNumber")
-    return PaymentOutcome("success", str(ref) if ref else None, "ok", "")
+    results = [_entry_outcome(e) for e in entries]
+    for wanted in ("needs_authorisation", "failed", "unknown"):
+        for r in results:
+            if r.status == wanted:
+                return r
+    return results[0]
+
+
+_AUTH_WORDS = re.compile(r"authori[sz]|awaiting|pending", re.IGNORECASE)
+_FAIL_WORDS = re.compile(
+    r"fail|reject|declin|denied|deny|invalid|insufficient|error|cancel|expire|unsuccess",
+    re.IGNORECASE,
+)
+
+
+def _entry_outcome(entry: dict) -> PaymentOutcome:
+    raw_ref = entry.get("PaymentReferenceNumber")
+    ref = str(raw_ref).strip() if raw_ref is not None else ""
+    status_text = entry.get("Status")
+    status = status_text.strip() if isinstance(status_text, str) else ""
+    msg = sanitize_provider_message(status_text) if status else ""
+    if _truthy(entry.get("AuthorisationRequired")):
+        return PaymentOutcome("needs_authorisation", ref or None, "authorisation_required", msg)
+    error = entry.get("ErrorMessage")
+    if error is not None and str(error).strip() != "":
+        return PaymentOutcome("failed", ref or None, "entry_error_message", sanitize_provider_message(error))
+    if status and _FAIL_WORDS.search(status):
+        return PaymentOutcome("failed", ref or None, "entry_status", msg)
+    if status and _AUTH_WORDS.search(status):
+        return PaymentOutcome("needs_authorisation", ref or None, "authorisation_required", msg)
+    if not ref:
+        return PaymentOutcome("unknown", None, "no_reference", msg)
+    return PaymentOutcome("success", ref, "ok", "")

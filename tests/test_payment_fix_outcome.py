@@ -8,10 +8,6 @@ from invespend.payments import outcome as o
 from tests.test_payment_client_hardening import Rig, mk_resp
 from tests.timing_helper import assert_fast
 
-XFAIL_F1 = pytest.mark.xfail(reason="red: review R1", strict=False)
-XFAIL_F2 = pytest.mark.xfail(reason="red: review R2", strict=False)
-XFAIL_F3 = pytest.mark.xfail(reason="red: review R3", strict=False)
-XFAIL_F5 = pytest.mark.xfail(reason="red: risk R2", strict=False)
 
 
 def _body(entry, **data):
@@ -19,7 +15,6 @@ def _body(entry, **data):
 
 
 # ---- review R1: success needs a reference and a clean per-entry status ---------
-@XFAIL_F1
 @pytest.mark.parametrize("entry", [
     {},
     {"PaymentReferenceNumber": None},
@@ -32,7 +27,6 @@ def test_no_reference_is_unknown_never_success(entry):
     assert out.status == "unknown" and out.reference is None and out.reason == "no_reference"
 
 
-@XFAIL_F1
 @pytest.mark.parametrize("status", ["Failed", "REJECTED", "Declined", "Unsuccessful", "Error", "Insufficient funds"])
 def test_failed_entry_status_is_failed_even_with_reference(status):
     out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "Status": status}))
@@ -40,20 +34,17 @@ def test_failed_entry_status_is_failed_even_with_reference(status):
     assert out.message == status
 
 
-@XFAIL_F1
 def test_failed_entry_status_without_reference_is_failed_not_unknown():
     out = o.parse_payment_response(_body({"Status": "Failed"}))
     assert out.status == "failed" and out.reason == "entry_status"
 
 
-@XFAIL_F1
 def test_entry_error_message_is_failed():
     out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "ErrorMessage": "Beneficiary blocked"}))
     assert out.status == "failed" and out.reason == "entry_error_message"
     assert out.message == "Beneficiary blocked"
 
 
-@XFAIL_F1
 @pytest.mark.parametrize("status", ["Awaiting authorisation", "Authorization required", "Pending authorisation"])
 def test_entry_status_authorisation_wording_is_needs_authorisation(status):
     out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "Status": status}))
@@ -69,7 +60,6 @@ def test_reference_with_benign_or_absent_status_is_success(status):
     assert (out.status, out.reference, out.reason) == ("success", "REF1", "ok")
 
 
-@XFAIL_F1
 def test_any_bad_entry_prevents_success_in_multi_entry_response():
     body = {"data": {"ErrorMessage": None, "TransferResponses": [
         {"PaymentReferenceNumber": "A"}, {"Status": "Failed"}]}}
@@ -78,13 +68,11 @@ def test_any_bad_entry_prevents_success_in_multi_entry_response():
     assert o.parse_payment_response(body).status == "unknown"
 
 
-@XFAIL_F1
 def test_unknown_outcome_is_documented_in_module_docstring():
     assert "unknown" in (o.__doc__ or "") and "never" in (o.__doc__ or "").lower()
 
 
 # ---- review R2: 408 is ambiguous -----------------------------------------------
-@XFAIL_F2
 def test_http_408_response_is_unknown_outcome(monkeypatch):
     rig = Rig(monkeypatch, write=lambda: mk_resp(408, {"message": "timeout"}))
     with pytest.raises(o.PaymentUnknownOutcome):
@@ -92,7 +80,6 @@ def test_http_408_response_is_unknown_outcome(monkeypatch):
     assert len(rig.write_calls) == 1
 
 
-@XFAIL_F2
 def test_http_408_httperror_is_unknown_outcome(monkeypatch):
     err = requests.exceptions.HTTPError("x", response=mk_resp(408, {}))
     rig = Rig(monkeypatch, write=lambda: err)
@@ -108,7 +95,6 @@ def test_other_4xx_still_definite_rejection(monkeypatch, status):
 
 
 # ---- review R3: grouped digits -------------------------------------------------
-@XFAIL_F3
 @pytest.mark.parametrize("text", [
     "Acct 1000-2000-3000 closed", "Acct 1000 2000 3000 closed", "1000 - 2000", "10-00-20-00-30",
     "a 1 2 3 4 5 6 b",
@@ -124,13 +110,11 @@ def test_short_numbers_and_small_groups_survive():
 
 
 # ---- risk R2: bound before regex ------------------------------------------------
-@XFAIL_F5
 def test_sanitiser_is_linear_on_200kb_token_like_input():
     assert_fast("from invespend.payments.outcome import sanitize_provider_message as f\n"
                 "data = 'a' * 200000 + '!'", "f(data)")
 
 
-@XFAIL_F5
 @pytest.mark.parametrize("data", ["'1 ' * 100000", "'x@' * 100000", "'1-' * 100000", "'a1' * 100000 + '!'"])
 def test_sanitiser_is_linear_on_other_hostile_inputs(data):
     assert_fast("from invespend.payments.outcome import sanitize_provider_message as f\n"
