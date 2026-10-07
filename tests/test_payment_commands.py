@@ -28,11 +28,20 @@ def V(typed="", *, confident=True, raw=(), forwarded="", quoted=""):
 
 
 def C(kind, numbers=(), reason="", source="typed"):
-    return commands.Command(kind, tuple(numbers), reason, source)
+    """Expected value as a plain tuple (parametrize runs at collection, before the module exists)."""
+    return (kind, tuple(numbers), reason, source)
+
+
+def T(cmd):
+    return None if cmd is None else (cmd.kind, cmd.numbers, cmd.reason, cmd.source)
+
+
+def PC(view):
+    return T(commands.parse_command(view))
 
 
 def parse(typed, **kw):
-    return commands.parse_command(V(typed, **kw))
+    return PC(V(typed, **kw))
 
 
 @pytest.mark.parametrize("typed,expected", [
@@ -122,14 +131,14 @@ def test_do_not_approve_is_not_approve():
 def test_text_view_has_no_raw_first_line_and_unconfident_view_never_approves():
     assert not hasattr(V(""), "raw_first_line")
     for raw in ("approve", "approve 1", "approve 1 3", "Approve."):
-        assert commands.parse_command(V("", confident=False, raw=(raw,))) is None
+        assert PC(V("", confident=False, raw=(raw,))) is None
     # even if a hand-built unconfident view carries typed text, it is not an approve source
-    assert commands.parse_command(V("approve", confident=False, raw=("approve",))) is None
+    assert PC(V("approve", confident=False, raw=("approve",))) is None
 
 
 def test_approve_in_quoted_text_ignored():
-    assert commands.parse_command(V("", quoted="approve", forwarded="approve 1")) is None
-    assert commands.parse_command(V("thanks", quoted="approve")) is None
+    assert PC(V("", quoted="approve", forwarded="approve 1")) is None
+    assert PC(V("thanks", quoted="approve")) is None
 
 
 def test_bare_cancel_is_cancel_all():
@@ -164,37 +173,37 @@ def test_both_verbs_scan_stops_at_signature_delimiter():
 
 
 def test_unconfident_view_raw_first_line_cancel_is_honoured():
-    got = commands.parse_command(V("", confident=False, raw=("cancel 2",)))
+    got = PC(V("", confident=False, raw=("cancel 2",)))
     assert got == C("cancel", (2,), "", "raw_first_line")
 
 
 def test_unconfident_view_raw_first_line_bare_cancel_is_cancel_all():
-    got = commands.parse_command(V("", confident=False, raw=("Cancel.",)))
+    got = PC(V("", confident=False, raw=("Cancel.",)))
     assert got == C("cancel_all", (), "", "raw_first_line")
 
 
 def test_unconfident_view_raw_first_line_approve_is_none():
-    assert commands.parse_command(V("", confident=False, raw=("approve",))) is None
-    assert commands.parse_command(V("", confident=False, raw=("approve x",))) is None
-    assert commands.parse_command(V("", confident=False, raw=())) is None
+    assert PC(V("", confident=False, raw=("approve",))) is None
+    assert PC(V("", confident=False, raw=("approve x",))) is None
+    assert PC(V("", confident=False, raw=())) is None
 
 
 def test_unconfident_raw_cancel_with_approve_on_later_raw_head_line_is_invalid():
-    got = commands.parse_command(V("", confident=False, raw=("cancel", "approve", "x")))
+    got = PC(V("", confident=False, raw=("cancel", "approve", "x")))
     assert got == C("invalid", (), "both_verbs_in_text", "raw_first_line")
-    ok = commands.parse_command(V("", confident=False, raw=("cancel", "thanks", "bye")))
+    ok = PC(V("", confident=False, raw=("cancel", "thanks", "bye")))
     assert ok == C("cancel_all", (), "", "raw_first_line")
 
 
 def test_unconfident_raw_cancel_bad_syntax_is_invalid_with_raw_source():
-    got = commands.parse_command(V("", confident=False, raw=("cancel please",)))
+    got = PC(V("", confident=False, raw=("cancel please",)))
     assert got == C("invalid", (), "bad_syntax", "raw_first_line")
 
 
 def test_confident_view_ignores_raw_head_lines_for_cancel():
-    got = commands.parse_command(V("cancel 1", confident=True, raw=("approve", "x")))
+    got = PC(V("cancel 1", confident=True, raw=("approve", "x")))
     assert got == C("cancel", (1,), "", "typed")
-    assert commands.parse_command(V("thanks", confident=True, raw=("cancel",))) is None
+    assert PC(V("thanks", confident=True, raw=("cancel",))) is None
 
 
 def test_image_text_never_reaches_parse_command():
@@ -212,7 +221,8 @@ def test_image_text_never_reaches_parse_command():
 
 def test_parse_command_is_pure_function_of_the_view():
     v = V("approve 1 3")
-    assert commands.parse_command(v) == commands.parse_command(v) == C("approve", (1, 3))
+    assert PC(v) == PC(v) == C("approve", (1, 3))
+    assert commands.parse_command(v) == commands.parse_command(v)
     import inspect
     assert list(inspect.signature(commands.parse_command).parameters) == ["view"]
 
@@ -221,7 +231,8 @@ def test_command_is_frozen_dataclass_with_documented_fields():
     import dataclasses
     assert [f.name for f in dataclasses.fields(commands.Command)] == ["kind", "numbers", "reason", "source"]
     with pytest.raises(dataclasses.FrozenInstanceError):
-        C("approve_all").kind = "x"
+        commands.Command("approve_all", ()).kind = "x"
+    assert commands.Command("approve_all", ()) == commands.Command("approve_all", (), "", "typed")
 
 
 def test_very_long_lines_are_invalid_not_slow():
