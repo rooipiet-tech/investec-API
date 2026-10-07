@@ -1,0 +1,68 @@
+{
+"verdict": "MEDIUM. No secrets/PII/dependency/network/exec/SQL change; uv.lock and pyproject unchanged in a7e40ee..HEAD; pytest 2465 passed/15 skipped; attack classes A-J show no regression vs a7e40ee (same 4 pre-existing script FAILs at baseline: daily 3x20000 expectation, 'C renamed', 'E loop reply/banner'). Outcome classifier fuzz (100k bodies): never raises, never 'failed' when any non-placeholder STRING entry-level PaymentReferenceNumber exists, 'success' only with a reference, needs_authorisation only from AuthorisationRequired true/'true'; max 0.05s per body. One conditional HIGH remains (field-shape gaps for 'failed'+release). PgInstructionStore race tests NOT re-run: no postgres/initdb binaries on this host.",
+"findings": [
+{
+"id": "RS3AF3-1",
+"severity": "high (conditional on real Investec 200 shape, unverified until G2; a duplicate still needs a fresh human approval)",
+"file": "src/invespend/payments/outcome.py",
+"line": "144-180",
+"issue": "'failed' (reservation released, not duplicate-guarded) is derived when no entry-level non-placeholder STRING PaymentReferenceNumber exists and a non-placeholder string ErrorMessage exists. So money-moved 200s are released and an identical instruction 60 min later reaches awaiting_approval: (a) PaymentReferenceNumber that is NOT a string (int 123456, list, dict) beside any ErrorMessage; (b) PaymentReferenceNumber at data level (not inside TransferResponses) beside an ErrorMessage; (c) differently-cased key (paymentReferenceNumber) beside an ErrorMessage; (d) success-flavoured ErrorMessage with no recognised ref: 'No error.', 'Success.', 'Payment processed successfully', 'N<ZWSP>/A'. Data-level ref WITHOUT error is correctly needs_review. Fuzz: 5.8k of 100k generated bodies were 'failed' with a non-string/data-level/nested reference present.",
+"fix": "Until G2 verifies the shape: treat any non-empty, non-placeholder PaymentReferenceNumber of ANY type at data or entry level (case-insensitive key) as a reference; fold punctuation/zero-width and trailing '.' before placeholder compare and add 'no error occurred', 'processed', 'completed' wording; better, restrict 'failed'+release to 4xx PaymentRejected until the sandbox confirms an ErrorMessage-only 200 is a definite decline.",
+"repro": "Env(live=True); env.client.responder=lambda:{'data':{'TransferResponses':[{'PaymentReferenceNumber':123456,'ErrorMessage':'warn'}]}} (or {'data':{'PaymentReferenceNumber':'P1','ErrorMessage':'warn','TransferResponses':[]}} or ErrorMessage 'Payment processed successfully'); approve + execute -> status failed reserved 0; second identical instruction +60min -> awaiting_approval. scratch: scratchpad/fz/dup.py, fz/fuzz.py"
+},
+{
+"id": "RS3AF3-2",
+"severity": "low",
+"file": "src/invespend/payments/outcome.py",
+"line": "63-65,76-82",
+"issue": "_JWT is quadratic on repeated 'eyJ' (greedy [A-Za-z0-9_-]{5,} then backtrack, restarted at every 'eyJ'). redact_secret_words / scrub_message are UNBOUNDED (scrub_message has no 2000 pre-cut): 'eyJ'*70000 (210KB) takes ~17s; '_' *200000 0.5s. sanitize_provider_message is safe (cut to 2000 first). Reachable only via str(exc) in the CLI error envelope.",
+"fix": "Cut scrub_message input to ~2000-5000 chars before redact_secret_words, or make the JWT segments possessive/anchored with a lookahead for '.'.",
+"repro": "scrub_message('eyJ'*70000, settings) ~17s. scratch: scratchpad/fz/san.py"
+},
+{
+"id": "RS3AF3-3",
+"severity": "low",
+"file": "src/invespend/payments/amounts.py",
+"line": "54-83",
+"issue": "Currency gate is a deny-list. Closed: USD/EUR/GBP spellings, full-width, ZWSP/soft-hyphen/word-joiner, 'U.S.D', 'U S D', 'R100 (about USD 5)', 'US dollars', adjacent-line 'USD'/'Currency: usd', image currency fields (USD, $, EUR, 'ZAR USD', full-width, Cyrillic, non-string, missing). Still read as ZAR (awaiting_approval, batch email shows ZAR): SEK, NOK, BRL, TRY, KES, PLN, KRW, RUB, kroner, bitcoin, quid, bucks, sterling, symbols (rouble sign, won, naira, shekel, lira, bitcoin sign), 'USDollar', 'USA', Cyrillic E in EUR, RTL-mark-reversed 'DSU', and a code split across newlines ('U\\nS\\nD'). Needs batch approval and the owner wrote the text.",
+"fix": "Allow-list instead: accept only R / ZAR / rand adjacent to the figure and park any other alphabetic token or non-ASCII symbol on the same line.",
+"repro": "env.instruct('pay 123\\nPayee: Acme Trading\\nAmount: R100 SEK\\n') -> awaiting_approval 100.00. scratch: fz/cur.py"
+},
+{
+"id": "RS3AF3-4",
+"severity": "info",
+"file": "src/invespend/payments/outcome.py; src/invespend/payments/v2_cli.py",
+"line": "56-100 / 40-55",
+"issue": "Redaction gaps (provider text is only emailed to the verified owner, capped at 200 chars): not redacted xoxb-/xapp- Slack, ASIA... AWS session keys, rk_live_, whsec_, glpat-, SendGrid 'SG.x.y'; 'password is hunter22' redacts 'is' and leaks the value; keyword split by a newline ('ke\\ny=ZZ') leaks. scrub_message (CLI envelope) does no NFKC / zero-width removal, so 'sec<ZWSP>ret=ZZ', full-width 'token=' and a configured secret with an inserted ZWSP survive; 'user:pass@host' is not redacted there. Configured secrets (any case, newline/space-split), JWT, AKIA, ghp_, sk-, bearer/basic, api_key/client_secret/pwd/passphrase, Authorization all ARE redacted.",
+"fix": "Apply the same NFKC + Cf-drop prefold in scrub_message; add a few more vendor prefixes; skip filler words (is/was/=/:) after a secret word.",
+"repro": "scratch: fz/san.py"
+},
+{
+"id": "RS3AF3-5",
+"severity": "info",
+"file": "src/invespend/payments/cycle.py",
+"line": "83-103",
+"issue": "Mailbox preflight now folds NFKC, drops Cf, and rejects '', INBOX, INBOX./, INBOX:, INBOX.INBOX, INBOX/INBOX, quoted, full-width, ZWSP, BOM, NBSP, './INBOX', '../INBOX'. Still passes: 'INBOX\\\\' (backslash), modified UTF-7 '&AEkATgBCAE8AWA-', wildcards '*', '%', 'INBOX.*'. A conforming IMAP server rejects or does not select these as the inbox; fail-safe in practice.",
+"fix": "Optional: decode modified UTF-7 and reject wildcard/backslash characters in the configured mailbox.",
+"repro": "_is_shared_inbox('&AEkATgBCAE8AWA-') -> False. scratch: fz/mb.py"
+},
+{
+"id": "RS3AF-7-judgement",
+"severity": "info",
+"file": "src/invespend/payments/cycle.py",
+"line": "bootstrap",
+"issue": "Bootstrap on an empty first beneficiary list (plan rule TA) is sound: an empty list establishes nobody, so every later payee is 'new' and held (hold hours); the error direction is MORE holds, never fewer. Verified: first cycle parks beneficiary_list_unavailable, bootstrap done, later payees held. Residual (inherent to TA): a first fetch that already contains an attacker-added payee establishes it.",
+"fix": "none",
+"repro": "scratch: a/misc.py 'empty beneficiary list'"
+},
+{
+"id": "CLOSURES",
+"severity": "info",
+"file": ".loop/risk-s3a.json; .loop/risk-s3a-fix.json",
+"line": "-",
+"issue": "Closed (repro no longer reproduces): RS3A-1 (shape/'' -> needs_review), RS3A-3 (key-/tok_/Bearer redacted), RS3A-4 (hold 1e308 -> 24h), RS3A-5, RS3A-7 (passphrase), RS3AF-1 for string-ref entries (False/0/[]/{}/'None'/'OK'/'no error' + ref -> success; 'Processed - no errors' -> success), RS3AF-2 (Pending is now just success/executed, guarded; needs_authorisation keeps reservation and is duplicate-guarded), RS3AF-4 (api_key/client_secret/pwd/ghp_/JWT/AKIA/exact secrets), RS3AF-5 (case/newline-split secrets), RS3AF-6 (unicode/colon/INBOX.INBOX). Partially closed: RS3A-2/RS3AF-3 (see RS3AF3-3), RS3AF-1 (see RS3AF3-1 field-shape gaps). Unchanged by design: RS3A-6/RS3AF-7.",
+"fix": "-",
+"repro": "-"
+}
+]
+}
