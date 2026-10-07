@@ -1,0 +1,10 @@
+{"verdict":"PASS","blockers":[],"nits":[
+"F40 reachability narrowed: a failure body that echoes any reference-like field (e.g. BeneficiaryReference/MyReference non-blank) beside ErrorMessage classifies unknown/ref_and_error, not failed; plain {Status:Failed,ErrorMessage:'Insufficient funds'} still reaches failed. Safe direction; confirm at G2 against a real failure body.",
+"Success-word list over-parks genuine failures worded 'not processed/approved/completed' as unknown/error_sounds_like_success (safe, needs_review).",
+"Broad scan only blocks (ref_like/auth_like/overflow route to unknown, never to success); success still needs entry-level string PaymentReferenceNumber: verified. AuthorisationRequired 1/'yes'/'True!' -> unknown (authorisation_unclear) is the conservative reading and consistent with the 'ambiguous -> unknown' principle.",
+"Edited fix3 assertions (file absent at 2eee10c => run-created): (a) removed int PaymentReferenceNumber 12345 + error from failed list (now unknown); (b) placeholder/non-string ref test allows reason in (no_reference, reference_unrecognised), still status==unknown; (c) AuthorisationRequired 1/'yes'/'True!' moved from success to new unknown test. All move toward unknown; no safety weakening.",
+"ISO list: 183 codes, ZAR absent, R/rand not included, USDT/USDC/BTC/ETH/RMB extra; R100, 'R 100 rand', 'Rand Merchant', 'R1,000 ZAR' not parked; SEK/NAD/LSL/USD parked. Documented over-parking (TRY, ALL, TOP, BOB capitals) only parks.",
+"UTF-7 decoder: no exceptions on malformed input (&AE, &A-, &////-, lone surrogate, None); unparseable runs stay literal; sub-labels allowed; wildcard/backslash refused. A decoded lone-surrogate/odd name that is not inbox stays allowed (acceptable).",
+"scrub/sanitize/redact linear: 200k-600k adversarial inputs <0.1s. JWT anchored.",
+"Code quality: parse_payment_response 'strict' param unused (pre-existing); placeholder sets duplicated across ref/error/_falsey; minor.",
+"Scope: only the 7 listed files changed; no migration/uv.lock/deps/frozen changes. pytest twice: 3255 passed 15 skipped both, no flake; uv.lock restored."]}
