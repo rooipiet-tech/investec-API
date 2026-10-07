@@ -12,8 +12,6 @@ from types import SimpleNamespace
 
 import pytest
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S8 red: payments/images.py not built yet")
-
 ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = ROOT / "tests" / "fixtures" / "payments_v2"
 
@@ -118,7 +116,8 @@ def test_extra_fields_dropped_and_counted_safe_names_listed():
     fields, dropped, count = images.validate_extraction(raw)
     assert fields is not None and fields.amount == "100.00"
     assert count == 4
-    assert dropped == ("action", "last3", "route", "system")
+    # "last3" contains a digit, so it is counted but (per ^[a-z_]{1,32}$) never named
+    assert dropped == ("action", "route", "system")
 
 
 def test_dropped_keys_audit_count_plus_safe_names_only():
@@ -143,6 +142,7 @@ def test_validate_none_and_non_mapping_and_empty():
 
 @pytest.mark.parametrize("raw_amount,expected", [
     ("100.00", "100.00"), ("1 234,56", "1234.56"), ("1,234.56", "1234.56"), ("100", "100.00"),
+    ("100.5", None), ("1.234", None), ("1,234", "1234.00"), (100.1, "100.10"), (float("nan"), None),
     ("R100.00", None), ("abc", None), ("", None), ("-5", None), ("1e3", None),
     (100, "100.00"), (True, None), (None, None), (["1"], None),
 ])
