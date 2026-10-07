@@ -42,3 +42,5 @@ APPROVED the spec subject to these decisions:
 ## Amendment 5 (human, 2026-10-07) — BINDING
 - C7 DECIDED: KEEP ONE Investec key (option 1). No separate payment-only credential is introduced by this run. Live mode keeps the existing credential selection (settings.payment_credentials(): an already-configured write trio if present, else the main key declared payment-capable via INVESTEC_PAYMENTS_ENABLED). F27 (credential scope split, Should) is therefore not pursued / N/A. The caps, batch approval and sender checks live in our code; Investec itself does not enforce them. Follow-up (separate task, not now): move the beneficiary-list fetch out of ingest so the ingest key could drop the payment permission.
 - BUILD GO-AHEAD: slice 1 (S0-S6) approved to build.
+
+## Build go-ahead (human, 2026-10-07): slice 2 (S8, S7, S10) approved to build.
