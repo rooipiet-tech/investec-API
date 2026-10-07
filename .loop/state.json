@@ -14,6 +14,7 @@
     "it1-plan: batch-approval replan (r7) APPROVED by plan-review gate (0 blockers); R7-T1..T14 folded. Awaiting human go-ahead for build slice 1 (S0-S6). Confirmations open: C1 cancel semantics, C7 pay-key scope, C9 R20k vs R30k.",
     "it1-plan: human approved C1 (cancel semantics) and changed C9: per-payment cap R20,000 (daily R50,000) (decisions Amendment 4; spec text F18/Q7 amended). C7 pay-key scope explained, pending. Awaiting go-ahead for slice 1.",
     "it1-build: human decided C7 keep one key (F27 not pursued) and approved build of slice 1 (S0-S6).",
-    "it1-S0: baseline help refreshed at 2eee10c (BASE_SHA full sha, captures byte-identical to prior, CPython 3.12.3 scratch venv, deterministic); fixtures copied to tests/fixtures/cli_help; floor measured 330 passed."
+    "it1-S0: baseline help refreshed at 2eee10c (BASE_SHA full sha, captures byte-identical to prior, CPython 3.12.3 scratch venv, deterministic); fixtures copied to tests/fixtures/cli_help; floor measured 330 passed.",
+    "it1-slice1: built S0-S6; output-reviewer PASS (1 medium+2 low), risk-security MEDIUM (quadratic regex DoS, amount-spoof gaps), tester PASS (651/807 passed py3.11, 818 py3.12 CI, 0 fail). Fix round: all 7 fixes landed red-then-green; re-review PASS (nits only), re-test PASS (807/818, ReDoS suite not flaky under contention), frozen files + existing tests unchanged, help byte-identical, slice inert. SLICE 1 DONE. Awaiting go-ahead for slice 2 (S8,S7,S10)."
   ]
 }

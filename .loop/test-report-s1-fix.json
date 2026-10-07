@@ -1,0 +1,8 @@
+{"head":"32e6bf9","uv_pytest":{"passed":807,"skipped":12,"failed":0,"errors":0,"secs":12.5,"uv_lock_restored":true},
+"py312_CI_true":{"passed":818,"skipped":1,"failed":0,"errors":0,"secs":13.2},
+"redos_suite":{"runs_uncontended":[{"passed":81,"secs":7.69,"slowest":0.45},{"passed":81,"secs":7.64,"slowest":0.44},{"passed":81,"secs":7.70,"slowest":0.46}],"contended_4_busy_loops_pinned_to_cpu0":{"passed":81,"secs":39.70,"slowest":2.20},"flaky":false},
+"frozen_paths":"unchanged vs 638e948 and 2eee10c (payments pipeline/token/inbox/notify/dedup/selftest/extract/store/pg_store/audit, cli.py, db/, .github/, pyproject.toml, uv.lock)",
+"tests_diff":"56 A only, no M/D vs both bases","cli_help":"byte-identical to .loop/baseline (9/9)",
+"sanity":"all expected (see scratchpad sanity.json): outcomes success/unknown(no_reference)/failed/failed; 408/429/500/Timeout/ConnectionError -> PaymentUnknownOutcome, call_count==1; sanitize redacts digit groups, 200KB in 0.006s; amounts: INV-R500/PO/R500/Order#R500/pay 123 -> none, Amount: R500->500.00, R 1,250.50->1250.50, ZAR 500->500.00; 200KB hostile inputs ~0.0s",
+"inert":"no new slice-1 module imported from cli/ingest; only pre-existing lazy imports in cli.py and investec_client lazy payments.outcome import on fresh_token path",
+"verdict":"pass"}
