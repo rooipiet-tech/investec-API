@@ -131,9 +131,9 @@
     },
     {
       "id": "F18",
-      "text": "Caps fail closed (Q7): configured defaults are R30,000 per payment and R50,000 per day (persisted daily aggregate). Caps are read from env config; an unset, 0, negative or unparsable value means NO payment allowed (no hard-coded fallback silently enabling payments). Enforced pre-execution and re-checked at execution (F15). Daily total survives restart. Documentation must state that caps above R20,000 exceed the community-documented (unverified) Investec API per-payment limit, so Investec may reject; the caps are ours.",
+      "text": "Caps fail closed (Q7, amended): configured defaults are R20,000 per payment and R50,000 per day (persisted daily aggregate). Caps are read from env config; an unset, 0, negative or unparsable value means NO payment allowed (no hard-coded fallback silently enabling payments). Enforced pre-execution and re-checked at execution (F15). Daily total survives restart. The R20,000 per-payment cap matches the community-documented (unverified) Investec API per-payment limit; documentation notes that Investec's real limit is unconfirmed.",
       "priority": "Must",
-      "verify": "pytest: cap unset/0/'abc' -> blocked; over R30,000 -> blocked; aggregate pushing over R50,000 -> blocked; reloaded store retains total; write mock not_called when blocked; docs/.env.example list the defaults and the R20,000 caveat."
+      "verify": "pytest: cap unset/0/'abc' -> blocked; over R20,000 -> blocked; exactly R20,000 allowed; aggregate pushing over R50,000 -> blocked; reloaded store retains total; write mock not_called when blocked; docs/.env.example list the defaults and the unverified-limit note."
     },
     {
       "id": "F19",
@@ -370,7 +370,7 @@
       "q": "Cap values (per-payment, daily aggregate).",
       "recommended_default": "Unset=0=blocked; human sets values explicitly; suggest low initial values (e.g. R1,000 per payment, R2,000 per day) for the soak.",
       "status": "resolved",
-      "resolution": "Resolved: R30,000 per payment, R50,000 per day as configured defaults; fail closed if unset in env; above R20,000 exceeds community-documented API limit (unverified)."
+      "resolution": "Resolved (amended by human 2026-10-07): R20,000 per payment (was R30,000; matches the community-documented API limit), R50,000 per day, as configured defaults; fail closed if unset in env."
     },
     {
       "id": "Q8",
@@ -446,5 +446,6 @@
     }
   ],
   "amendment_2": "Human decision (after plan-review rounds 1-3): RETIRE the legacy token-approval flow instead of fixing it. F20 and F21 are DROPPED (retired by human decision); replaced by F42. Rationale: the v2 flow authenticates by sender and does not use approval tokens; fixing the legacy flow (emailing approval tokens to the owner) created a bot-approves-its-own-payments loop and quoted-token approval risk and would break existing tests; nothing deploys the legacy flow.",
-  "amendment_3": "Human confirmations in .loop/decisions.md 'Amendment 3' (BINDING), with Amendment 2 answers: BATCH APPROVAL confirmed (every payment waits for an authenticated approval reply; one batch email per 15-minute cycle when new items are ready; 'approve' / 'approve 1 3' / 'cancel 2'; approved items execute next cycle; unapproved expire after 24h; sender checks only); new-beneficiary hold configurable default 0h; Q10 Claude vision via requests with configurable model; items 13-16 resolved. Amends F2, F12-F16, F22, F23, F25, F32, F35, F37-F41; adds F43-F48. All other criteria unchanged."
+  "amendment_3": "Human confirmations in .loop/decisions.md 'Amendment 3' (BINDING), with Amendment 2 answers: BATCH APPROVAL confirmed (every payment waits for an authenticated approval reply; one batch email per 15-minute cycle when new items are ready; 'approve' / 'approve 1 3' / 'cancel 2'; approved items execute next cycle; unapproved expire after 24h; sender checks only); new-beneficiary hold configurable default 0h; Q10 Claude vision via requests with configurable model; items 13-16 resolved. Amends F2, F12-F16, F22, F23, F25, F32, F35, F37-F41; adds F43-F48. All other criteria unchanged.",
+  "amendment_4": "Human 2026-10-07: C1 cancel semantics approved as planned (bare 'cancel' cancels the whole batch's unclaimed items; 'cancel N'; honoured even when the reply layout is unparsable; approve stays strict). C9: per-payment cap changed to R20,000 (daily stays R50,000). See decisions.md Amendment 4."
 }
