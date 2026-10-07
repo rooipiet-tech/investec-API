@@ -495,3 +495,14 @@ def test_handler_range_checks_numbers_against_the_batch(env, numbers):
             received_at=env.now, now=env.now, smtp_send=env.smtp)
         assert out == "approval_noop"
     assert set(statuses(env).values()) == {"awaiting_approval"}
+
+
+def test_age_window_zero_means_nothing_is_fresh_even_a_future_dated_reply(tmp_path):
+    env = Env(tmp_path)
+    ref = offered(env, "101.00")
+    env.settings.payments_max_message_age_hours = 0.0
+    env.advance(15)
+    env.reply("approve", internaldate=env.now + timedelta(hours=1))
+    env.cycle()
+    assert env.row()["status"] == "awaiting_approval" and ref
+    assert "1 (expired)" in str([m for m in env.smtp.sent if "Reply received" in str(m["Subject"])][-1].get_content())

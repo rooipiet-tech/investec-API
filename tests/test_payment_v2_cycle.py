@@ -635,7 +635,7 @@ def test_audit_lifecycle_is_ordered_and_append_only(tmp_path):
     env.advance(15)
     env.cycle()
     steps = env.audit_steps()
-    wanted = ["cycle_start", "instruction_created", "batch_offered", "approve", "execute", "executed"]
+    wanted = ["cycle_start", "message_received", "auth_ok", "instruction_created", "batch_offered", "approve", "execute", "executed"]
     positions = [steps.index(s) for s in wanted]
     assert positions == sorted(positions), steps
     first = env.audit.read_entries()[:3]

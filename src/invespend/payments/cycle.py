@@ -271,6 +271,7 @@ def _handle_message(ctx: _Ctx, v2, iid: str, no_message_id: bool) -> str:
     if no_message_id:
         audit.append("no_message_id", {})
         return "no_message_id"
+    audit.append("message_received", {"message_id_hash": hashlib.sha256(v2.message_id.strip().lower().encode("utf-8")).hexdigest()})
     msg = email.message_from_bytes(v2.raw)
     view = content.text_view(msg)                           # text parts only: safe before authentication
     own = loopguard.is_own_notification(
@@ -285,6 +286,7 @@ def _handle_message(ctx: _Ctx, v2, iid: str, no_message_id: bool) -> str:
         audit.append("auth_failed", {"reason": verdict.reason})
         return "auth_failed"
     auth_from = verdict.from_addr
+    audit.append("auth_ok", {"reason": "ok"})
     store.set_message_outcome(iid, "processing", auth_from=auth_from)
     batch_refs = refs.find_batch_refs(v2.subject, v2.in_reply_to, v2.references)
     cmd = commands.parse_command(view)

@@ -96,7 +96,7 @@ def handle_approval_message(
     skipped: list[tuple[int, str]] = []
 
     if is_approve:
-        fresh = received_at is not None and now - received_at <= cfg.max_age
+        fresh = received_at is not None and cfg.max_age_hours > 0 and now - received_at <= cfg.max_age
         if not fresh:
             audit.append("expired_age", {"ref": ref, "reason": "approve_reply_stale"})
             skipped = [(n, "expired") for n in targets]
