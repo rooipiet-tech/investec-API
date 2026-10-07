@@ -36,3 +36,17 @@ Only NEW files: 5 modules under src/invespend/payments/ and new tests/fixtures. 
 ## Not done / open
 * Nothing in S8/S7/S10 skipped except item 5 (S11-dependent). No real vision adapter (S14), no schema, no wiring, no docs.
 * Plan text mentions `.eml` fixtures; messages are built programmatically with `tests/mail_helpers.py` (no real addresses, only example.com/example.invalid).
+
+## Fix round (risk R1-R4; R5 info not acted on)
+
+Each fix: xfail-marked red commit, then green commit removing the marker; suite green at every commit. New test files: tests/test_payment_fix_s2_{commands,images,notify,content}.py. Existing tests unmodified; frozen files untouched.
+
+- R1 commands.py: lines split on '\n' ONLY (a trailing '\r' is dropped); a first line containing any ASCII control char other than space/tab (\x00-\x08, \x0b-\x1f, \x7f) is invalid/bad_syntax when it starts with a verb (also after control chars are read as spaces), else not a command. 'approve\x0b1', 'approve\x0c1 2', 'cancel\x0b2' can no longer widen. content.py/text_view already used split('\n') (no splitlines anywhere in content.py), so no change there; a test asserts text_view and the parser agree.
+- R2 images.py: validate_extraction is total (each field cleaner wrapped; amount bounded BEFORE str()/float conversion). MAX_AMOUNT = 1_000_000: amounts must be > 0 and <= 1,000,000.00, text length-capped at 24 chars, huge ints/inf/nan/1e30/'0'/'0.00'/negatives dropped. Shape rejection and ZAR normalisation unchanged.
+- R3 notify_v2.py: _LONG_NUMBER = \d(?:[ \-./_]{0,3}\d){8,} (bounded, linear). Paste-details email still unmasked (verified user only).
+- R4 content.py _HIDDEN_STYLE: adds opacity/font-size/max-height/max-width/width/height/line-height zero (units, !important) and text-indent <= -999; colour-equals-background not detected (as instructed). (?<![\w-]) keeps border-width/min-height visible.
+- ReDoS: timing tests added for each touched regex/parser (200KB hostile, killed-subprocess).
+
+Test counts: Python 3.11 (uv run): 1550 passed, 12 skipped, 0 xfail. Python 3.12 scratch venv outside repo, CI=true: 1561 passed, 1 skipped (CI changes which tests skip). uv.lock restored, not committed.
+
+Deviations: non-ASCII whitespace/format variants (\x85, U+2028/2029, NBSP, ZWSP, etc.) stay "not a command" (None), not invalid/bad_syntax, because the existing unmodified test requires 'approve <Arabic digit>' -> None for any non-ASCII line; they can never widen to approve_all/cancel_all either way.
