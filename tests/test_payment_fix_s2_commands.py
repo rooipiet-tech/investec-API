@@ -8,7 +8,6 @@ import pytest
 from tests.test_payment_commands import C, PC, V, content, parse
 from tests.timing_helper import assert_fast
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S2 fix R1 red: commands.py still uses splitlines")
 
 BAD = C("invalid", (), "bad_syntax")
 

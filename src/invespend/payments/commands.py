@@ -24,6 +24,8 @@ from .content import TextView
 MAX_COMMAND_LINE = 1000
 
 _VERB = re.compile(r"(approve|cancel)\b", re.ASCII)
+_CONTROL = re.compile(r"[\x00-\x08\x0a-\x1f\x7f]")   # every ASCII control char except TAB (a line has no \n)
+_VERB_START = re.compile(r"(approve|cancel)", re.ASCII)
 _NUMBER = re.compile(r"0|[1-9][0-9]{0,2}", re.ASCII)
 _SEPARATOR = re.compile(r"[ \t]*,[ \t]*|[ \t]+")
 _TRAILING = re.compile(r"[.!,;]+\Z")
@@ -41,9 +43,10 @@ class Command:
 
 def _first_line_and_rest(view: TextView) -> tuple[str, list[str], str, bool] | None:
     if view.confident:
-        lines = view.typed_text.splitlines()
+        lines = view.typed_text.split("\n")   # '\n' ONLY: never str.splitlines (it splits on \x0b, \x0c, \x85 ...)
         for i, line in enumerate(lines):
-            if line.strip():
+            line = line.rstrip("\r")
+            if line.strip(" \t"):
                 return line, lines[i + 1:], "typed", True
         return None
     raw = list(view.raw_head_lines)
@@ -69,6 +72,9 @@ def parse_command(view: TextView) -> Command | None:
     first, rest, source, may_approve = picked
     if not first.isascii():
         return None
+    if _CONTROL.search(first):   # only space/tab may separate; never lets a verb widen to approve_all/cancel_all
+        return Command("invalid", (), "bad_syntax", source) if _VERB_START.match(first.lstrip(" \t").casefold()) \
+            or _VERB_START.match(_CONTROL.sub(" ", first).strip().casefold()) else None
     norm = _TRAILING.sub("", first.casefold().strip()).strip()
     m = _VERB.match(norm)
     if m is None:
