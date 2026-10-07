@@ -1,27 +1,25 @@
 {
   "spec_version": "1.2.0",
-  "run": "beneficiary-matching",
+  "run": "email-payment-v2",
   "frozen": true,
   "inputs": [
     ".loop/GOAL.md",
     ".loop/research.md",
-    ".loop/domain.md"
+    ".loop/investec-api-research.md",
+    ".loop/domain.md",
+    ".loop/decisions.md"
   ],
-  "structure_reused_from": ".loop/archive/payments-run/spec.json (format + still-applicable constraint criteria: freeze, no-secrets, fail-closed, isolation, PII minimisation)",
+  "structure_reused_from": [
+    ".loop/archive/payments-run/spec.json",
+    ".loop/archive/beneficiary-matching-run/spec.json"
+  ],
   "baseline": {
-    "pytest_floor": "211 passed, 0 failed, 0 errors (measured at HEAD ae2ac78 via /home/user/investec-API/.venv/bin/python -m pytest -q; CLAUDE.md '62' is stale and superseded for this run)",
-    "cli_subcommands_at_head": [
-      "init-db",
-      "ingest",
-      "report",
-      "statements",
-      "backup",
-      "backfill-hashes",
-      "approve-payments",
-      "pay-selftest"
-    ],
-    "migrations_at_head": "0001..0008, 0009_payment_approvals, 0009_security_invoker_rls, 0010, 0011; next free prefix 0012",
-    "help_baseline_note": ".loop/baseline/help__top.txt is STALE (lists 6 of 8 subcommands); must be refreshed from the pre-change commit before use (F1)."
+    "pytest_floor": "330 passed, 0 failed, 0 errors (measured at HEAD 2eee10c via `uv run pytest -q`; uv.lock then reverted with `git checkout uv.lock`)",
+    "migrations_at_head": "0001..0008, 0009_payment_approvals, 0009_security_invoker_rls, 0010, 0011, 0012_beneficiary_matching; next free prefix 0013",
+    "defects_verified_by_reading_source": [
+      "cli.py cmd_approve_payments calls run_approval_cycle without approval_recipients (pipeline.py only emails if approval_recipients truthy)",
+      "payments/dedup.py hashes message_id into dedup_key, so a reply's different Message-ID changes the key"
+    ]
   },
   "weights": {
     "Must": 3,
@@ -31,311 +29,424 @@
   "acceptance_criteria": [
     {
       "id": "F1",
-      "text": "PRECONDITION: before any code change, refresh .loop/baseline/ by capturing `invespend --help` and `invespend <sub> --help` for all 8 current subcommands (incl. approve-payments, pay-selftest) from the unmodified base commit; record the base commit SHA. All CLI-surface comparisons in this spec use this refreshed baseline, never the stale one.",
+      "text": "PRECONDITION: before any code change, refresh .loop/baseline/ by capturing `invespend --help` and every `invespend <sub> --help` from the unmodified base commit (2eee10c) and record the SHA; all CLI-surface comparisons use this baseline.",
       "priority": "Must",
-      "verify": "Baseline files exist for top + 8 subcommands with a recorded base SHA; `git stash`/checkout of base SHA regenerates byte-identical files; refresh commit/timestamp precedes the first source diff."
+      "verify": "Baseline files exist for top + all current subcommands with recorded base SHA; regenerating at the base SHA is byte-identical; refresh precedes first source diff."
     },
     {
       "id": "F2",
-      "text": "Full test suite stays green: at least 211 pre-existing tests pass plus all new tests, 0 failures, 0 errors.",
+      "text": "Test-suite floor: at least 330 pre-existing tests pass (measured at HEAD 2eee10c via `uv run pytest -q` -> '330 passed', then `git checkout uv.lock`) plus all new tests; 0 failures, 0 errors. CLAUDE.md '62' is stale. Clarification (Amendment 3, item 16 approved): the ONLY permitted edit to an existing test is two assertions in tests/test_beneficiary_migration.py (test_0012_is_last_and_unique_prefix and test_existing_migrations_unchanged), needed so migration 0013 can exist; they are replaced by an exact-set history test (old set + 0012 + 0013) with hashes pinned. The 330 floor counts these tests as passing in their amended form; no other existing test may be edited.",
       "priority": "Must",
-      "verify": "`.venv/bin/python -m pytest -q` reports passed >= 211 + (number of new tests), failed == 0, errors == 0."
+      "verify": "`uv run pytest -q` reports >=330 passed + new tests, 0 failed, 0 errors; `git checkout uv.lock` run afterwards and `git status` shows uv.lock unmodified; `git diff` of tests/ for pre-existing files shows changes ONLY to the two named assertions in tests/test_beneficiary_migration.py, replaced by an exact-set history test with pinned hashes."
     },
     {
       "id": "F3",
-      "text": "CLI surface frozen: help output for top-level and all 8 existing subcommands is byte-identical to the refreshed baseline. CONDITIONAL on Q3: if the human chooses a new subcommand, the 8 existing subcommand helps stay byte-identical and top-level help differs ONLY by the added subcommand line(s).",
+      "text": "Dry-run is the default and the live gate is retained unchanged: live requires explicit live_enabled() (flag AND payment-capable credential); in dry-run no write endpoint (paymultiple/_post) is called and the result is recorded 'dry-run'. No default (code, .env.example, workflow) turns live on.",
       "priority": "Must",
-      "verify": "diff of freshly captured help vs .loop/baseline/* is empty (Q3=ingest hook), or diff shows only additive lines for the new subcommand (Q3=new subcommand)."
+      "verify": "pytest: default -> client write mock not_called, outcome 'executed:dry-run'; flag without cred -> stays dry-run; both -> mocked write invoked and live enablement audited. grep workflow/.env.example: live flag absent or false."
     },
     {
       "id": "F4",
-      "text": "Schema changes are additive only: exactly one new migration file db/migrations/0012_<name>.sql (unique 0012 prefix, sorts after 0011); zero diff to every existing file under db/ (0001-0011, roles.sql, etc.).",
+      "text": "Trigger grammar: body contains the token 'pay' followed by exactly 3 digits (case-insensitive, word-bounded, e.g. 'pay 123' / 'pay123'); digits-only (letters not accepted) unless human changes Q5. No trigger -> message ignored (no pending, no reply, audit 'ignored'). 'pay' with 2 or 4 digits -> ignored/parked, not guessed.",
       "priority": "Must",
-      "verify": "`git diff --stat <base> -- db/` shows only the added 0012_*.sql; `sorted(Path('db/migrations').glob('*.sql'))[-1]` is the new file; no other path under db/ modified or deleted."
+      "verify": "pytest parametrised: 'pay 123','Pay123' trigger; 'pay abc','pay 12','pay 1234','payment 123','repay 123' do not; no-trigger mail creates no state and sends no email."
     },
     {
       "id": "F5",
-      "text": "Migration 0012 is idempotent and safe to re-run on every ingest (init_db re-applies all migrations): `create table if not exists`, `create or replace view` only for NEW views, `drop policy if exists` before `create policy`, no unguarded INSERT/seed, no ALTER/DROP/REPLACE of any existing table or view (transactions_normalized, transactions_categorized, spend_by_category, monthly_movement, balance_reconciliation, transactions_flow, monthly_flows, existing tables).",
+      "text": "The 3 digits select the SOURCE account by exact match on last-3 of the user's real accounts (get_accounts). Zero or >1 matching accounts (ambiguity across profiles/accounts) -> fail closed (parked, notify, no execute). Last-3 is never an authorization factor.",
       "priority": "Must",
-      "verify": "pytest static test over 0012 SQL asserts guards present and no statement names an existing table/view as ALTER/DROP/REPLACE target; if a Postgres is available, apply all migrations twice in a row with no error and identical pg_dump --schema-only of pre-existing objects."
+      "verify": "pytest: unique match resolves sourceAccountId bound into approval; 0 matches and 2 matches across profiles -> parked, execute not_called."
     },
     {
       "id": "F6",
-      "text": "Every new table has RLS enabled plus a `deny_all` policy (for all to public using (false) with check (false)) following the 0011 pattern, inside 0012; every new view is created with `security_invoker = on`. 0011's hard-coded target list is not edited.",
+      "text": "PRIMARY CONTROL sender authentication: a message is processed only if (a) the OUTER From address is on a configured allowlist AND (b) Authentication-Results from the receiving mail host shows dkim=pass and spf=pass aligned with that From domain. Reply-To is never used for identity or routing. Missing/failed/absent headers -> fail closed (ignored+audited). No secret code or shared-secret factor is used (Q3 resolved).",
       "priority": "Must",
-      "verify": "pytest static test parses 0012: for each `create table` there is `enable row level security` + `drop policy if exists deny_all` + `create policy deny_all ... using (false) with check (false)`; each `create ... view` carries `with (security_invoker = on)` or a matching `alter view ... set (security_invoker = on)`."
+      "verify": "pytest: allowlisted From + dkim/spf pass -> processed; spoofed From (fail/none), allowlisted display-name with foreign address, Reply-To set to allowlisted address with foreign From, missing Authentication-Results -> not processed, no state, audit reason."
     },
     {
       "id": "F7",
-      "text": "No foreign key references transactions.transaction_hash (0008 DELETEs and backfill-hashes UPDATEs it on every run); match rows are keyed by transaction_hash without FK, and the read view inner-joins transactions so orphaned matches are invisible.",
+      "text": "Forwarded mail: authentication is applied to the OUTER (forwarding) sender only; From/headers/addresses inside the forwarded body or message/rfc822 attachment are never trusted for identity. Content of the forward is searched for payment data but cannot satisfy sender auth.",
       "priority": "Must",
-      "verify": "grep -i 'references' in 0012 finds no reference to transactions; view SQL shows inner join to transactions (or transactions_flow) on transaction_hash; test/inspection confirms orphan row not surfaced."
+      "verify": "pytest: forward by allowlisted+authenticated user with inner message from stranger -> processed; forward by non-allowlisted outer sender with inner allowlisted From -> rejected."
     },
     {
       "id": "F8",
-      "text": "Non-mutating: new code never INSERTs/UPDATEs/DELETEs transactions, accounts, balances, sync_runs or category_map, never changes description/transaction_hash/day_seq/category/raw, and does not touch _TX_COLUMNS or the hash/day_seq functions.",
+      "text": "Search scope: for a triggered message the pipeline searches reply and forward body, quoted text, pdf/xlsx/csv attachments AND images (see F32-F38) for payment amount/currency/payee (existing extraction reused). Conflicting figures (two amounts, two payees, currency mismatch, corrupt attachment) -> parked, never executed.",
       "priority": "Must",
-      "verify": "git diff shows no change to db.py transaction_hash/assign_day_seq/_TX_COLUMNS/_tx_params/upsert_transaction(s); grep of new code for insert/update/delete targets only new tables; tests/test_db.py unchanged and green."
+      "verify": "pytest fixtures: body, quoted, forwarded, pdf, xlsx, csv each yield the expected candidate; conflicting figures across body vs attachment -> 'parked'; image handling per F32-F38."
     },
     {
       "id": "F9",
-      "text": "Ingest observable output frozen: `Ingest: {summary}` stdout (keys from_date, to_date, accounts, transactions_upserted, balances_captured, new_accounts, same order), new-account alert lines, and sync_runs counters/status are identical with the feature OFF and with it ON. Any beneficiary diagnostics go to logging (stderr) only.",
+      "text": "Beneficiary resolution is exact and registered-only: payee resolves only to an exact existing beneficiaryId from the account's registered beneficiaries; a parsed account number is never paid directly; fuzzy/partial match never auto-resolves.",
       "priority": "Must",
-      "verify": "pytest: run_ingest with fake client + fake DB, flag off vs on -> returned summary dict equal (keys+order) and captured stdout of cmd_ingest equal; sync_runs finish args identical."
+      "verify": "pytest: exact match -> candidate with registered beneficiaryId; near-miss/ambiguous/no match -> not resolved; value passed to execute is the registered id."
     },
     {
       "id": "F10",
-      "text": "Weekly report and account statement Excel outputs unchanged: same sheets/order, COLUMNS, STATEMENT_COLUMNS, header block, cell values, number formats, column widths, filenames, and stdout lines; statement 'Description' is never replaced by a beneficiary name. CONDITIONAL on Q6: if the human approves a 'Paid to' column, the only permitted difference is that column (in the approved position) and existing columns/cells remain identical.",
+      "text": "Unregistered/new payee (Q1, resolved): notify the user by email that the payee must be added in Investec Online/app, with details in EXACTLY this ordered field list (Q6): Beneficiary name, Bank, Account number, Amount, Their reference, My reference, Payment notification, Beneficiary email address, Beneficiary mobile number. Branch code, if known, appears only as a separate 'reference only' line outside the ordered list. A parked 'awaiting beneficiary' instruction is recorded (F12). The system NEVER calls any beneficiary-creating endpoint and no payment is sent for it at this stage.",
       "priority": "Must",
-      "verify": "git diff shows no change to report.py/statements.py (Q6=no); pytest golden comparison of workbooks generated from a fixed DataFrame fixture pre vs post, compared cell-by-cell via openpyxl (values, number_format, sheet names, column widths) since xlsx zip metadata timestamps are not byte-stable; tests/test_report.py and tests/test_statements.py unchanged and green."
+      "verify": "pytest: unregistered payee -> exactly one notification email whose ordered fields equal the nine-item list above in that order, with branch code only in a separate 'reference only' line; awaiting-beneficiary instruction persisted; no create-beneficiary call exists (grep src finds none); client write mock not_called."
     },
     {
       "id": "F11",
-      "text": "Feature is OFF by default behind a new Settings bool (e.g. BENEFICIARY_MATCHING_ENABLED, read via _opt_bool, default False, field has a default and is read with getattr fallback). When off: zero calls to get_beneficiaries, zero writes to new tables, zero extra stdout. Separate from PAYMENTS_BENEFICIARIES_FROM_API.",
+      "text": "Notification emails mask or minimise data: full account number appears only in the new-payee paste-details email to the verified user (necessary for the purpose), never in logs/audit/state/other emails (including the post-payment confirmation).",
       "priority": "Must",
-      "verify": "pytest: Settings.load() with env unset -> flag False; run_ingest with flag off and a spy client -> get_beneficiaries call_count == 0 and fake DB receives no SQL touching new tables; existing Settings(**kwargs) constructions in tests still work."
+      "verify": "pytest: captured logs, audit rows, stored state and summary/reminder emails contain no full account number; paste-details email goes only to the authenticated allowlisted sender."
     },
     {
       "id": "F12",
-      "text": "Matcher is a pure, deterministic function (transactions x beneficiary snapshot -> matches): output independent of input ordering, dict/set iteration, DB row order, clock and locale. Normalisation (casefold, whitespace collapse, documented punctuation handling) is pure and unit-tested. Rule precedence is a fixed ordered list, highest confidence first.",
+      "text": "BATCH-APPROVAL routing (Amendments 2-3, supersedes Q2 immediate-pay and 24h default). NOTHING executes without an authenticated approval reply. Every accepted instruction (registered payee, new payee whose hold has elapsed, image-derived) enters a pending state and is listed in a batch approval email (F13/F43); it executes only after the user's authenticated approval reply (F14) and then in the NEXT cycle, still subject to F3 (dry-run default/live gate), F15 re-verification immediately before the POST, F16 expiry, F17 idempotency, F18 caps and F19 audit. Routing: (A) REGISTERED payee (exact beneficiaryId, F9): pending approval immediately, no hold. (B) NEW/unregistered payee: F10 notification + parked 'awaiting_beneficiary' persisted, never in a batch while unregistered; once the payee appears in the live beneficiary list it becomes eligible for the next batch after the configurable new-beneficiary hold (F39; DEFAULT 0 hours, i.e. joins the next batch as soon as it appears; mechanism and schema retained so a non-zero hold can be enabled without a new migration). If Investec rejects the payment (e.g. cooling-off / must be paid once online first) -> fail closed per F40.",
       "priority": "Must",
-      "verify": "pytest: same inputs under several permutations of transactions and beneficiaries -> identical match output; normalisation unit tests; no datetime.now/random usage inside the matcher module (grep)."
+      "verify": "pytest with injected clock and fake client: registered payee accepted -> status pending_approval, included in batch, write not_called in that cycle; no reply -> never executes; after authenticated approve -> executes exactly once in the NEXT cycle (live-mocked) or recorded dry-run; unregistered -> parked awaiting_beneficiary, not in batch, write not_called; beneficiary appears in list at t0 with default hold 0 -> in next batch (not before it appears); with hold configured to N hours -> not batched before t0+N; static scan/test: no code path calls the write endpoint for an item lacking an approved status."
     },
     {
       "id": "F13",
-      "text": "DEBIT-only: only rows with upper(type)='DEBIT' / amount < 0 are candidates; CREDIT rows never match, regardless of description.",
+      "text": "Emails (batch approval model). (1) BATCH APPROVAL email: one per cycle, only when new items are ready (F43), numbered items with batch ref, instructions for replying (F14/F44), and a pointer to any still-pending items. (2) Post-execution outcome email to the authenticated user after each approved item's outcome is known (payee name, amount, source last-3, outcome; dry-run says dry-run; no full account number). (3) New-payee path: F10 paste-details email at park time and a notice when the beneficiary is first observed in the live list (states the hold, default 0h, and that the item will appear in the next batch). Failures (including Investec rejection), expiry, cancel acknowledgements and unknown outcomes also notify. No approval-reminder-before-execution email exists in this model (nothing executes unapproved). No tokens/secrets in any email.",
       "priority": "Must",
-      "verify": "pytest: CREDIT row whose description exactly equals a beneficiary name/reference -> no match; equivalent DEBIT row -> match."
+      "verify": "pytest: one batch email per cycle with new items; paste-details email once at park time; first-observed notice once; outcome email after execution; failure/expiry/needs_review each notify once; no duplicates on rerun; scan of all captured emails finds no token/secret and no full account number (except F10 paste details)."
     },
     {
       "id": "F14",
-      "text": "Payment-type gate: only rows whose transaction_type is in an explicit, code-defined allowlist are candidates; NULL/unknown types fail closed; card purchases, fees, ATM and debit orders never match. CONDITIONAL on Q2 for the allowlist contents.",
+      "text": "Approval/cancel by reply. An authenticated (F6) reply from the allowlisted sender referencing the batch (batch ref in Subject/In-Reply-To/References or body, F44) is the ONLY approval mechanism. Grammar on the FIRST LINE of the confident typed text of the reply (quoted text, signatures and images are ignored; image text is never a command): 'approve' (all items in that batch), 'approve 1 3' (listed item numbers), 'cancel 2' (drops listed items; multiple numbers allowed). Case-insensitive, tolerant of surrounding whitespace/punctuation only as defined by the parser. AMBIGUITY -> NO-OP: unknown verb, mixed/contradictory commands, out-of-range or non-numeric item numbers, no batch ref match, multiple commands in the first line, empty first line -> nothing approved, nothing cancelled, user notified of the no-op. Unauthenticated replies are ignored (F6). Approve and cancel are atomic versus execute (compare-and-set on status in one DB transaction) so exactly one of cancel/approve/execute transition wins per item; approved items execute in the next cycle; a cancelled item never executes; a re-approve of an already-executed item is a no-op.",
       "priority": "Must",
-      "verify": "pytest parametrized: each allowlisted type matches; CardPurchases, FeesAndInterest, ATMWithdrawals, DebitOrders, None, and an unknown string -> no match; allowlist is a single module-level constant."
+      "verify": "pytest parametrised: 'approve', 'approve 1 3', 'cancel 2', 'Approve 2' work; 'approve 9', 'approve x', 'approve cancel', 'please approve' behind chatter, empty first line, approve text only in quoted block or image -> no-op and no state change; reply to wrong/unknown batch ref -> no-op; unauthenticated approve ignored; concurrent cancel vs execute (CAS) -> exactly one winner; approved items execute in next cycle, cancelled never."
     },
     {
       "id": "F15",
-      "text": "Fail-closed: 0 candidates -> no match; >1 distinct beneficiaryIds under the highest-precedence rule that fired -> no match (status 'ambiguous' if stored), with no fall-through to a weaker rule to break ties. Minimum token-length guards apply; no fuzzy/edit-distance matching (no difflib/Levenshtein).",
+      "text": "Immediately before the paymultiple POST for an APPROVED item (no delay between check and POST beyond the call itself): re-verify the approval is still valid (status approved, not cancelled/expired), beneficiary still registered and unchanged, source account still resolves uniquely, sufficient available balance, per-payment and daily caps; any failure -> parked/failed + notified, not executed. Obtain a fresh OAuth token for the payment call (never reuse a cached token from acceptance/an earlier cycle). Approval does not waive any check.",
       "priority": "Must",
-      "verify": "pytest golden fixtures: 'Acme' vs 'Acme Trading', 'J Smith' vs 'J Smithers', two beneficiaries with same name, short tokens ('Mom','Rent') below guard -> no match; single clean candidate -> match; grep matcher for difflib/SequenceMatcher -> none."
+      "verify": "pytest: beneficiary removed/changed, balance short, cap exceeded, item cancelled or expired between approval and execution each -> not executed, write mock not_called; token fetch occurs at execution time (token mock call count incremented in the execution cycle, not at approval)."
     },
     {
       "id": "F16",
-      "text": "Explainable: every stored match records match_rule (e.g. reference_exact, name_exact, reference_prefix) and matched_token (the normalised beneficiary-side token that hit, never a full account number), plus beneficiary_id and the snapshot identifier/matched_at.",
+      "text": "Expiry window (Amendment 3): an item that is not approved within 24h of being offered in a batch (configurable, default 24h) is EXPIRED and notified, never executed late; a late 'approve' on an expired item is a no-op (user told it expired). The inbound message-age limit stays (messages older than the configured age are ignored). Parked 'awaiting beneficiary' items keep their configured window (default 7 days from acceptance). An approved-but-unexecuted item past its execution grace window (configurable, default 24h after approval) also expires. Stale items never auto-pay.",
       "priority": "Must",
-      "verify": "pytest: each positive fixture yields non-empty match_rule from the documented rule set and matched_token equal to the expected normalised token; 0012 table has match_rule and matched_token NOT NULL columns."
+      "verify": "pytest with injected clock: unapproved item at 24h+ -> expired, write not_called, one notification; approve after expiry -> no-op, not executed; message older than age limit -> ignored; awaiting item past 7d -> expired; approved within window -> executes; approved item past grace -> expired."
     },
     {
       "id": "F17",
-      "text": "Idempotent: re-running sync+match with the same transactions and snapshot produces an identical match set with no duplicate rows and no flip-flop (upsert keyed on transaction_hash or full deterministic recompute).",
+      "text": "Idempotency: the paymultiple POST is NEVER automatically retried (no retry/backoff on the write); a 200 response whose body carries ErrorMessage or AuthorisationRequired (or any non-success item status) is treated as FAILURE. Unknown outcome (timeout) -> marked 'unknown/needs_review', notified, never re-sent automatically. Same payment cannot execute twice.",
       "priority": "Must",
-      "verify": "pytest: run match persistence twice against fake DB -> identical SQL params / identical resulting rows; unique key on transaction_hash in 0012 (or equivalent)."
+      "verify": "pytest: write mock raising timeout -> call_count==1, status needs_review; 200 {ErrorMessage:...} and AuthorisationRequired -> status failed, not 'executed'; re-run cycle -> call_count still 1; urllib3/requests retry adapter absent on the write path."
     },
     {
       "id": "F18",
-      "text": "Own-account transfers excluded: rows with transactions_flow.flow_type='internal_transfer' are never matched, and any beneficiary whose digit-normalised accountNumber equals an own accounts.account_number is never a candidate (own account at another bank remains eligible).",
+      "text": "Caps fail closed (Q7, amended): configured defaults are R20,000 per payment and R50,000 per day (persisted daily aggregate). Caps are read from env config; an unset, 0, negative or unparsable value means NO payment allowed (no hard-coded fallback silently enabling payments). Enforced pre-execution and re-checked at execution (F15). Daily total survives restart. The R20,000 per-payment cap matches the community-documented (unverified) Investec API per-payment limit; documentation notes that Investec's real limit is unconfirmed.",
       "priority": "Must",
-      "verify": "pytest: beneficiary with own Investec account number + matching DEBIT description -> no match; internal_transfer-flagged row -> no match; view SQL filters flow_type <> 'internal_transfer'."
+      "verify": "pytest: cap unset/0/'abc' -> blocked; over R20,000 -> blocked; exactly R20,000 allowed; aggregate pushing over R50,000 -> blocked; reloaded store retains total; write mock not_called when blocked; docs/.env.example list the defaults and the unverified-limit note."
     },
     {
       "id": "F19",
-      "text": "API-failure isolation: if the beneficiaries fetch raises or returns a malformed payload, ingest still completes with identical summary/stdout, sync_runs status is unaffected, the existing snapshot is NOT wiped, and no new matches are produced. No DB transaction is open during the API call.",
+      "text": "Append-only audit trail records every step (received, auth result, ignored, parked, accepted, reminder, cancel, execute, fail, expire) with timestamps; never contains full account numbers, PAN, tokens, signing secret or other PII beyond hashed message id and last-3.",
       "priority": "Must",
-      "verify": "pytest: fake client get_beneficiaries raises (and separately returns non-list data) with flag on -> run_ingest returns same summary, no exception, a warning is logged, no delete/update of snapshot rows issued; call ordering shows API call before db.connect for the snapshot write."
+      "verify": "pytest: full lifecycle -> ordered entries, none mutated/deleted; scan of audit text finds no 9+ digit run, no secret, no email body."
     },
     {
       "id": "F20",
-      "text": "PII minimisation for the snapshot: rows are built field-by-field from an allowlist (beneficiary_id, beneficiary_name, name, reference_name, bank, branch code, account number per Q1, sync/seen timestamps). Never stored: cellNo, emailAddress, referenceAccountNumber, or a raw JSON blob. Beneficiary account numbers are never logged, printed, or put in matched_token. CONDITIONAL on Q1 for whether the full account number or last-3 is persisted/displayed.",
-      "priority": "Must",
-      "verify": "pytest: snapshot builder given a full API dict incl. cellNo/emailAddress -> output keys == allowlist exactly; caplog during sync+match contains no beneficiary account number digits; 0012 has no jsonb raw column on the beneficiary table; (Q1=last-3) no column holds >3 account digits."
+      "text": "[DROPPED by human decision, spec amendment_2 / F42] Defect fix #1 (verify first): CLI approve-payments never passes approval_recipients to run_approval_cycle (cli.py ~L307), so pending approval/summary emails are never sent in production. Reproduce with a failing test, then fix so summary/notification recipients come from config (the authenticated allowlisted user), without changing existing flags' meaning.",
+      "priority": "Dropped",
+      "verify": "A new test fails at base 2eee10c and passes after fix: CLI cycle with a pending item invokes smtp send to the configured recipient; existing approve-payments --help unchanged unless Q-approved additive flag."
     },
     {
       "id": "F21",
-      "text": "A readable result exists: a new view (e.g. transactions_beneficiary, security_invoker=on) built beside transactions_flow, exposing at least transaction_hash, account_id, effective_date, description, amount, flow_type, beneficiary_id, beneficiary name, bank, account number (full or masked per Q1), match_rule, matched_token.",
-      "priority": "Must",
-      "verify": "Static test on 0012 asserts the view exists with these column names and selects from transactions_flow/transactions (not replacing either)."
+      "text": "[DROPPED by human decision, spec amendment_2 / F42] Defect fix #2 (verify first): dedup key includes the inbound Message-ID, so a reply (new Message-ID) yields a different key and token/cancel replies are rejected or create duplicates. Reproduce with a failing test, then key cancel/approval matching on the pending record's stable id/nonce (carried in Subject/References/In-Reply-To), not the reply's Message-ID. Dedup of the same original email remains.",
+      "priority": "Dropped",
+      "verify": "New test fails at base and passes after: original mail then reply with different Message-ID matches the same pending; same original mail twice -> one pending; different payments -> different keys."
     },
     {
       "id": "F22",
-      "text": "Payment-safety code untouched: src/invespend/payments/ (beneficiaries.py from_api/resolve_beneficiary exact-match semantics, pipeline.py, selftest.py) is not modified; matching lives in a new isolated module (e.g. src/invespend/beneficiary_match.py).",
+      "text": "Frozen behaviour: ingest, report, statements, backfill-hashes, backup, init-db and beneficiary-matching outputs are unchanged; no change to existing CLI flags/help; any new CLI surface is additive only and approved. Clarification (Amendment 3, item 16): the single permitted edit to existing tests is the two assertions in tests/test_beneficiary_migration.py named in F2 (replaced by an exact-set migration history test), required by F23; all other existing tests stay unmodified.",
       "priority": "Must",
-      "verify": "`git diff --stat <base> -- src/invespend/payments/ tests/test_payment_*.py tests/test_pay_selftest.py` empty; those tests green."
+      "verify": "Refreshed baseline --help byte-identical for all pre-existing subcommands; existing ingest/report/statement/beneficiary tests unmodified and green except the two assertions in tests/test_beneficiary_migration.py permitted by F2; git diff shows no edits to ingest/report/statements modules' logic."
     },
     {
       "id": "F23",
-      "text": "No new dependencies (runtime or dev).",
+      "text": "Schema: only additive migrations (next free prefix 0013+), state stored in Postgres via the existing pg_store pattern, RLS enabled with deny_all policies for new tables (matching 0010/0011); no edits to existing migrations, tables or views. Migration 0013 (and its tables/columns) must carry the batch/approval state (batch ref, item number, offered_at, approved_at, status) and the new-beneficiary first-seen/hold columns so a non-zero hold needs no further migration. Existing-migration immutability is guarded by the exact-set history test permitted in F2.",
       "priority": "Must",
-      "verify": "`git diff <base> -- pyproject.toml requirements*.txt` shows no dependency additions; new code imports only stdlib + existing deps."
+      "verify": "git diff -- db/migrations shows only new files; migrations apply in numeric order on a scratch DB; new tables have ROW LEVEL SECURITY and deny_all policy; migration-order test green (exact-set history test: old set + 0012 + 0013 with pinned hashes); views definitions unchanged."
     },
     {
       "id": "F24",
-      "text": "No secrets committed; .env remains git-ignored; no credentials, tokens, or real beneficiary/account data in code, tests, fixtures or .loop files.",
+      "text": "No secrets committed: .env stays git-ignored; credentials, signing secret, IMAP/SMTP creds and Investec keys come from env/Actions secrets only and never appear in code, logs, emails, audit or workflow files.",
       "priority": "Must",
-      "verify": "`git check-ignore .env` succeeds; `git ls-files | grep -x .env` empty; grep of diff for secret-like patterns (client_secret, api_key=, Bearer, 10+ digit real-looking account numbers outside synthetic fixtures) finds none."
+      "verify": "git check-ignore .env succeeds; grep of tracked files/diff for key patterns finds none; test asserts secrets absent from logs, emails, audit."
     },
     {
       "id": "F25",
-      "text": "Snapshot semantics per Q4: each sync is timestamped (synced_at/snapshot id); beneficiaries missing from a later fetch are soft-retired (last_seen_at / active=false), never hard-deleted, so prior matches still resolve; past matches are not silently rewritten without trace.",
-      "priority": "Should",
-      "verify": "pytest: sync A then sync B without beneficiary X -> X row retained with active=false/last_seen_at from A; existing match to X still resolvable through the view; behaviour for re-matching follows the Q4 decision."
+      "text": "No new third-party dependencies or network egress targets unless explicitly justified in the plan and approved at the plan gate. Q10 resolved: the image engine uses plain HTTPS via `requests` (already a dependency) to the Anthropic API; NO `anthropic` SDK, no OCR package, no apt install, no change to pyproject.toml dependencies. The only new egress host is the Anthropic API host, used only for image extraction.",
+      "priority": "Must",
+      "verify": "git diff -- pyproject.toml uv.lock shows no new dependency; grep src finds no 'import anthropic'; the only new network host in code/workflow is the Anthropic API endpoint used by the ImageExtractor adapter (uv.lock reverted after test runs)."
     },
     {
       "id": "F26",
-      "text": "Rule precedence per Q5 is documented in the module docstring and pinned by tests (recommended: account-number digit signal (long-number guard) > referenceName exact > beneficiaryName exact > name exact > guarded prefix).",
-      "priority": "Should",
-      "verify": "pytest: a row matching beneficiary A by referenceName and beneficiary B by name -> resolves per documented precedence (A), and two hits within the same top rule -> ambiguous."
+      "text": "Agent-native: the cycle runs headlessly from the CLI with mocked inbox/SMTP/Investec, machine-readable JSON output and deterministic exit codes; state and audit are assertable in tests.",
+      "priority": "Must",
+      "verify": "pytest: invoke entry point with mocks -> JSON summary and expected exit code for ignore/accept/park/cancel/execute paths."
     },
     {
       "id": "F27",
-      "text": "Golden fixture coverage of realistic description shapes: uppercase, truncated, bank-prefixed ('Transfer to', 'PAYMENT TO'), digit-grouped account number, ambiguous, renamed and deleted beneficiary cases.",
+      "text": "[NOT PURSUED by human decision 2026-10-07, decisions.md Amendment 5: keep ONE Investec key] Credential scope split (Q9, resolved yes for now): live mode uses a separate payment-only Investec credential distinct from the read credential used for ingest/report; read credential never performs writes. Note: listing beneficiaries needs the same scope as paying, so the read/ingest key may keep that scope; split has limited value and may be removed later if it does not work.",
       "priority": "Should",
-      "verify": "New test file contains parametrized cases for each listed shape with expected match/no-match outcome; all pass."
+      "verify": "pytest: dry-run builds client with read credential; live uses payment_credentials(); config docs list distinct env vars and the beneficiary-listing scope note."
     },
     {
       "id": "F28",
-      "text": "New setting documented in .env.example (commented, default false) without any real value; get_beneficiaries non-list `data` handled defensively by the matcher/sync path.",
+      "text": "Scheduled job spec (proposal, Q4): a GitHub Actions workflow runs the cycle on a cron (e.g. every 15 min) with live mode OFF by default (dry-run), secrets via Actions secrets, concurrency group to prevent overlapping runs, and no live flag set in the file.",
       "priority": "Should",
-      "verify": "git diff .env.example shows only the added documented flag; pytest covers dict/None `data` -> treated as fetch failure (F19 behaviour)."
+      "verify": "Workflow YAML parses (actionlint/yaml load); contains schedule + workflow_dispatch + concurrency; grep shows no live-enable value true; live enablement requires a manually set repo variable/secret."
     },
     {
       "id": "F29",
-      "text": "Migration 0012 stays cheap under init_db's 15s lock_timeout: no heavy backfill, no table rewrite, no index on existing tables.",
+      "text": "Retention/minimisation: persisted records hold only needed fields (ids as last-3/hash), terminal records are purged after a retention window, and cleanup is covered by tests.",
       "priority": "Should",
-      "verify": "Inspection of 0012: only DDL on new objects; no `create index` on existing tables, no UPDATE/INSERT ... SELECT over transactions."
+      "verify": "pytest: stored row has no full account number; cleanup removes terminal records older than window and keeps active ones."
     },
     {
       "id": "F30",
-      "text": "Existing test files are not edited (additions only in new test files), except where an approved Q decision requires it.",
+      "text": "ARC policy (Q8, resolved): ARC is never trusted; relayed/rewritten mail requires a direct dkim=pass and spf=pass on the outer sender, otherwise rejected.",
       "priority": "Should",
-      "verify": "`git diff --name-status <base> -- tests/` shows only A (added) entries."
+      "verify": "pytest: message with arc=pass but dkim/spf fail -> rejected under default policy."
     },
     {
       "id": "F31",
-      "text": "README/operator docs describe the feature, flag, view name, matching rules and fail-closed behaviour, plus a sample SQL query against the view.",
-      "priority": "Nice",
-      "verify": "git diff shows a docs section mentioning the flag, view, and rule list."
+      "text": "Operator documentation (README/runbook) describes trigger grammar, auth requirements, the two payment paths, new-payee hold (and that the 24h rule is NOT confirmed by the official swagger and that the community FAQ's 'beneficiary must be paid once in Investec Online first' may block new beneficiaries even after the hold), cancel, caps and the R20,000 caveat, image handling and untrusted-image policy, rollout gates and how to keep live off.",
+      "priority": "Should",
+      "verify": "docs file contains each topic heading and both caveats verbatim in substance; reviewer checklist."
     },
     {
       "id": "F32",
-      "text": "Match status for non-matches is queryable (e.g. 'no_candidate' vs 'ambiguous') to aid tuning, without affecting existing outputs.",
-      "priority": "Nice",
-      "verify": "pytest: ambiguous and zero-candidate fixtures persist distinct status values; view or table exposes the status."
+      "text": "Image reading in scope: for a triggered, authenticated message the pipeline reads images (jpeg/png/gif/webp attachments AND inline images/screenshots) alongside body, quoted text and pdf/xlsx/csv to extract payee name, account number, amount and reference, using Claude vision (F46). Unsupported/oversize/corrupt images are skipped gracefully with an audit note. Extracted figures go through batch approval (F35).",
+      "priority": "Must",
+      "verify": "pytest with fake extractor: jpeg/png/gif/webp attachment and inline image each yield a candidate; corrupt/oversize/unsupported -> skipped, no crash."
     },
     {
       "id": "F33",
-      "text": "Payee identity: beneficiaries with the same non-empty digit-normalised account number (>= MIN_ACCOUNT_DIGITS) AND the same branch code (blank == blank) count as ONE payee when deciding matched vs ambiguous. A rule that hits several beneficiary ids of ONE payee yields 'matched'; hits on >1 distinct payee still yields 'ambiguous' (fail-closed). Beneficiaries with empty/short account number are their own payee (keyed by beneficiary_id).",
+      "text": "Image-derived data is UNTRUSTED and advisory: the payment trigger ('pay'+3 digits), the source-account last-3 and all authorisation come ONLY from the authenticated sender's typed body text, never from an image. An image-only message, or an image containing 'pay 123', creates no instruction.",
       "priority": "Must",
-      "verify": "unit tests: same account+branch dup ids -> matched; different accounts same name -> ambiguous; blank/short account never merged; branch differs -> ambiguous"
+      "verify": "pytest: image containing trigger text with no typed trigger -> ignored; image containing different last-3 than body -> body wins, image value ignored."
     },
     {
       "id": "F34",
-      "text": "Deterministic representative: when a payee has several beneficiary ids the stored beneficiary_id is min(beneficiary_id) of the payee's HITTING ids; result independent of input order. SUPERSEDED by F37 for representative choice (lowest id remains the final tie-break).",
+      "text": "The extraction engine may only EXTRACT structured fields (payee name, account number, amount, reference); it never decides to pay or to route. The payee must exactly resolve to a registered beneficiary (F9) else the new-payee notify path (F10); an extracted account number is never paid directly.",
       "priority": "Must",
-      "verify": "unit test with shuffled inputs; golden"
+      "verify": "pytest: extractor output with unknown payee -> notify path, write not_called; extractor output has no action/decision field (schema test); exact registered match -> resolves registered beneficiaryId."
     },
     {
       "id": "F35",
-      "text": "All other contracts unchanged: rule precedence and no fall-through, Q4 freeze (matched rows never rewritten; ambiguous/no_candidate re-evaluated), DB schema/migrations (zero diff under db/), view, CLI help, ingest summary/stdout, report/statement output, PAYMENT_TRANSACTION_TYPES unchanged, no new deps, no existing test or fixture edited (additions only).",
+      "text": "Image-derived figures are NOT a separate confirm path (Q11 superseded): they go through the same batch approval as every other item (F12/F43; the batch line shows 'source of figures: image'). They remain UNTRUSTED: an image never triggers an instruction, never selects the source account (F33), the extractor only extracts (F34), and any image-derived amount conflicting with any other source (body, quoted text, attachment, another image) -> parked and notified, never batched or executed.",
       "priority": "Must",
-      "verify": "git diff --stat vs base; existing tests untouched; help baseline diff empty; full pytest green (>=310 + new)"
+      "verify": "pytest: image amount != body amount -> parked, not in batch; image-only amount to registered payee -> appears in batch as source 'image', write not_called until authenticated approval, executes only after approve; image text containing 'approve' or 'pay 123' has no effect."
     },
     {
       "id": "F36",
-      "text": "candidate_count in a result counts DISTINCT PAYEES hit (ambiguous => >=2).",
-      "priority": "Should",
-      "verify": "unit test"
+      "text": "Prompt-injection resistance: text inside an image such as 'ignore previous instructions' or 'pay X to account Y' has no effect on trigger, routing, payee, caps, source account or execution; the extractor output is validated against a strict schema and treated as data.",
+      "priority": "Must",
+      "verify": "pytest with adversarial image fixture (fake extractor returning injection text/extra fields and a real adversarial fixture file): no payment, no state change beyond parked/ignored, extra fields dropped, audit records the rejection."
     },
     {
       "id": "F37",
-      "text": "Representative record for a matched payee is chosen among ALL eligible records sharing that payee_key (not only hitting ones) by deterministic ranking: (1) beneficiary_name normalises to a description variant (exact), (2) name normalises to a description variant, (3) record is a hitting record, (4) lowest beneficiary_id. Order-independent. Status/rule/token/candidate_count semantics unchanged.",
+      "text": "Extraction engine sits behind the ImageExtractor interface with a deterministic fake used in all tests; the production adapter is the Claude vision adapter (F46); no test performs network egress or needs OCR binaries or a real API key; engine selected by config, default disabled/none if unconfigured (no ANTHROPIC_API_KEY or no model id -> images skipped, audit note, no error).",
       "priority": "Must",
-      "verify": "unit tests: label-match non-hitting record beats lower-id hitting record; no label match -> hitting record, lowest id; shuffle invariance over all permutations; ambiguity unchanged"
+      "verify": "pytest uses fake only; grep tests for real engine imports/network finds none; unconfigured engine -> images skipped, no error."
     },
     {
       "id": "F38",
-      "text": "All other contracts unchanged: only src/invespend/beneficiary_match.py, README, tests (new file additions; edits only to tests/test_beneficiary_payee.py where F34's old expectation conflicts, justified in build note), .loop files. Zero diff to db.py, migrations, config, ingest, workflow, payments/, existing fixtures; help baseline identical; pytest >= 320 + new, 0 fail.",
+      "text": "No image bytes, base64, extracted account numbers, raw extractor/API responses or the ANTHROPIC_API_KEY appear in logs, audit, stored state or non-paste emails; only hashes/sizes/mime types and masked last-3 may be recorded. Batch emails show only masked/last-3 account data and the payee name.",
       "priority": "Must",
-      "verify": "git diff --stat vs 7bc21e4; full pytest; help diff"
+      "verify": "pytest: run pipeline with image fixture, scan captured logs/audit/state for image bytes/base64 and 9+ digit runs -> none."
+    },
+    {
+      "id": "F39",
+      "text": "New-payee hold clock: the new-beneficiary hold is a CONFIGURABLE setting with DEFAULT 0 hours (Amendment 3 item 13). Mechanism retained: first_seen_at is persisted at OUR first observation of that beneficiary in the live beneficiary list (survives restart; never reset by later observations; not measured from instruction receipt or beneficiary creation time); batch-eligible time = first_seen_at + hold. With default 0h the item joins the next batch as soon as the beneficiary appears in the live list. Switching to a non-zero hold needs no new migration (columns exist in 0013). A hold never replaces approval: after the hold the item still waits for batch approval (F12).",
+      "priority": "Must",
+      "verify": "pytest with injected clock and store reload: default config hold==0 -> eligible in the first cycle after first observation; hold=24h -> eligible only at first_seen_at+24h; first_seen_at set once, unchanged by later cycles, retained across restart; no migration beyond 0013 required to change hold."
+    },
+    {
+      "id": "F40",
+      "text": "Fail closed on Investec rejection: if Investec rejects a payment (e.g. cooling-off / beneficiary must be paid once in Investec Online first), the item is marked failed with Investec's message (sanitised, no secrets/account numbers), the user is notified, and there is NO automatic retry or resend (F17); a new attempt requires a fresh instruction and new approval.",
+      "priority": "Must",
+      "verify": "pytest: write mock returning rejection/ErrorMessage for an approved new beneficiary -> status failed, stored message equals Investec message, notification sent, call_count==1 across reruns; no new pending item auto-created."
+    },
+    {
+      "id": "F41",
+      "text": "Spec/doc honesty: the 24h new-beneficiary rule is NOT in the official swagger; the new-beneficiary hold is an app-side configurable setting (default 0h); the community FAQ states a beneficiary must be paid once in Investec Online first ('paid once online first'), which may block new beneficiaries even with hold 0 (Investec rejection then fails closed, F40). Both statements appear in README/runbook and in code config comments.",
+      "priority": "Should",
+      "verify": "grep docs and config for both statements."
+    },
+    {
+      "id": "F42",
+      "priority": "Must",
+      "text": "Legacy token-approval flow is RETIRED, not fixed: the legacy code path (payments/pipeline.py approval-token flow, token.py, legacy inbox token parsing) is left byte-identical (zero diff), is never fixed to email approval tokens, and is never scheduled. The scheduled GitHub Actions workflow runs v2 only (PAYMENTS_MODE=v2 pinned) and refuses to run the legacy flow. Legacy is reachable only by explicit operator action (PAYMENTS_MODE unset or 'legacy', e.g. a manual `approve-payments --once`), is documented as DEPRECATED/unsupported in the runbook, and no v2 or workflow code path sends a legacy approval email or token. Existing tests that exercise legacy behaviour stay unmodified and green.",
+      "verify": "git diff --stat vs base shows no change to payments/pipeline.py, payments/token.py and the legacy parts of payments/inbox.py (additive v2 modules only); workflow test asserts PAYMENTS_MODE=v2 and no legacy invocation; docs contain the deprecation note; all pre-existing tests pass unmodified"
+    },
+    {
+      "id": "F43",
+      "priority": "Must",
+      "text": "Batch email cadence and pending surfacing: exactly ONE batch approval email is sent per cycle, and ONLY when at least one item is newly ready for approval in that cycle (no email on cycles with nothing new; no empty batches). Items still awaiting approval from earlier batches (not expired/cancelled/approved) are surfaced as a 'still pending' section (with their original batch ref, item numbers and expiry time) inside the next batch email that is sent, and are never re-offered as new items or duplicated; they are not re-emailed on their own. Items offered in a batch keep their numbers and ref for approval until expiry.",
+      "verify": "pytest with injected clock: cycle with 0 new ready items -> 0 emails; cycle with 3 new -> exactly 1 email listing 3 numbered items; next cycle with 1 new and 2 still pending -> 1 email with 1 new + 'still pending' section of 2 referencing the earlier ref; rerun same cycle -> no duplicate email; expired/cancelled/approved items absent from still-pending section."
+    },
+    {
+      "id": "F44",
+      "priority": "Must",
+      "text": "Numbered-item and batch-ref scheme usable in the reply: each batch has a short unambiguous batch ref (e.g. B-<date>-<nnn> or random short id; no secret, not a token or authenticator) placed in the Subject and body; items are numbered 1..n within the batch; each item line shows payee, amount, source last-3, reference and source of figures (typed/attachment/image). The reply is matched to its batch by the ref in Subject/In-Reply-To/References (not by the reply's own Message-ID); item numbers are unique within a batch and stable for its lifetime. The ref confers no authority: authentication is the F6 sender checks only.",
+      "verify": "pytest: generated batch email has ref in Subject and body and numbered lines with all five fields; reply with Re: subject and with In-Reply-To only both match the batch; reply with different Message-ID still matches; knowing the ref from an unauthenticated sender approves nothing; item numbers unique/stable across reruns."
+    },
+    {
+      "id": "F45",
+      "priority": "Must",
+      "text": "Never-executes-without-approval tests: dedicated tests prove that an item which is unapproved, expired, cancelled, ambiguously approved (no-op), approved by an unauthenticated sender, or approved in a reply to a different batch NEVER reaches the write endpoint, in dry-run AND live-mocked modes, across repeated cycles. Execution requires status approved set by an authenticated reply (F14), in a cycle later than the approval.",
+      "verify": "pytest: parametrised over {pending, expired, cancelled, no-op ambiguous reply, unauthenticated approve, wrong-batch approve} x {dry-run, live-mocked} x several cycles -> write mock not_called; positive control: authenticated 'approve' -> executed exactly once in the following cycle, not in the approval cycle; test fails if the pre-POST approved-status check is removed (mutation spot-check)."
+    },
+    {
+      "id": "F46",
+      "priority": "Must",
+      "text": "Claude vision adapter (Q10 resolved): the production ImageExtractor implementation calls the Anthropic Messages API with plain HTTPS using `requests` (no new dependency, no SDK). The model id is a configuration setting (env, e.g. IMAGE_EXTRACTOR_MODEL), never hard-coded, so the operator can switch to cheaper models; no default model id enabling extraction silently (unset -> extraction disabled, F37). ANTHROPIC_API_KEY is supplied only as a GitHub Actions secret / env, never committed, logged, audited or emailed. The request asks for structured field extraction only; the response is validated against the strict schema (F34/F36); timeouts are set, no automatic retry that could duplicate side effects (extraction is read-only so a bounded retry is allowed only if configured), failures -> image skipped with audit note.",
+      "verify": "pytest with mocked requests.post (no real network): request carries the configured model id from env and the key only in the x-api-key header; changing the model env changes the request model; unset key or model -> skipped; HTTP error/timeout/malformed JSON/extra fields -> skipped or fields dropped, no crash; grep src for hard-coded model ids and for the key finds none; git diff pyproject.toml shows no new dependency; workflow references ANTHROPIC_API_KEY only via secrets context."
+    },
+    {
+      "id": "F47",
+      "priority": "Must",
+      "text": "DMARC policy (Amendment 3 item 14 approved): mail with an ABSENT or 'none' DMARC result is accepted provided strict aligned dkim=pass and spf=pass hold for the outer From domain (F6); dmarc=fail still rejects; when a dmarc result is present, its header.from must equal the From domain, otherwise reject. ARC is still never trusted (F30).",
+      "verify": "pytest: dkim+spf aligned pass with dmarc absent -> accepted; dmarc=none -> accepted; dmarc=fail -> rejected; dmarc=pass with header.from != From domain -> rejected; dkim/spf misaligned or failing with dmarc=pass -> rejected."
+    },
+    {
+      "id": "F48",
+      "priority": "Must",
+      "text": "Strict address parser fail-closed (Amendment 3 item 15 approved): sender-address parsing uses a strict parser feature-detected at runtime; on an interpreter lacking the strict feature the pipeline FAILS CLOSED (no mail processed, clear audited error) rather than falling back to a lenient parser. The scheduled workflow pins the latest Python 3.12 patch release (python-version '3.12', not a pinned old patch).",
+      "verify": "pytest: simulate missing strict-parser feature -> nothing processed, error audited, write not_called; with feature -> normal; workflow YAML sets python-version '3.12' (no old pinned patch) and test asserts it."
     }
+  ],
+  "out_of_scope": [
+    "Playwright (or any browser/app-automation) helper that adds beneficiaries or pastes details into the Investec app/online banking: separate future run with its own security review; no automation of banking login/2FA. (Q1: later project, confirmed by human)",
+    "Creating beneficiaries via the API (not available; Q1 resolved to notify).",
+    "Native Investec scheduled/future-dated payments (not offered by the API; hold is app-side).",
+    "Changes to ingest, report, statements, backfill-hashes, backup or beneficiary-matching behaviour and outputs.",
+    "Enabling live money movement in this run; live stays off."
   ],
   "open_questions": [
     {
       "id": "Q1",
-      "q": "Beneficiary account number: persist and display the FULL number, or last-3 only (masked ****709)? The user explicitly wants to see the account number; domain/repo convention (payments tables, L-0003, POPIA minimisation) is last-3.",
-      "recommended_default": "Honour the user's request: persist the full accountNumber in the new beneficiary table only (behind deny_all RLS + security_invoker view, included in encrypted backups only if BACKUP_PASSPHRASE set), display it in full in the view, never log/print it and never put it in matched_token; do NOT store cellNo/emailAddress/raw. If the human prefers stricter POPIA posture: last-3 only + in-memory own-account check persisted as is_own_account boolean.",
-      "affects": [
-        "F20",
-        "F21"
-      ],
-      "resolution": "APPROVED by human: store + show FULL beneficiary account number (new table only, deny_all RLS, never logged, not in matched_token; no cellNo/email/raw)."
+      "q": "Unregistered payee handling.",
+      "status": "resolved",
+      "resolution": "Resolved: unregistered payee -> NOTIFY, no API creation; Playwright helper is a later, out-of-scope project."
     },
     {
       "id": "Q2",
-      "q": "Which transactionType values count as payments/transfers (vocabulary is unverified in repo)?",
-      "recommended_default": "Human runs `select transaction_type, count(*) from transactions where type='DEBIT' group by 1` on prod and the result is frozen as a code constant. Provisional allowlist until confirmed: OnlineBankingPayments, OnlineBankingTransfers, FasterPay; explicitly excluded: CardPurchases, FeesAndInterest, ATMWithdrawals, DebitOrders; NULL/unknown fail closed.",
-      "affects": [
-        "F14"
-      ],
-      "resolution": "Human approved defaults without supplying prod query: provisional allowlist OnlineBankingPayments, OnlineBankingTransfers, FasterPay as a code constant; NULL/unknown fail closed. Revisit when human runs the type-count query."
+      "q": "Behaviour after the 24h hold.",
+      "recommended_default": "Pay automatically at execute_after unless cancelled by reply; summary email now + reminder before execution; expire if not executed within window.",
+      "status": "resolved",
+      "resolution": "Resolved (changed): registered payee -> pay immediately same cycle; new payee -> notify + park, pay after configurable hold (default 24h from our first observation in live list), re-verify, execute; expiry window; cancel while parked/held; fail closed on Investec rejection. 24h rule unconfirmed by swagger. SUPERSEDED by Amendment 3: every payment waits for batch approval; hold default now 0h."
     },
     {
       "id": "Q3",
-      "q": "Trigger sync+match as a gated hook inside `ingest`, or via a new subcommand?",
-      "recommended_default": "Gated ingest hook (flag off by default), mirroring the non-fatal balance-fetch pattern; no new subcommand, so CLI help stays byte-identical. A new subcommand would require additive-only help change + re-baseline.",
-      "affects": [
-        "F3",
-        "F9",
-        "F11"
-      ],
-      "resolution": "Default approved: gated hook inside ingest, no new subcommand; CLI help byte-identical."
+      "q": "Sender checks.",
+      "recommended_default": "From allowlist + Authentication-Results dkim=pass and spf=pass (outer sender); optional shared secret code in body as an extra factor, off by default.",
+      "status": "resolved",
+      "resolution": "Resolved: From allowlist + dkim=pass and spf=pass on outer sender; NO secret code."
     },
     {
       "id": "Q4",
-      "q": "Snapshot semantics: freeze past matches at match time, or recompute all against the latest beneficiary snapshot?",
-      "recommended_default": "Freeze: existing 'matched' rows keep their beneficiary_id/rule/token/snapshot id; only unmatched/ambiguous rows (and new rows) are re-evaluated against the latest snapshot. Beneficiaries are soft-retired, never hard-deleted.",
-      "affects": [
-        "F17",
-        "F25"
-      ],
-      "resolution": "Default approved: freeze existing matches; re-evaluate only unmatched/ambiguous/new rows; soft-retire beneficiaries."
+      "q": "Where the cycle runs.",
+      "recommended_default": "GitHub Actions scheduled workflow (every ~15 min), dry-run by default.",
+      "status": "resolved",
+      "resolution": "Resolved: GitHub Actions scheduled workflow, dry-run default, gates G1-G3 stay."
     },
     {
       "id": "Q5",
-      "q": "Name-field precedence: does referenceName (my-reference) rank above beneficiaryName, and where does `name` sit?",
-      "recommended_default": "account-number digit signal (>=8 digits) > referenceName exact > beneficiaryName exact > name exact > guarded prefix (min length guard, e.g. >6 chars); confirm referenceName semantics against one real payload before freeze.",
-      "affects": [
-        "F26"
-      ],
-      "resolution": "Default approved: account-digit signal (>=8 digits) > referenceName exact > beneficiaryName exact > name exact > guarded prefix (>6 chars)."
+      "q": "Trigger digits-only or allow letters?",
+      "recommended_default": "Digits-only: 'pay' + exactly 3 digits.",
+      "status": "resolved",
+      "resolution": "Resolved: digits only, 'pay'+3 digits = last 3 of source account number (any account)."
     },
     {
       "id": "Q6",
-      "q": "Surface a 'Paid to' column in the weekly report and/or statement Excel?",
-      "recommended_default": "No for this run: keep both workbooks unchanged (F10 strict); the DB view is the read surface. Revisit in a later run if wanted.",
-      "affects": [
-        "F10"
-      ],
-      "resolution": "Default approved: no Excel change this run; F10 strict."
+      "q": "Exact field order in the Investec mobile app add-beneficiary form (for the unregistered-payee notification).",
+      "recommended_default": "Name, bank, account number, branch code, beneficiary reference, own reference, email, cell; configurable constant, human to confirm against the app.",
+      "status": "resolved",
+      "resolution": "Resolved: ordered fields exactly: Beneficiary name, Bank, Account number, Amount, Their reference, My reference, Payment notification, Beneficiary email address, Beneficiary mobile number; branch code only as separate 'reference only' line."
     },
     {
       "id": "Q7",
-      "q": "Add SendCash/PayShap to PAYMENT_TRANSACTION_TYPES?",
-      "resolution": "Not in this change (human not asked to include); allowlist unchanged. OnlineBankingTransfers left in place (harmless; removal would touch existing tests)."
+      "q": "Cap values (per-payment, daily aggregate).",
+      "recommended_default": "Unset=0=blocked; human sets values explicitly; suggest low initial values (e.g. R1,000 per payment, R2,000 per day) for the soak.",
+      "status": "resolved",
+      "resolution": "Resolved (amended by human 2026-10-07): R20,000 per payment (was R30,000; matches the community-documented API limit), R50,000 per day, as configured defaults; fail closed if unset in env."
     },
     {
       "id": "Q8",
-      "q": "Re-evaluate already-frozen matched rows after deploying F37?",
-      "resolution": "Rollout step, NOT part of the code change: requires explicit human go-ahead because it deletes derived rows from beneficiary_matches in production (then ingest re-derives). Snapshot first."
+      "q": "ARC policy for forwarded/relayed mail.",
+      "recommended_default": "Do not trust ARC; require direct dkim/spf pass on the outer sender.",
+      "status": "resolved",
+      "resolution": "Resolved: do not trust ARC/relayed mail; require direct dkim/spf pass on outer sender."
+    },
+    {
+      "id": "Q9",
+      "q": "Separate payment-scoped Investec credential?",
+      "recommended_default": "Yes: separate pay key used only in live mode; read key for everything else.",
+      "status": "resolved",
+      "resolution": "Resolved (amended 2026-10-07): keep ONE key; no separate pay credential in this run (existing credential selection unchanged)."
+    },
+    {
+      "id": "Q10",
+      "q": "Image extraction engine.",
+      "status": "resolved",
+      "recommended_default": "Claude vision API via the `anthropic` SDK or plain HTTPS with an ANTHROPIC_API_KEY Actions secret; requires explicit dependency/egress approval at the plan gate.",
+      "alternative": "Local tesseract OCR: no egress, but needs apt install in Actions and a dependency.",
+      "resolution": "Resolved (Amendment 2/3): Claude vision via a configurable model id (switchable to cheaper models), plain HTTPS with requests (no new dependency, no SDK), ANTHROPIC_API_KEY as Actions secret; adapter behind ImageExtractor (F25, F32, F37, F46)."
+    },
+    {
+      "id": "Q11",
+      "q": "Do image-derived amounts to a REGISTERED payee still pay immediately?",
+      "status": "resolved",
+      "recommended_default": "NO: image-derived amounts require confirm-by-reply or the standard hold, because a misread digit would pay instantly. Human to decide.",
+      "resolution": "Superseded by batch approval (Amendment 3): image-derived figures go through the same batch approval as every item, remain untrusted, conflicts park (F35, F12)."
+    },
+    {
+      "id": "Item13",
+      "q": "New-beneficiary 24h hold.",
+      "status": "resolved",
+      "resolution": "Configurable, DEFAULT 0 hours; mechanism/schema retained; Investec rejection fails closed with message, user notified, no auto-resend; API cannot create beneficiaries (F12, F39, F40, F41)."
+    },
+    {
+      "id": "Item14",
+      "q": "DMARC handling.",
+      "status": "resolved",
+      "resolution": "Accept absent/'none' DMARC with strict aligned dkim+spf pass; dmarc=fail rejects; present dmarc requires header.from == From domain (F47)."
+    },
+    {
+      "id": "Item15",
+      "q": "Strict address parser on older interpreters.",
+      "status": "resolved",
+      "resolution": "Keep feature detection that fails closed; workflow uses latest Python 3.12 patch (F48)."
+    },
+    {
+      "id": "Item16",
+      "q": "Edit to existing migration-history test.",
+      "status": "resolved",
+      "resolution": "Approved: exactly two assertions in tests/test_beneficiary_migration.py replaced by exact-set history test (old set + 0012 + 0013, hashes pinned); the only permitted existing-test edit (F2, F22, F23)."
     }
   ],
-  "out_of_scope": [
-    "Any money movement or change to the payments pipeline/allowlist semantics.",
-    "Editing migrations 0001-0011, existing views, or existing tables.",
-    "Fuzzy/ML matching; beneficiary-categories endpoint.",
-    "Fixing stale CLAUDE.md '62' figure or duplicate 0009 prefix (noted only)."
+  "rollout_gates": [
+    "G1 Dry-run soak: run scheduled dry-run only for a minimum period (recommended 14 days / at least 5 real instructions) with audit reviewed and zero unexpected outcomes.",
+    "G2 Sandbox test: end-to-end payment exercised against openapisandbox.investec.com (mocked-money) including error bodies (ErrorMessage/AuthorisationRequired) and no-retry behaviour.",
+    "G3 Human enables live explicitly: human sets the live flag and pay credential and caps; recorded in audit; never enabled by default or by the loop."
   ],
-  "coverage_note": "Orchestrator-mandated constraints -> Musts: suite floor 211 (F2), help re-baseline precondition (F1,F3), additive 0012 only (F4,F5), deny_all RLS + security_invoker (F6), no FK to transaction_hash (F7), ingest/report/statement outputs frozen (F9,F10 conditional on Q6), off by default (F11), deterministic/DEBIT-only/fail-closed/explainable/idempotent (F12-F17), own-account exclusion (F18), no new deps (F23), no secrets + .env ignored (F24). Domain M1-M12 all mapped (M2->F14, M7->F8, M9->F25, M10->F7, M12->F19).",
-  "confidence": "high on freeze/schema/determinism invariants; medium on PII stance pending Q1; low on Investec transactionType vocabulary and referenceName semantics (Q2, Q5).",
-  "amendment_1": "Human approved (session, after prod data analysis): collapse duplicate beneficiary registrations of the same bank account into one payee for the ambiguity test. Prod evidence: 1059 beneficiaries / ~640 distinct names; 1445 of 2002 ambiguous reference_exact rows were duplicate registrations of one account; 116 truly different accounts.",
-  "amendment_2": "Human approved (session): after it2 prod run, 1019/3077 matched rows sit on accounts that also have records under other beneficiary names, so the displayed name (lowest id) is often arbitrary (e.g. \"HUIS\" for a \"JOS VAN ZYL\" payment). Prefer the record whose own label equals the description."
+  "coverage_note": "Maps GOAL.md + decisions.md (Q1-Q9, image requirement) to F3-F48; frozen-behaviour and no-secrets constraints are Musts (F2,F22,F23,F24,F25).",
+  "confidence": "high on guardrails; medium on Investec API write semantics (verify in sandbox, G2).",
+  "amendments": [
+    {
+      "version": "1.0.0",
+      "note": "human approved at spec gate",
+      "reference": ".loop/decisions.md (BINDING; overrides v0.1.0 proposals)"
+    },
+    {
+      "version": "1.2.0",
+      "note": "Amendments 2 and 3 applied: batch approval replaces immediate pay and per-item image confirm; new ids F43-F48",
+      "reference": ".loop/decisions.md Amendment 2, Amendment 3 (BINDING)"
+    }
+  ],
+  "amendment_2": "Human decision (after plan-review rounds 1-3): RETIRE the legacy token-approval flow instead of fixing it. F20 and F21 are DROPPED (retired by human decision); replaced by F42. Rationale: the v2 flow authenticates by sender and does not use approval tokens; fixing the legacy flow (emailing approval tokens to the owner) created a bot-approves-its-own-payments loop and quoted-token approval risk and would break existing tests; nothing deploys the legacy flow.",
+  "amendment_3": "Human confirmations in .loop/decisions.md 'Amendment 3' (BINDING), with Amendment 2 answers: BATCH APPROVAL confirmed (every payment waits for an authenticated approval reply; one batch email per 15-minute cycle when new items are ready; 'approve' / 'approve 1 3' / 'cancel 2'; approved items execute next cycle; unapproved expire after 24h; sender checks only); new-beneficiary hold configurable default 0h; Q10 Claude vision via requests with configurable model; items 13-16 resolved. Amends F2, F12-F16, F22, F23, F25, F32, F35, F37-F41; adds F43-F48. All other criteria unchanged.",
+  "amendment_4": "Human 2026-10-07: C1 cancel semantics approved as planned (bare 'cancel' cancels the whole batch's unclaimed items; 'cancel N'; honoured even when the reply layout is unparsable; approve stays strict). C9: per-payment cap changed to R20,000 (daily stays R50,000). See decisions.md Amendment 4.",
+  "amendment_5": "Human 2026-10-07: C7 keep one key; slice 1 build approved."
 }

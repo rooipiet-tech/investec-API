@@ -1,0 +1,39 @@
+{
+  "base": "2eee10cccfdf1ef8001db9a57fb5e88e7fb2c04b",
+  "cli_base_fixture": "d032dda8192d577877b6a192f5c4f1e98244d72bfbbc4c75d45e6e6f8a51e405",
+  "files": {
+    "src/invespend/payments/dedup.py": "80d7de3539cc5ce60c2d084a46a273f9fb930f2b2a8e75a53df85125a47e929f",
+    "src/invespend/payments/extract.py": "4671a64f57921c1a15ab46ad9978fe5b0d10be0b684036149742d820c9eba866",
+    "src/invespend/payments/inbox.py": "bb52b78e9b763eda03c3fc3b054476952a4347f811f5097af1023801770b8c1a",
+    "src/invespend/payments/notify.py": "59f2da18be07b8aa69d2ba5427e6f02796e1c362a0639c1510d388b35365df09",
+    "src/invespend/payments/pg_store.py": "4cafba33c56c8fdf9b7c93d50256a3ad8721b137f8f628bd121f07084e2b40e1",
+    "src/invespend/payments/pipeline.py": "28d08a0497a7212fe42fdca120f8f0d02e3bb77aac5b5a24e5175ebce71597e9",
+    "src/invespend/payments/selftest.py": "8d8dc97e7fa85c6a5d61cced832ab3654baf4eaca6669095ee5255b8a96d71e3",
+    "src/invespend/payments/store.py": "1b805ec468f016e1174c35a54293364c3501cbb1dc2dba99f363b567bf501383",
+    "src/invespend/payments/token.py": "a38968a7ad0f0db265d154001aa40b30b73972aaa2021d41f7ab59bb5f9a647a"
+  },
+  "legacy_six": [
+    "pipeline",
+    "token",
+    "inbox",
+    "notify",
+    "dedup",
+    "selftest"
+  ],
+  "preexisting_payments_modules": [
+    "__init__",
+    "accounts",
+    "audit",
+    "beneficiaries",
+    "caps",
+    "dedup",
+    "extract",
+    "inbox",
+    "notify",
+    "pg_store",
+    "pipeline",
+    "selftest",
+    "store",
+    "token"
+  ]
+}

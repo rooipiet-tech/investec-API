@@ -1,0 +1,7 @@
+{"head":"c0fccc9","py311":{"runs":3,"passed":3423,"skipped":15,"failed":0,"errors":0},
+"py312_CI_true":{"runs":3,"passed":3434,"skipped":4,"failed":0,"errors":0},
+"pg16_utf8_gated":{"py312_CI":"3523 passed, 0 skipped","py311":"3512 passed, 11 skipped","failed":0,"errors":0},
+"init_db_twice":"ok","payment_instruction_columns":38,"rls_and_deny_all_on_7_payment_tables":true,
+"frozen_paths_diff_vs_2eee10c":"zero","tests_modified_vs_2eee10c":["tests/test_beneficiary_migration.py"],
+"cli_help_identical_all_subcommands":true,"redos_timing_5x_flaky":false,
+"migrations":"0001-0013 only 0013 added vs 2eee10c (duplicate 0009 prefix pre-existing)","uv_lock":"clean"}

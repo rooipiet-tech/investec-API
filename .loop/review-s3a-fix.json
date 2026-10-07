@@ -1,0 +1,10 @@
+{
+  "verdict": "CONCERN: 1 blocker (outcome classification still returns 'failed' for ambiguous 200 bodies)",
+  "findings": [
+    {"id": "RSF-1", "severity": "blocker", "file": "src/invespend/payments/outcome.py", "lines": "126-148,163-176",
+     "issue": "'failed' (execute -> finalize failed, release=True; 'failed' not in DUPLICATE_GUARD_STATUSES) is returned for AMBIGUOUS 200s. (a) data/entry ErrorMessage of 0, False, {}, [], 0.0, 'null', 'None' (non-blank after str()) with a PaymentReferenceNumber and Status Processed => failed. (b) _FAIL_WORDS substring match on Status: 'Processed - no errors', 'Successful, not declined' => failed. (c) mixed entries [ok, failed] => failed although one transfer succeeded. Money may have moved, reservation released, re-instruction not blocked => duplicate payment + cap bypass. Only a non-empty STRING message / positive status should be definite; everything else with a reference should be unknown.",
+     "fix": "Treat ErrorMessage as definite only if isinstance str and non-blank and not in {'null','none','false','0'}; non-str truthy-ish or falsy non-None => unknown. Negation-aware status (or match only exact status words). Mixed success+failed => unknown."}
+  ],
+  "ok": ["empty/whitespace ErrorMessage => success; unrecognised shapes (None/list/str/{}/no entries/data non-dict) => unknown", "no 'failed' on bad shapes", "mailbox normalisation refuses INBOX variants, allows sub-labels; Cyrillic/zero-width lookalikes not refused (not the shared inbox, accepted)", "currency tokens park; R100 per month ok; Pound/Euro/Dollar in payee text over-park (fail-safe)", "sanitize linear (200KB <10ms); over-redacts 'Please key in' / 'token expired' (cosmetic)", "pytest 3x: 2162 passed 15 skipped, no flake", "tests changed vs 2eee10c: only tests/test_beneficiary_migration.py (M)"],
+  "not_run": "execute/harness attacks for items 2,3,6,8,9,10 beyond reading code and the suite; item 6 and 3 only code-read"
+}

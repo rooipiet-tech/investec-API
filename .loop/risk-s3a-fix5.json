@@ -1,0 +1,22 @@
+{
+"verdict": "LOW-MEDIUM, 0 blockers. 300k-body fuzz of parse_payment_response + 400 fuzz bodies through execute() (live sim): 0 'failed' from a 200 (I1), success only with all entries strict string PaymentReferenceNumber, no error text, no unclear auth flag (I2), never raises, max 10 ms/body (I3). Only 4xx PaymentRejected releases; executed/needs_authorisation/needs_review keep the reservation and re-instruction parks possible_duplicate; exactly 1 POST in every case; exceptions after the POST (parse, finalize, audit, email build, smtp, client errors) end needs_review/executed/submitting->stale sweep needs_review, never released or resent. needs_review email carries 'MAY HAVE BEEN PAID' + sanitised message; no account numbers/emails/tokens/configured secrets leak; CRLF header injection inert. Mailbox control chars refused incl. UTF-7 decoded; sub-labels allowed. scrub/sanitize linear (<=0.17 s on 200KB hostile incl. 'eyJ'*70000). Attack scripts A-G: same 4 known script-expectation FAILs as fix4. pytest 3351 passed / 15 skipped. No new network/exec/SQL/dependency code; .env ignored; migrations/frozen files untouched.",
+"blockers": [],
+"nits": [
+ {"id":"RS3AF5-1","severity":"low-medium (judgment call: becomes blocker if the human wants the approver to always see the written currency)",
+  "file":"src/invespend/payments/amounts.py","line":"101-103, 133-135 (_CODE_WORD_COLLISIONS) ; notify_v2.py 186",
+  "issue":"Lower/mixed-case exempt codes after a labelled/R figure are NOT parked, and the batch email shows only 'ZAR n' (no original text excerpt exists anywhere), so a foreign amount passes as an approvable 'ZAR 100.00' with no visible original currency. Upper-case and glued forms (100 TRY, 100rub, 100try, R100 ALL, MAD) still park. Author-typed text only; owner approves; money moves in ZAR to a ZAR beneficiary.",
+  "fix":"Only exempt a collision code when more word text follows it on the line (R100 try again); park when it ends the line or is followed by punctuation (Amount: 100 try / 100 mad.). Or show the original amount line in the batch email.",
+  "repro":"Env().instruct('pay 123\\nPayee: Acme Trading\\nAmount: 100 rub\\n') -> batch email '1. Acme Trading | ZAR 100.00 ...' (also 'R100 rub', 'Amount: R100 try', 'Amount: 100 mad', 'R100 Try', 'Amount: 100 try.')"},
+ {"id":"RS3AF5-2","severity":"low","file":"src/invespend/investec_client.py","line":"175-205 (_post_once 4xx handling)",
+  "issue":"Every 4xx except 408/429 releases the reservation as failed, including 409 (Conflict/duplicate) and 401/403 post-send. A 409 'duplicate' would mean the first payment exists. Per decision 'definite 4xx' and unverified until G2; a re-instruction still needs fresh human approval.",
+  "fix":"At G2, confirm Investec 4xx bodies; consider treating 409 as unknown (needs_review).",
+  "repro":"responder raises PaymentRejected(409,'Duplicate payment') -> status failed, daily_reserved False, re-instruction allowed"},
+ {"id":"RS3AF5-3","severity":"low","file":"src/invespend/payments/cycle.py","line":"120-123",
+  "issue":"Control-char refusal covers C0 and DEL only; C1 (U+0080-U+009F) and U+2028/2029, raw or via UTF-7, are still accepted as dedicated mailbox names. Operator-set config, not attacker input.",
+  "fix":"Use unicodedata.category(ch) in ('Cc','Zl','Zp') on raw + decoded text.",
+  "repro":"cycle._is_shared_inbox('Pay\\x9fments') -> False"},
+ {"id":"RS3AF5-4","severity":"info","file":"uv.lock","line":"-",
+  "issue":"Working tree has an uncommitted +14 line uv.lock diff (pypdf) that is not part of ce7ce05..HEAD; same stale-lock artefact seen in fix4. Do not commit it by accident; pyproject unchanged.",
+  "fix":"git checkout uv.lock or decide on the pypdf lock separately.","repro":"git diff --stat uv.lock"}
+]
+}

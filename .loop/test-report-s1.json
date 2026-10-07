@@ -1,0 +1,36 @@
+{
+  "run": "email-payment-v2", "iteration": 1, "slice": 1, "head": "209db87",
+  "pytest": {
+    "py311_local_uv": {"passed": 651, "skipped": 12, "failed": 0, "errors": 0},
+    "py312_scratch_venv": {"passed": 661, "skipped": 2, "failed": 0, "errors": 0,
+      "skipped_reasons": ["test_payment_legacy_retired.py:119 v2_cli.py not built yet (S11)", "test_payment_sender_auth.py:206 TR3-8 CI-only"],
+      "note": "10 of the 12 3.11 skips ran and passed under 3.12; the remaining 2 are by-design skips"}
+  },
+  "git": {
+    "diff_638e948_HEAD_existing_tests_modified": 0,
+    "diff_638e948_HEAD_frozen_paths_touched": [],
+    "diff_2eee10c_HEAD_frozen_paths": "empty",
+    "src_changed_non_frozen": ["config.py","investec_client.py","payments/accounts.py","payments/beneficiaries.py","payments/caps.py","+ new: amounts, loopguard, outcome, refs, sender_auth, trigger, v2_inbox"],
+    "other_non_test_changes": [".env.example", ".loop/*"]
+  },
+  "cli_help_COLUMNS80_byte_identical": "ok for top + 8 subcommands (approve-payments, backfill-hashes, backup, ingest, init-db, pay-selftest, report, statements)",
+  "legacy_sha256_pins": "9/9 match",
+  "env": "not tracked; ignored via .gitignore:3 '*.env'",
+  "inert": "no existing file imports new modules except investec_client.py lazily importing payments.outcome inside the opt-in fresh_token=True path; cli.py/ingest/workflows untouched",
+  "sanity": {
+    "trigger": "pay 123/PAY 123/pay123 ok; pay 12, pay 1234 malformed; two different triggers ambiguous; 'pay 12a' none",
+    "auth": "good msg ok; forged untrusted-authserv A-R above -> no_trusted_auth_results; trusted failing A-R topmost with passing forged below -> dkim_not_pass",
+    "create_payment": {"200_ErrorMessage": "failed, calls=1", "500": "unknown, calls=1", "timeout_after_send": "unknown, calls=1"},
+    "caps": "abc/nan/inf/-5/empty/0/unset -> 0.0 -> blocked; '500' -> allowed"
+  },
+  "criteria": {
+    "F1": "pass (pytest green, frozen surface tests)", "F2": "pass (config/caps tests)",
+    "F4-F7": "pass (trigger, amounts, beneficiary strict, accounts tests; sanity trigger)",
+    "F17": "pass (create_payment hardened, calls==1)", "F18": "pass (caps fail closed, sanity)",
+    "F22": "pass (loopguard/v2_inbox tests)", "F26": "partial as claimed (S11 v2_cli test skipped by design)",
+    "F40": "pass (200 ErrorMessage -> failed with sanitised message; outcome tests)",
+    "F42": "pass (frozen paths diff empty, pins match, help identical, v2 inert)",
+    "F47": "pass (sender_auth fixtures + forged A-R sanity)", "F48": "pass (strict parser fail-closed; strict getaddresses ran under 3.12)",
+    "caveat": "id-to-test mapping inferred from plan 3a/module names, not re-derived per criterion"
+  }
+}

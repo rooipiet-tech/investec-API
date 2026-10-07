@@ -1,0 +1,7 @@
+{"round":6,"rating":"LOW","blockers":0,"secrets":"none; .env still git-ignored","sql":"only 0013 adds nullable figures_excerpt column in place; RLS and deny_all guarded blocks untouched; no new deps",
+"notes":["excerpt: sanitize_provider_message (NFKC, control strip, address/token/6+digit redaction) then brackets/quotes neutralised and approve/cancel/batch-ref/INV-ref/notice text replaced; linear, no nested quantifiers, input bounded to 2000 chars; sent only to notify_to (the original sender)",
+"residual (non-blocking): 1-5 digit runs and payee/reference words within the 120-char window are echoed back to the sender; spaced-out 'a p p r o v e' not neutralised",
+"409 now PaymentUnknownOutcome: never resent, safer",
+"mailbox preflight Cc/Zl/Zp: stricter only; Cf (zero-width) still allowed as before",
+"in-place edit of migration 0013 changes its hash (fixture updated); deployed DBs that already applied 0013 will lack figures_excerpt column, needs separate migration if 0013 already applied anywhere",
+"no new egress or logging"]}

@@ -1,17 +1,23 @@
 {
-  "run": "beneficiary-matching",
-  "iteration": 3,
+  "run": "email-payment-v2",
+  "iteration": 1,
   "spec_frozen": true,
-  "pass_rate": "32/32",
-  "S": 1.0,
-  "best": 1.0,
-  "triage": "ship",
+  "pass_rate": "0/41",
+  "S": 0.0,
+  "best": 0.0,
+  "triage": "iterate",
   "decision_log": [
-    "phase0: research+domain done; spec v0.1.0 drafted (32 criteria: 24 Must/6 Should/2 Nice; baseline 211). STOPPED at spec gate awaiting human approval of criteria + Q1-Q6.",
-    "phase0: human approved spec -> frozen v1.0.0; Q1=full account number; Q2-Q6 recommended defaults (Q2 provisional allowlist).",
-    "it1: plan v1 (S0-S7, agg MEDIUM, additive) -> plan-review=approve (0 blockers, 13 tightenings T1-T13 folded into build brief). Awaiting human go-ahead to build.",
-    "it1: build fd718f5 -> tester 32/32 (310 passed = 211 base + 99 new; 0 fail/0 err; help byte-identical; db/ only +0012; scratch PG16 double-apply ok); output-reviewer PASS, risk-security LOW (info/low only). Must 24/24 x3 + Should 6/6 x2 + Nice 2/2 x1 = 86/86 -> S=1.00. SHIPPABLE=ship.",
-    "it2: spec v1.1.0 (+F33-F36), plan-review approve (R1-R6), build 767ed77 -> tester F33-F36 pass, 320 passed (310 base + 10 new), protected paths diff empty, help identical; output-reviewer PASS; no open blockers (R1/R4/R5 documented). Must 3/3 + Should 1/1 -> S=1.00. SHIPPABLE=ship.",
-    "it3: spec v1.2.0 (+F37,F38), plan-review approve (T1-T9), build e85c70a -> tester F37/F38 pass, 330 passed (320 base + 10 new), 2000tx x 60 benes status/rule/token/count identical, protected paths diff empty, help identical; output-reviewer PASS. Must 2/2 -> S=1.00. SHIPPABLE=ship. Q8 rollout (clear frozen matched rows) pending human go-ahead."
+    "phase0: research+domain done; spec v0.1.0 drafted (31 criteria, F1-F31; baseline 330 passing; rollout gates G1-G3). Q1 resolved by human (notify). STOPPED at spec gate awaiting human approval of criteria + Q2-Q9.",
+    "phase0: human approved spec -> v1.0.0 frozen (41 criteria; baseline 330). Q1-Q9 resolved; Q10 (image engine) + Q11 (image-derived amounts to registered payee) OPEN with defaults. Proceeding to plan.",
+    "it1-plan: plan-review gate APPROVED at round 6 (rounds: r1 9 blockers, r2 6, r3 5, r4 3, r5 1, r6 0) after human retired legacy flow (spec v1.1.0, F20/F21 dropped, F42 added); tightenings R6-T1..T7 folded. Awaiting human go-ahead for build slice 1 (S0-S6). Open human decisions: 16 (migration-test carve-out, blocks S9/S11-S13), Q10 (image engine, blocks S14), Q11 (default confirm), confirm items 13-15.",
+    "it1-replan: human confirmed batch approval + items 13-16 (decisions Amendment 3); spec v1.2.0 (48 criteria; F43-F48 added). Replanning for batch approval (hold default 0h; Q10 Claude vision configurable; no tokens).",
+    "it1-plan: batch-approval replan (r7) APPROVED by plan-review gate (0 blockers); R7-T1..T14 folded. Awaiting human go-ahead for build slice 1 (S0-S6). Confirmations open: C1 cancel semantics, C7 pay-key scope, C9 R20k vs R30k.",
+    "it1-plan: human approved C1 (cancel semantics) and changed C9: per-payment cap R20,000 (daily R50,000) (decisions Amendment 4; spec text F18/Q7 amended). C7 pay-key scope explained, pending. Awaiting go-ahead for slice 1.",
+    "it1-build: human decided C7 keep one key (F27 not pursued) and approved build of slice 1 (S0-S6).",
+    "it1-S0: baseline help refreshed at 2eee10c (BASE_SHA full sha, captures byte-identical to prior, CPython 3.12.3 scratch venv, deterministic); fixtures copied to tests/fixtures/cli_help; floor measured 330 passed.",
+    "it1-slice1: built S0-S6; output-reviewer PASS (1 medium+2 low), risk-security MEDIUM (quadratic regex DoS, amount-spoof gaps), tester PASS (651/807 passed py3.11, 818 py3.12 CI, 0 fail). Fix round: all 7 fixes landed red-then-green; re-review PASS (nits only), re-test PASS (807/818, ReDoS suite not flaky under contention), frozen files + existing tests unchanged, help byte-identical, slice inert. SLICE 1 DONE. Awaiting go-ahead for slice 2 (S8,S7,S10).",
+    "it2-build: human approved build of slice 2 (S8 image interface+fake+injection fixture, S7 text_view/gather_payloads/parse_command, S10 notify_v2 builders).",
+    "it2-slice2: built S8,S7,S10 (1245 py3.11 / 1256 py3.12 passed); review PASS, risk LOW-MEDIUM (control-char splitlines widening, image amount bounds, masking separators, hidden-style), test PASS. Fix round R1-R4 red-then-green; re-review PASS (fuzz U+0000-U+2FFF no widening), re-test PASS (1550 py3.11 / 1561 py3.12, 534 ReDoS tests not flaky under contention). Frozen files + existing tests unchanged, help identical, slice inert. SLICE 2 DONE. Carry to slice 3: approval handler must range-check approve/cancel numbers (0, > batch size, duplicates); 3 reconcile-level image tests (dollar vs ZAR body, non-ZAR image-only parks, reconciled currency must be ZAR) and the call-order/three-spy test against the real handler; Gmail A-R preflight; ClaudeVisionExtractor(api_key=, model=) signature; amounts R-prefixed/thousand-separator image amounts rejected by validate_extraction (fails closed).",
+    "it3-build: human approved slice 3; step A = S9+S11 first."
   ]
 }

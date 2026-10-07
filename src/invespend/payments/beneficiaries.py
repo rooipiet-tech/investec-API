@@ -89,3 +89,25 @@ def _matches(b: Beneficiary, needle: str) -> bool:
     return any(
         m.strip().lower() and m.strip().lower() in needle for m in b.match_names
     )
+
+
+def resolve_beneficiary_strict(
+    name: str, beneficiaries: list[Beneficiary]
+) -> tuple[Beneficiary | None, str]:
+    """Strict resolver (NB6/TR3-12): an EXACT normalised name OR an EXACT email
+    only (no substring / ``match_names`` logic). Exactly one exact match -> (b, "ok");
+    zero -> (None, "none"); more than one -> (None, "ambiguous"), so ambiguity is
+    never mistaken for "no such payee". ``resolve_beneficiary`` is unchanged."""
+    needle = (name or "").strip().lower()
+    if not needle:
+        return None, "none"
+    matches = [
+        b for b in beneficiaries or []
+        if (b.name and b.name.strip().lower() == needle)
+        or (b.email and b.email.strip().lower() == needle)
+    ]
+    if len(matches) == 1:
+        return matches[0], "ok"
+    if not matches:
+        return None, "none"
+    return None, "ambiguous"

@@ -31,6 +31,7 @@ _DETAIL_ALLOWED = {
     "daily_total",
     "result",
     "count",
+    "ref",
 }
 # Keys whose names suggest a secret/PAN — never recorded even if allow-listed.
 _FORBIDDEN_KEY = re.compile(

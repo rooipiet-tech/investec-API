@@ -1,255 +1,141 @@
-# Domain constraints: beneficiary-matching run
+# Domain invariants and safety contracts: email-payment-v2 (Phase 0)
 
-reused_learnings: L-0003 (PII allowlist-at-write), L-0006 (machine-readable envelope, if a new CLI surface is added),
-L-0007 (isolated subpackage, additions-only, freeze check). From .loop/archive/payments-run/domain.md these still apply:
-FAIL-CLOSED-ON-AMBIGUITY, LAST3-IS-WEAK-SELECTOR, POPIA-LAWFUL-MINIMISATION, "never log full account numbers".
-The payment-execution constraints (token/caps/live switch) are out of scope here. Matching is read-only labelling.
+Sources: .loop/GOAL.md, .loop/research.md (R), .loop/investec-api-research.md (A), archived payments-run/domain.md (D0).
+Code cites are relative to src/invespend/ and come from R (not re-read). Investec API facts come from a spec mirror
+plus community docs (A); the official site was unreachable. Treat them as unverified until tested in sandbox.
 
-Environment facts checked this run: `.venv/bin/python -m pytest -q` gives **211 passed** (CLAUDE.md's "62" is stale; use 211
-as the floor). The system python has no psycopg, so use `.venv/bin/python`.
+Tags: [INV] invariant (must hold, testable), [REC] recommendation, [OPEN] open question for the human.
 
----------------------------------------------------------------------------------------------------
-## 1. Investec Programmable Banking (ZA PB v1) facts
-Labels: [REPO] = ground truth in this repo. [DOC] = Investec public docs, high confidence. [INF] = inferred, verify.
+## 0. Reused from the archived run (still valid)
+- [INV] D0 AUTH-INBOUND-NOT-AUTHENTICATOR: an inbound email, its keyword, or its sender identity must never alone cause money to move. SPF/DKIM authenticate a domain, not intent.
+- [INV] D0 ALLOWLIST-EXACT-BENEFICIARY-ID, FAIL-CLOSED-ON-AMBIGUITY, CAPS-ENFORCED-PRE-EXECUTION, DRY-RUN-DEFAULT, AUDIT-TRAIL, IDEMPOTENCY-DEDUP-KEY, LAST3-IS-WEAK-SELECTOR (D0 lines 9-36). All still apply.
+- [INV] D0 image OCR out of scope (POPIA cross-border): images are skipped, never parsed (extract.py:304-306).
+- Superseded: D0 said "repo holds no write cred, no payment endpoint". Now false: payments/investec_client.py:124,141-166 has paymultiple. D0 "payment API unverified" is partly resolved by A (section 8 below).
+- Existing tokens (token.py:371-439): HMAC bound to (source, amount, beneficiary, dedup_key, nonce, expiry), 24h TTL, constant-time compare. Valid and reusable.
 
-### 1.1 Transactions (`GET /za/pb/v1/accounts/{id}/transactions`, investec_client.py:99-110)
-- [REPO] Response path is `data.transactions[]` (investec_client.py:110).
-- [REPO] Fields the code reads are `type`, `transactionType`, `status`, `description`, `cardNumber`, `postingDate`,
-  `valueDate`, `actionDate`, `transactionDate`, `amount`, `runningBalance` (db.py:192-216). The whole payload is also
-  kept in `transactions.raw` jsonb (db.py:215, 0001_init.sql:32).
-- [REPO] `amount` from the API is unsigned. The sign comes from `type`: DEBIT gives a negative amount, anything else is
-  positive (db.py:194-198). A DEBIT row has `amount < 0` and `type='DEBIT'`.
-- [DOC] The response has **no beneficiary or counterparty field**: no beneficiaryId, no counterparty account, no
-  structured reference. `description` is the only counterparty signal. The repo already relies on this: 0005_flow.sql:7-8
-  says "counterparty identifiers Investec writes into the description".
-- [DOC/INF] Newer responses may also carry `accountId` and `uuid`. These are in `raw` only, not in columns. Do NOT
-  assume `uuid` is stable or present: db.py:128 says "the public API has no stable transaction id".
-- [INF] How an outgoing EFT's `description` is built: it is usually the **"my reference"** text captured when the payment
-  was made (the default for a saved beneficiary is the beneficiary's `referenceName`), or else the beneficiary name. It
-  may be **uppercased**, **truncated** (SA bank statement reference fields are short, around 20-30 chars), have collapsed
-  or extra whitespace, and carry bank-added prefixes or suffixes (for example "Transfer to ...", "PAYMENT TO ...", or a
-  digit-grouped account number as in 0007_flow_account_number_match.sql:11-13). Expect partial or prefix overlap, not
-  equality.
-- [INF] `transactionType` values for payments are NOT verified. Repo fixtures are synthetic: tests use "CardPurchases",
-  "Transfer", "Salary", "Subscription" (tests/test_statements.py:46). 0001_init.sql:21 mentions "CardPurchases",
-  "FeesAndInterest". Likely real values include `OnlineBankingPayments`, `Transfers`, `FasterPay`, `DebitOrders`,
-  `CardPurchases`, `ATMWithdrawals`, `FeesAndInterest`, `Deposits`, but this is UNVERIFIED. **Open question Q2.**
+## 1. Trigger grammar ('pay' + 3 chars)
+- [INV] The trigger selects a SOURCE account only. It is never an authenticator (about 10^3 values, attacker-controlled). Authorisation must come from sender authentication (section 7) plus the hold/confirmation flow (section 5).
+- [INV] Accepted form must be one strict anchored regex, e.g. `\bpay\s+(\d{3})\b`, case-insensitive. The existing `_LAST3_RE` (inbox.py:21) is too loose for this, because `\D*` can swallow text. Do not reuse it for the new trigger. The resolver (accounts.py:13-28) already requires `isdigit` and stays unchanged.
+- [INV] 'Three letters' (GOAL.md): account numbers are digits. Letters never resolve (accounts.py:13-28). 'pay abc' must produce no payment and a notification, not a guess. Do not fuzzy-map letters to digits.
+- [OPEN] GOAL.md says "three letters [sic: digits] - confirm". Human to confirm digits only. If any account number ends in a letter, the resolver rule must change. Recommended default: digits only.
+- [INV] The trigger counts only in text the user typed: the top new (non-quoted) part of the body. Occurrences inside quoted history, forwarded content, or attachments must NOT trigger by themselves (see section 2).
+- [INV] Exactly one distinct trigger in the typed region. Two 'pay NNN' with different values means park.
+- [INV] Ambiguity: more than one account across all reachable profiles with the same last-3 means fail closed (park, notify). Never pick the first match, richest account, or the default profile. Existing behaviour: 0 or >1 matches returns None (accounts.py:13-28, pipeline.py:161-164).
+- [INV] The 'ambiguous' check must run over the full account set the credential can see. get_accounts returns every profile the key is linked to (A: accounts[].profileId/profileName), but R section 2 says there is no multi-profile handling. The resolver must match on accountNumber across all profiles, then carry profileId forward. Beneficiary lookup and caps must use that same profile.
+- [REC] Disambiguation by the human replying with the full profile name is out of scope. Park and tell the user which profiles collide, showing last-3 and profile name only (no full numbers).
+- [INV] No trigger means no action (not even parking with a pending record), because ordinary mail must never create records. Notify only for mail that passed sender checks and then failed to parse.
 
-### 1.2 Beneficiaries (`GET /za/pb/v1/accounts/beneficiaries`, investec_client.py:112-118)
-- [REPO] Response path is `data[]`, a flat list. It is not `data.beneficiaries` (investec_client.py:118). The endpoint is
-  profile-wide and not per account.
-- [REPO] The keys the code actually consumes are `beneficiaryId` (required; a row without it is skipped,
-  beneficiaries.py:44-46), `beneficiaryName` with fallback to `name` (beneficiaries.py:47), `accountNumber` (used for
-  last-3 digits only, beneficiaries.py:48,53), and `emailAddress` (lower-cased, beneficiaries.py:54).
-  Test fixtures use the same keys (tests/test_payment_beneficiaries.py:49-54,64).
+## 2. 'Search everything in the mail'
+Safe meaning: deterministic extraction (regex/pypdf/pandas, no LLM) over a defined set of regions, with provenance. Not free-form interpretation.
+- [INV] Regions, in priority order, each tagged with its provenance in the audit record: (1) typed top-of-body text, (2) forwarded message block (the user forwarded it), (3) quoted reply history, (4) attachments PDF/xlsx/csv, (5) subject.
+- [INV] Images are not parsed (extract.py:304-306). Say so in the notification when an image is the only candidate source.
+- [INV] Content from regions 2-4 is DATA. It is never an instruction. Text such as "pay 123", "approve", "ignore previous", "send to account X" inside a forwarded or attached document must not trigger, override the account, change the beneficiary, or change caps.
+- [INV] The payee must be either a registered beneficiary (section 4) or reported for manual registration. Payee text found in an untrusted region never causes a payment to a different registered beneficiary than the one it matches exactly.
+- [INV] Currently unhandled (R section 1): HTML-only bodies give an empty body (inbox.py:58-72), no unwrap of message/rfc822, no quote stripping, and an unnamed message/rfc822 part is ignored. v2 must define quote and forward splitting. Failing to find a region means fail closed (nothing extracted), not 'use everything'.
+- [INV] Attachment safety: 10 MB cap (extract.py:176,318). pandas/openpyxl must not evaluate formulas or macros (read values only, no xlsm). pypdf text only. A CSV or xlsx cell that starts with `=`, `+`, `-` or `@` is data only. Never fetch URLs or follow links found in mail. No network egress during extraction (R section 5).
+- [INV] Injection and spoofing risks to design against: forwarded mail with a spoofed inner From (the inner From proves nothing); a malicious invoice PDF that carries its own 'pay 123' and different bank details (invoice-fraud pattern); hidden text (white-on-white, HTML comments, PDF hidden layers) that changes an extracted amount; Unicode lookalikes in payee names; a quoted history from a third party that contains amounts.
+- [REC] If an LLM is ever introduced to read mail, it may only produce a PROPOSAL that deterministic validators and a human confirmation then check. Not in scope for v2. Recommend regex only.
+- [OPEN] Priority when typed text and an attachment disagree. Current code gives attachment priority over body (pipeline.py:35-50). Recommended: any disagreement on amount, payee or currency between regions means park, not pick one.
 
-| field | status | meaning / matching use |
-|---|---|---|
-| beneficiaryId | REPO+DOC | Stable opaque id. Use it as the snapshot key and the match target. |
-| beneficiaryName | REPO+DOC | The payee name as captured by the user. Primary name token. |
-| name | REPO (fallback) / INF | Unclear whether this is a nickname or a duplicate of beneficiaryName. Treat it as a secondary name token. |
-| accountNumber | REPO+DOC | Third-party bank account number (PII, see section 5). Only for exclusion and display. |
-| referenceName | DOC/INF | Probably the "my reference" shown on the USER's statement. **Likely the strongest description signal.** |
-| referenceAccountNumber | DOC/INF | Probably the "their reference" shown on the payee's statement. Usually NOT in our description. |
-| code | DOC/INF | Branch / universal branch code. |
-| bank | DOC | Bank name string. |
-| lastPaymentAmount | DOC/INF | String amount. Mutable. |
-| lastPaymentDate | DOC/INF | Date string. The format is unverified, so parse defensively. Mutable. |
-| cellNo, emailAddress | DOC | Contact PII. Not needed for matching, so do not store them (minimisation). |
-| categoryId | DOC/INF | Links to beneficiary categories (a separate endpoint, also INF). |
-| profileId | DOC/INF | Investec profile. |
-| fasterPaymentAllowed | DOC/INF | Boolean. |
-| beneficiaryType | INF (low) | May be absent. Do not depend on it. |
-| approvedBeneficiaryCategory | INF (low) | May be absent. Do not depend on it. |
+## 3. Extraction invariants
+- [INV] Amount: exactly one distinct amount across considered regions, else park ("multiple amounts" behaviour, extract.py:228). Parsed as Decimal, never float. Positive, at most 2 decimals, in ZA rand. Handle thousands separators ("R20 000,00", "20,000.00") unambiguously, and park when the format is ambiguous (for example "1,234" could be 1.234 or 1234).
+- [INV] Currency: ZAR only. Any other currency symbol or code (USD, EUR, $, GBP) means park. A missing currency means ZAR only if the amount carries R/ZAR, otherwise park. [OPEN] Whether a bare number may be accepted. Recommended: no.
+- [INV] Beneficiary identity: payee name (current: label `payee:`/`beneficiary:` only, extract.py:165, at most one distinct). For notification of unregistered payees, also capture bank, account number, branch code, reference, email/cell (none extracted today, R section 1). These fields are only informational and never drive a payment.
+- [INV] Reference: myReference and theirReference are required by the API (A (a)). Reference-length limits are unknown (A). Sanitise to a conservative charset. Default myReference/theirReference must be deterministic and PII-free. If the reference is absent or conflicting, either use a fixed default or park; do not invent from the email text.
+- [INV] Conflicting figures (two amounts, two payees, bank details that differ from the registered beneficiary, invoice total versus 'amount due' versus typed amount) mean park. No heuristics like 'largest' or 'last'.
+- [INV] Bank details embedded in the mail that differ from the registered beneficiary's details are a red flag. The payment still goes to the registered beneficiaryId (never to mail-provided details), and the notification must surface the discrepancy.
+- [REC] Confidence is binary (clean / park). Do not add scoring.
 
-- [DOC] Beneficiaries are only those the user created in online banking. The list is a **current-state snapshot**:
-  entries get renamed, re-referenced, deleted or recreated with a new id. The API has no history.
-- Implication: `lastPaymentAmount/Date` describe only the latest payment and change over time. They may corroborate a
-  match but must not be the sole rule. Any such rule has to be pinned to a snapshot to stay deterministic.
+## 4. Beneficiary resolution
+- [INV] Exact match only, against registered beneficiaries: case-insensitive exact name or exact email (beneficiaries.py:430-462). 0 or >1 means unresolved. No substring or fuzzy matching. Static `match_names` substring matching is an existing exception: it is behaviour to keep, not extend.
+- [INV] Registered-only: payment is always by beneficiaryId, never raw account number (investec_client.py:150-154, beneficiaries.py:1-8). Never create a beneficiary (A (b): the API has no create endpoint; human decision Q1).
+- [INV] Resolution is evaluated across all profiles the credential sees, and the matched beneficiary must be usable from the chosen source account's profile. [OPEN] Beneficiary lists are returned per credential (GET accounts/beneficiaries) and per profile/account (GET profiles/{p}/accounts/{a}/beneficiaries). Whether a beneficiary from profile A can be paid from an account in profile B is undocumented. Fail closed if it is not listed under the source profile.
+- [INV] The 'paid at least once in Investec Online' precondition (community FAQ, A (a)) may cause API payment failures for a brand-new beneficiary. Surface a failure; do not retry.
+- [INV] Static ALLOWLIST is empty (beneficiaries.py:402). Live list requires PAYMENTS_BENEFICIARIES_FROM_API=true (config.py:112, pipeline.py:85-92). v2 needs live beneficiaries, otherwise every payee fails closed. The default stays off until the human flips it. A fetch failure means empty means fail closed.
+- [INV] Unregistered payee: send a notification and stop. Contents in Investec mobile-app field order. The exact order is NOT in the repo. [OPEN] Human or Investec app review must confirm the order. Proposed default, to verify: Beneficiary name, Bank, Account number, Branch code, Beneficiary reference (their reference), My reference, Email, Cell. (A's field names: beneficiaryName, bank, accountNumber, code, referenceName/theirReference, myReference, emailAddress, cellNo.)
+- [INV] The notification goes to the verified sender's address (or a configured owner address), never to an address taken from the email body or Reply-To (see section 7). It carries account numbers by design (human decision Q1), so it must be sent over SMTP only to the owner, and must NOT be written to the audit log or stored in state.
+- [INV] Notification states that nothing was paid and nothing was queued.
+- [REC] An unregistered-payee mail must not create a pending/held payment (nothing to hold). Consider a one-shot 'retry after you register' by the user sending a new email.
 
----------------------------------------------------------------------------------------------------
-## 2. Core concepts (unchanged; context for the matcher)
-- **transaction_hash** = sha256(account_id|valueDate|actionDate|amount|description|day_seq) (db.py:127-144). `description`
-  is a hash input, so **any mutation of `transactions.description` re-keys or duplicates rows**.
-- **day_seq** is a within-day counter over identical group keys, in API order (db.py:98-124).
-- **Dedup** works at three layers:
-  - insert-level `on conflict (transaction_hash) do nothing` (db.py:227, 257);
-  - destructive `0008_deduplicate.sql:18-35` (`DELETE ... rn>1`), which is **re-executed on every ingest** because
-    `init_db` re-applies all migrations (db.py:78-81, ingest.py:80-81);
-  - read-time `row_number()` dedup in report.py:45-49 and statements.py:96-100.
-- **effective_date** = coalesce(transaction_date, action_date, value_date, posting_date) (0006_effective_date.sql:22).
-- **Running balance**: the bank's `running_balance` is authoritative. Gaps are filled arithmetically and blanks are never
-  fabricated (statements.py:350-361). Same-day rows are ordered by chaining balances (statements.py:330-348).
-- **Flow classification** (`transactions_flow`, 0007_flow_account_number_match.sql:21-116): Tier A matches an own account
-  number (verbatim or digit-normalised), Tier B an own holder name with length >6, Tier C a guarded equal-and-opposite
-  leg. Results are `internal_transfer` / `external_inflow` / `external_outflow` plus `flow_signal`.
-- **Categories** are assigned twice: at ingest (categorize.py:25-35) and at view time (`category_map`,
-  0002_views.sql:75-89). EFTs fall into "Transfers" via the 'eft' / 'payment to' / 'transfer' keywords.
-- **Groups** (groups.py) route reports and statements per recipient set. They have no beneficiary relevance.
+## 5. 24h hold (client-side; the API has no scheduling)
+Source: A (c): paymultiple has no date field (additionalProperties=false) and executes at submit. The hold is entirely ours.
+- [INV] Hold clock start = the time our system durably records the pending payment (state write), not the email Date header (attacker-controlled and skewable) and not the internal-date of fetch. execute_after = recorded_at + 24h, stored (does not exist today: R section 4, "Delay/hold/scheduling: NONE").
+- [INV] Existing 24h token TTL is approval expiry, not payment delay (token.py:371). Do not conflate the two. Today a valid token executes immediately (pipeline.py:245-255). v2 must add a separate execute_after check.
+- [OPEN] Q2 (unanswered): pay automatically after 24h unless cancelled (recommended proposal), versus pay only on explicit second confirmation. Note: the recommended default 'silence means pay' is the riskier model, and it conflicts with D0 AUTH-INBOUND-NOT-AUTHENTICATOR unless the email trigger was strongly authenticated (section 7). Human must choose at the spec gate. The safer variant is requiring an explicit approve after the hold.
+- [INV] Restate at execution: at execute time re-read the pending record and verify every field against the stored, immutable snapshot (source account id, beneficiaryId, amount, currency, references). Execution uses the stored values, never re-parsed mail.
+- [INV] Re-verify at execution time, each as fail closed with a notification and no payment: (1) beneficiary still exists in a fresh GET beneficiaries and its identifying fields (name, accountNumber, code) equal the snapshot taken at hold time, otherwise the beneficiary was edited during the hold; (2) source account still exists and last-3 still unique; (3) balance via GET balance is at least amount (the API does not guard overdraft semantics; arrangement-specific, A silent); (4) per-payment and daily caps (section 6); (5) not cancelled; (6) not already executed or in 'submitting' state; (7) payment not stale (see expiry below); (8) live gate still on.
+- [INV] Cancel: the user can cancel any time before execution. Cancel must be atomic with the execute claim (a single store transaction: pending to cancelled versus pending to submitting, one wins). Cancel authentication is the same strength as trigger authentication (section 7). Cancellation by an unauthenticated mail must not cancel (a denial-of-service nuisance, but safe), and must not execute.
+- [INV] Expiry: a pending payment not executed within a bounded window after execute_after (recommended: 24h after, i.e. a 48h total life) expires with a notification and is never executed late. Late execution after the user's circumstances changed is a hazard. [OPEN] the grace window length.
+- [INV] OAuth token lifetime is 30 min (A): never persist or reuse a token across the hold. Mint a fresh token at execute time (investec_client.py:52-75). Cache must not be written to state or audit.
+- [INV] Summary email at hold start (restating source last-3, payee, amount, execute_after, how to cancel) and optional reminder before execution. Existing defect: CLI passes no approval_recipients/sender_contact, so no email is sent in production wiring (cli.py:268-335, pipeline.py:121). v2 must wire it or the hold is invisible to the user. This is the single most important safety dependency for 'silence means pay'.
+- [INV] Cron cadence: Railway */15 (railway.toml) versus GitHub Actions (proposal Q4). [OPEN] Q4 where it runs. Either way the executor must tolerate overlapping/duplicate runs (section 6 idempotency) and clock skew. GitHub Actions cron is best effort (delays or skipped runs), so 'execute at or after execute_after' must be fine with late runs but bounded by the expiry window.
+- [INV] The 24h-restate rule also applies to the amount: if the balance or caps changed so the payment cannot proceed, notify, do not reduce the amount.
 
----------------------------------------------------------------------------------------------------
-## 3. Matching invariants (each MUST become a testable spec criterion)
-- **M1 DEBIT-ONLY**: candidates are only rows with `upper(type)='DEBIT'` (equivalently `amount<0`, db.py:195-196).
-  CREDIT rows always produce no match.
-- **M2 PAYMENT-TYPES-ONLY**: candidates are only rows whose `transaction_type` is in an explicit, code-defined allowlist
-  of payment/transfer types (see Q2). Card purchases, fees, debit orders and ATM rows never match. An unknown or NULL
-  type is excluded (fail closed).
-- **M3 NOT-INTERNAL**: exclude rows where `transactions_flow.flow_type='internal_transfer'`. Also never offer as a
-  candidate any beneficiary whose digit-normalised `accountNumber` equals an own `accounts.account_number`: a user's own
-  Investec account saved as a beneficiary is a transfer, not a third party. A user's own account at ANOTHER bank stays a
-  legitimate beneficiary (external_outflow).
-- **M4 DETERMINISTIC**: the output depends only on (transaction row, beneficiary snapshot). It must not depend on dict
-  or set iteration order, DB row order, clock, or locale. Normalisation is pure and documented (casefold, collapse
-  whitespace, optionally strip punctuation) and must be unit-tested. Rule precedence is a fixed ordered list, highest
-  confidence first, the same pattern as Tier A/B/C.
-- **M5 FAIL-CLOSED**: 0 candidates means no match. More than 1 candidate (distinct beneficiaryIds) under the
-  highest-precedence rule that fired also means no match, recorded as "ambiguous" if a status is stored. Do not fall
-  through to a weaker rule to break a tie. Mirrors resolve_beneficiary (beneficiaries.py:84-87). Minimum token length
-  guards are required (analogous to `length(nm)>6`, 0005_flow.sql:47 and `length>=8` for numbers, 0005_flow.sql:23).
-  No fuzzy or edit-distance matching.
-- **M6 EXPLAINABLE**: every stored match records `match_rule` (for example `reference_exact`, `name_exact`,
-  `reference_prefix`) and `matched_token`, the normalised beneficiary-side token that hit (a name or reference, never a
-  full account number). This is the same idea as `flow_signal` (0007:74-98).
-- **M7 NON-MUTATING**: never INSERT/UPDATE/DELETE on `transactions`, `accounts`, `balances`, `sync_runs`,
-  `category_map`. Never `create or replace` any existing view. Never change `transaction_hash`, `day_seq`,
-  `description`, `category`, or `raw`. Matching output lives only in NEW tables and views.
-- **M8 IDEMPOTENT**: re-running with the same snapshot gives a byte-identical match set (upsert keyed on
-  transaction_hash, or a full deterministic recompute). It must not create duplicate rows or flip-flop.
-- **M9 SNAPSHOT SEMANTICS**: a sync takes a timestamped snapshot of the beneficiary list. A beneficiary renamed,
-  deleted or recreated with a new id must NOT silently rewrite past explanations without trace. Recommended: store
-  `synced_at`/`snapshot_id` on beneficiaries and `matched_at` + `snapshot_id` on matches. Either (a) keep past matches
-  and only match unmatched rows, or (b) recompute everything against the latest snapshot. The spec must pick one; **Q4**.
-  Deleted beneficiaries are kept, marked (`last_seen_at` / `active=false`), and not hard-deleted, so old matches still
-  resolve a name.
-- **M10 ORPHAN-SAFE**: match rows reference `transaction_hash` **without an FK**, or with ON UPDATE/DELETE CASCADE.
-  `backfill-hashes` UPDATEs transaction_hash (db.py:385-389) and 0008 DELETEs rows on every ingest (0008:18-35). A plain
-  FK would make ingest or backfill fail. The read view must inner-join `transactions` so orphans are invisible, and
-  should apply the same row_number dedup as report.py:45-49 if it is meant to line up with reports.
-- **M11 OFF-BY-DEFAULT**: a new Settings bool, default False, read through `_opt_bool` (config.py:57-62; pattern at
-  config.py:112,207). When off there are zero API calls to `/beneficiaries`, zero writes, and zero extra stdout.
-- **M12 API-FAILURE-ISOLATION**: a failed beneficiaries fetch must not fail ingest, alter `sync_runs` status, or wipe the
-  existing snapshot. Fail closed means keep the old snapshot and produce no new matches. This mirrors the non-fatal
-  balance fetch at ingest.py:131-137, and also follows the ingest.py:3-11 rule that no DB transaction is open during API
-  calls.
+## 6. Idempotency, double-pay, caps, dry-run
+- [INV] No automatic retry of paymultiple POST. Existing retry adapter includes POST on 429/500/502/503/504 (investec_client.py:43-49) which can double-pay (A flag 3). v2 must disable retries for the payment POST specifically (read GETs may keep retries). This is a change to existing client behaviour, so it needs explicit spec cover.
+- [INV] Execution is a two-phase persisted state machine: pending -> submitting (persisted BEFORE the POST) -> executed | failed | unknown. After any exception, timeout, or non-2xx on the POST, the record becomes 'unknown/needs_manual_check' and is never auto-resubmitted. Requires user to verify in Investec Online. Crash between POST and state write is the residual risk; mitigated by writing 'submitting' first and treating 'submitting' found at startup as unknown.
+- [INV] Success criteria for a 200 response: parse data.TransferResponses[] and data.ErrorMessage. ErrorMessage non-null, TransferResponses empty or missing, AuthorisationRequired true, or an unrecognised shape is a FAILURE (not executed). Existing code returns the body unchecked (pipeline.py:250-252). A 200 with AuthorisationRequired=true means the payment is pending business authorisation: record as 'needs_authorisation', never retry (retry would create a second pending authorisation).
+- [INV] Dedup: key sha256(message_id|amount|beneficiary|currency) (dedup.py:21-28). Properties: stable across re-scans. Known footgun: a reply to the same request has a new Message-ID, so dedup does not link it (R section 4 defect b). For v2 hold flow, define identity of a request as the original Message-ID, and cancel/confirm replies reference it by In-Reply-To/References or by a short per-request reference code. Do not use the dedup key to merge two genuinely separate payments of equal amount.
+- [OPEN] Should two identical payment requests (same payee, amount) within N hours be treated as a duplicate and parked? Recommended: park the second and ask.
+- [INV] Caps (caps.py:469,481; config.py:99-100): per-payment and daily aggregate are both required; 0 means fail closed. Per-payment cap must be at most R20,000 (community limit, A, unofficial) and the code should not trust the bank to enforce it. Daily aggregate is persisted and atomic with execute (store.py:177, pg_store.py:155). Commit the daily total before the POST; on failure or unknown, do not release the reservation automatically (conservative).
+- [INV] Cap check is done twice: at request time (early reject) and at execution time (authoritative). The daily aggregate counts by execution date, in a fixed timezone (Africa/Johannesburg). [OPEN] Whether daily aggregate counts holds at creation or only at execution. Recommended: only at execution, authoritative; show projected total in the summary.
+- [OPEN] Daily aggregate default value; both caps default to 0 (config.py:99-100). Human sets numbers.
+- [INV] Dry-run default: live only when PAYMENTS_LIVE_ENABLE AND a write credential (config.py:149-178). In dry-run no write endpoint is called (pipeline.py:245-252). The hold, notifications and state machine still run in dry-run so the flow is observable. PAYMENTS_DRY_RUN is unused by the gate (config.py:102) and the `--live` flag is advisory (cli.py:273): do not rely on either. Footgun: someone could assume PAYMENTS_DRY_RUN=true protects; it does not.
+- [INV] Live gate is evaluated at execution time, not at request time (a flag flipped during a hold applies; flipped off cancels execution).
+- [REC] First live use only against sandbox (https://openapisandbox.investec.com): it is stateless, returns mock data, and balances never change, so it cannot verify double-pay or balance logic. Live production testing needs a tiny real payment by the human.
 
----------------------------------------------------------------------------------------------------
-## 4. Observable-output contracts (byte-identical unless the spec says otherwise)
-- **Ingest stdout**: `print(f"Ingest: {summary}")` (cli.py:43), where summary has keys in order from_date, to_date,
-  accounts, transactions_upserted, balances_captured, new_accounts (ingest.py:190-197). **Adding a key changes stdout.**
-  New-account alert prints are at cli.py:62-67 and 91.
-- **sync_runs** columns and status semantics (db.py:316-347). `transactions_upserted` counts only new transaction rows.
-- **Report workbook** (report.py):
-  - COLUMNS (report.py:20-21);
-  - sheet order Summary, By Category, By Account, Top Merchants, Daily Trend, Internal Transfers, Transactions,
-    + Monthly Movement, Reconciliation (report.py:183-191, 264-268);
-  - Summary metric labels (report.py:142-145);
-  - empty-sheet placeholder "No data for this period" (report.py:199);
-  - MONEY_FORMAT on every numeric non-bool cell (report.py:210-213, __init__.py MONEY_FORMAT);
-  - filename `spend-analysis_{start}_to_{end}{_label}.xlsx` (report.py:272);
-  - info dict (report.py:275).
-  The report reads an explicit column list from `transactions_flow` (report.py:39-59). New views do not affect it, but
-  **editing transactions_flow would**.
-- **Statement workbook** (statements.py):
-  - STATEMENT_COLUMNS = Date, Description, Category, Debit, Credit, Balance (statements.py:34);
-  - 14-row meta header with fixed labels (statements.py:453, 463-478);
-  - reconciliation text and colours (statements.py:444-449, 487-493);
-  - column widths (statements.py:511);
-  - newest-first display (statements.py:403-404);
-  - filename `statement_{acct}_{start}_to_{end}.xlsx` (statements.py:620-623);
-  - the "Description" column is the stripped raw description (statements.py:373). **Do not replace it with a
-    beneficiary name.**
-- **Emails**: bodies at cli.py:96-117 and subjects at cli.py:170, 225-228. `_money` formatting is at cli.py:192-195.
-- **CLI help baselines** (.loop/baseline/): sub-command help for ingest, report, statements, init-db, backup and
-  backfill-hashes matches current code byte-for-byte (verified this run). **`help__top.txt` is STALE**: it lacks
-  `approve-payments` and `pay-selftest`, which exist in cli.py:446-472. Comparing against it fails today, before any
-  change (see F2).
-- **Schema/views**: all existing tables and the views transactions_normalized, transactions_categorized,
-  spend_by_category, monthly_movement, balance_reconciliation, transactions_flow and monthly_flows stay unchanged.
-  Migrations 0001-0011 are not edited.
+## 7. Sender authentication
+Current state: none. From is stored but never used (R section 5; inbox.py:8-12 'by design'). Only the HMAC token stops spoofing today.
+- [INV] v2 removes the 'unforgeable token in the mail' step from the trigger path (a body 'pay NNN' has no token), so sender authentication becomes the primary control and MUST be added. Without it, any sender could create a hold and, under 'silence means pay', cause a payment. This is the main risk of the feature.
+- [INV] Hard requirements: (1) From address (parsed with email.utils, compared case-insensitively, exact full address, not display name, not domain suffix) is in an allowlist (default the owner's own address(es)); (2) the receiving server's authentication verdict passes: `Authentication-Results` header added by Gmail (authserv-id `mx.google.com`) shows dkim=pass AND spf=pass (or dmarc=pass) with header.from / smtp.mailfrom aligned to the allowlisted From domain. Trust ONLY the Authentication-Results header added by our own receiver (the topmost one with the expected authserv-id). Headers added upstream or by the sender are attacker-supplied. Strip/ignore any other Authentication-Results.
+- [INV] ARC: Gmail may report arc=pass for forwarded or relayed mail (mailing lists, forwarding rules) where the original DKIM/SPF breaks. ARC is not sufficient authentication for money movement. Treat arc=pass alone as fail. [OPEN] whether to allow ARC-with-trusted-sealer.
+- [INV] Reply-To pitfalls: never send notifications to Reply-To or to addresses in the body. Reply-To is attacker-controllable and a classic business-email-compromise vector. Notifications go to the configured owner address or the authenticated From only.
+- [INV] Forwarded mail: when the user forwards (Fwd:), the outer From is the user (authenticated) and the inner content is untrusted data (section 2). When someone ELSE forwards to us, From is not the owner and fails the allowlist, so parked/ignored. Forwarded mail where the inner From is the user (e.g. an auto-forward set up by Gmail rules) has an outer From that is the forwarder and often broken DKIM/SPF: fails closed. Authentication is judged on the outer message only.
+- [INV] Message header 'From' address spoofing with display name 'Piet <attacker@x>' must fail on the address.
+- [INV] Plus-addressing, gmail dot-equivalence and case: if allowlist is owner's gmail, define normalisation explicitly (do not silently equate dots). Recommended exact match.
+- [INV] Failure of authentication means no pending record, an audit entry (reason code only), and at most a notification to the OWNER (not the sender) 'rejected unauthenticated request'. Do not respond to the sender (backscatter, POPIA third-party).
+- [REC] Add an optional shared secret code in the typed body (Q3 proposal, 'optional secret code') for defence in depth. If used it must be a high-entropy secret, compared in constant time, never echoed in notifications or audit. Note an email secret travels in plaintext mail: it lowers risk from a spoofer who cannot read mail, not from a mailbox compromise.
+- [INV] Mailbox compromise is the residual threat: whoever controls the Gmail account can send authenticated 'pay' mail. Defence is the hold, caps, registered-beneficiary-only, and the cancel window. [OPEN] Q3 human choice (allowed sender + DKIM/SPF pass, optional secret code), and whether a second channel is needed for confirmation (recommended for the first live period).
+- [INV] The IMAP connection reads `UNSEEN` and fetch without PEEK marks mail seen (inbox.py:126,130). Failure after fetch loses the request silently. v2 should process-then-mark or persist the message-id first, so a crash cannot drop or duplicate. Do not change existing IMAP behaviour without a test (ImapInbox is pragma: no cover).
+- [INV] Gmail IMAP does not expose Authentication-Results in a guaranteed form; confirm by sample message that the header appears in RFC822 fetch. [OPEN] verify empirically before relying on it.
 
----------------------------------------------------------------------------------------------------
-## 5. PII / security
-- `accountNumber` of a beneficiary is **third-party PII** (POPIA s9-11, s14). `cellNo` and `emailAddress` are also PII.
-- Repo conventions:
-  - payment tables store **last-3 only, no full account number / PAN** (0009_payment_approvals.sql:6-7,
-    beneficiaries.py:24-25, 53);
-  - the archive says "never log full account numbers";
-  - L-0003 says build stored records **field by field from an allowlist**, never by scrubbing `raw`.
-  - Own-account numbers ARE stored in full (0001_init.sql:6), but that is the user's own data.
-- RLS: every new table needs `enable row level security` plus a `deny_all` policy **in the new migration**, using the
-  0011 pattern (0011_deny_all_policies.sql:19-38). 0011's target list is hardcoded, so do not edit it; create a new
-  migration that repeats the pattern. Every new view needs `security_invoker = on` (0009_security_invoker_rls.sql:26-32).
-- Backups: `pg_dump` dumps the whole DB (backup.py:43) and is encrypted only if BACKUP_PASSPHRASE is set. Whatever we
-  store lands in backup artifacts.
-- **Recommended stance**:
-  - store `beneficiary_id`, `beneficiary_name`, `bank`, `code` (branch), `reference_name` and `account_last3` only;
-  - do NOT store the full `accountNumber`, `cellNo`, `emailAddress`, `referenceAccountNumber`, or a raw JSON blob;
-  - display the account number as masked `****709`;
-  - if equality on the full number is needed (for M3 own-account exclusion), compute it in memory at sync time and
-    persist only a boolean `is_own_account`, or a keyed HMAC if it must persist. Never store a plain unsalted sha256,
-    because a ~10-11 digit space is brute-forceable;
-  - never log beneficiary account numbers.
-  The goal text asks to show the "account number", which conflicts with this stance. **Open question Q1 for the human.**
+## 8. Credential scope concern
+- [INV] The `beneficiarypayments` scope is required to LIST beneficiaries (GET accounts/beneficiaries, A (a)) and also permits paymultiple. Therefore a read-only credential cannot list beneficiaries, and any credential that can resolve payees can pay. Docstring claim "read credentials cannot move money" (investec_client.py comment, A flag 7) is true only if the key lacks that scope. The repo's separate 'read' and 'write' credentials (config.py:149-178) do not give a real separation for the beneficiary listing path.
+- [INV] Blast radius if the key leaks: the key can pay any registered beneficiary on all linked profiles up to the bank's per-payment limit (R20,000 community figure). Our caps live only in our code and do not constrain a stolen key.
+- [REC] Minimum scopes: accounts, balances (for re-verify), beneficiarypayments. NOT transfers, documents. Use a dedicated key for this feature, store only in the executor's secret store (not in the report/ingest jobs' env), and rotate on suspicion.
+- [REC] Use of the existing ingest/report credential for beneficiary listing would force adding beneficiarypayments to the ingestion key: do NOT do that. Use the payments key for listing, in the payments job only.
+- [OPEN] Whether a separate approval is needed in Investec Online to enable beneficiarypayments (A: not found). Human to confirm. Also: payments are possible only on Private Bank API, not CIB (community).
+- [OPEN] Business profiles requiring authorisation (A (d)): payments return AuthorisationRequired and no API endpoint authorises them. Recommended: treat as unsupported, fail closed with notification. authoriser IDs are not sent in v2.
 
----------------------------------------------------------------------------------------------------
-## 6. Hidden coupling / footguns, ranked by danger
-1. **FK to transactions.transaction_hash** would break ingest: 0008 re-runs its DELETE on every `init_db`
-   (ingest.py:80-81 → db.py:80-81 → 0008:18-35), and backfill-hashes UPDATEs hashes (db.py:385-389). Use no FK (M10).
-2. **Stale help baseline**: .loop/baseline/help__top.txt omits approve-payments/pay-selftest. If the tester compares
-   against it, the gate is red before any change. If someone "fixes" it by regenerating after adding a subcommand, a CLI
-   change slips through. The orchestrator must decide on a re-baseline from HEAD (or git-stash) before building.
-3. **Touching description, hash or day_seq**, for example normalising description in place, or adding a column to
-   `_TX_COLUMNS` (db.py:185-189, 16-param batch math at db.py:226, 248). Any change re-keys rows and creates duplicates.
-4. **`create or replace view transactions_flow`, or any existing view**: report.py and statements.py SQL depend on it.
-   Postgres only allows appending columns, and even that changes `f.*` consumers. New logic goes in a NEW view.
-5. **Ingest summary/print**: adding a `beneficiaries_*` key to the summary dict, or a print, changes `Ingest: {...}`
-   stdout (cli.py:43). Gate any added output behind the setting, or put it in a separate surface (Q3).
-6. **Migration idempotency**: every migration re-runs on every ingest in ONE transaction with lock_timeout 15s
-   (db.py:78-81). The new migration (`0012_*.sql`) must be fully re-runnable: `create table if not exists`,
-   `create or replace view` (on new views only), `drop policy if exists` → `create policy`, and no seed INSERT without
-   `where not exists`. A non-idempotent statement breaks every future ingest. Sort is lexicographic, and the two `0009_*`
-   files already coexist, so pick a unique `0012_` prefix.
-7. **API call during an open DB transaction** violates the resilience model (ingest.py:3-11). Fetch beneficiaries first,
-   then write in a short transaction.
-8. **Settings dataclass is frozen** (config.py:65). A new field must have a default, sit after the existing defaulted
-   fields, and be loaded in `Settings.load` (config.py:177-216). Tests build a `_Settings()` stub
-   (tests/test_payment_notify.py), so use `getattr(settings, "...", False)` like cli.py:300.
-9. **Coupling to payments/beneficiaries.py**: `from_api`/`resolve_beneficiary` semantics are covered by
-   tests/test_payment_beneficiaries.py and used by the pipeline (pipeline.py:85-88, 178) and selftest (selftest.py:50-60).
-   Reuse read-only. Do not change their exact-match/substring behaviour to suit matching.
-10. **Truncated/uppercased description and prefix rules**: prefix matching of a short description against long
-    references is the main false-positive risk. Require a minimum token length and fail closed on >1 hit.
-11. **Tier C false internal_transfer** (0007:57-68): a genuine third-party EFT whose amount coincidentally equals an
-    opposite leg on another own account the same day is excluded by M3. This is acceptable because it fails closed, but
-    document it.
-12. **categorize "Transfers" vs view category**: these can differ (ingest-time vs category_map). Don't use `category`
-    as the payment-type gate. Use `transaction_type` (M2).
+## 9. Audit trail
+- [INV] Audit is append-only, minimal-field allowlist (audit.py:26), file JSON or Postgres (audit.py:95). Per step: received (message-id hash, not subject/body), auth verdict (booleans), trigger parsed, source resolved (profileId + last-3 only), extraction outcome (reason codes), beneficiary resolved (beneficiaryId, not name/account), hold created (execute_after), summary sent, cancelled, re-verify results (per check), execute attempted (dry/live), result (status code, PaymentReferenceNumber), unknown state.
+- [INV] Never log: full account numbers, bank details from the mail, email body/attachments, payee name or email if avoidable (prefer beneficiaryId or hash), tokens, HMAC secret, OAuth tokens, API keys, secret code, balances. The unregistered-payee notification (section 4) carries bank details by decision, and is NOT audited beyond 'notified' + a hash of the dedup key.
+- [INV] Retention 90d (config.py:119-126). Pending records hold payment snapshots (beneficiaryId, amount, references): store only what execution needs. POPIA: third-party payee data minimised (D0 POPIA-LAWFUL-MINIMISATION).
+- [INV] Exception messages/tracebacks must be scrubbed before logging (requests errors can embed URLs and headers).
 
----------------------------------------------------------------------------------------------------
-## 7. Behavioural test gaps (untested = higher risk = leave alone)
-- No test for the real Investec `transactionType` vocabulary or real EFT description shapes. All fixtures are
-  synthetic. The new matcher needs its own golden fixtures: uppercase, truncated, prefixed, ambiguous, renamed and
-  deleted cases.
-- `investec_client.get_beneficiaries` response-shape handling (`data` list vs dict) is exercised only via mocks in the
-  payment tests. Its handling of a non-list `data` is untested.
-- No DB-level tests: migrations, views (`transactions_flow`, row_number dedup SQL), RLS and 0008 re-run are untested
-  against Postgres. The migration-order check is the only guard, so keep the new migration minimal.
-- `run_ingest` end-to-end stdout is untested (only chunking, tests/test_ingest_chunks.py). If ingest is touched, add a
-  test asserting summary keys are unchanged when the feature is off.
-- Help-text byte equality has only the baseline files (see footgun 2). There is no pytest asserting it.
+## 10. Ranked footguns (most dangerous first)
+1. Removing the token from the trigger path with no sender authentication added: anyone who can spoof From creates a payment (section 7). Today nothing reads From or Authentication-Results.
+2. POST retry on 5xx/timeouts in the client (investec_client.py:43-49): double-pay with no idempotency key (A flag 3).
+3. A 200 response treated as success (pipeline.py:250-252): ErrorMessage or AuthorisationRequired payments recorded as paid, or retried.
+4. 'Silence means pay' (Q2 proposal) combined with the CLI wiring defect that sends no approval/summary email (cli.py:268-335): user never sees the hold, cannot cancel, payment fires after 24h.
+5. Hold timestamp taken from the email Date header, or execution using re-parsed mail instead of the stored snapshot: attacker-controlled timing and values.
+6. Quoted/forwarded/attachment text treated as instructions or as the typed trigger; last-3 `\D*` regex (inbox.py:21) matching unintended text.
+7. Cancel racing execute (no atomic claim): payment runs after the user cancelled. Equally, cancellation by an unauthenticated mail.
+8. Notifications routed to Reply-To or body-supplied addresses, or including account numbers in logs/audit.
+9. Credential scope: one key that lists beneficiaries can also pay (section 8); a leaked ingest key would become a payment key if scopes are widened for convenience.
+10. Daily-aggregate counted at creation versus execution, timezone boundary (UTC versus Johannesburg) near midnight; cap of 0 defaults.
+11. PAYMENTS_DRY_RUN unused by the gate and `--live` advisory (config.py:102, cli.py:273): misleading safety signals.
+12. Expiry of OAuth token across the hold (30 min): a cached token fails at execution (safe failure) but must not be persisted.
+13. Dedup key includes Message-ID: reply-with-new-Message-ID breaks linking (R section 4b); the hold-flow definition of request identity must be fixed before building cancel/confirm replies.
+14. Shared railway.toml single startCommand: payments cron preempts other jobs (R section 9). Operational, not money-affecting.
 
----------------------------------------------------------------------------------------------------
-## 8. Open questions for the human
-- **Q1 (PII)**: store last-3 only (recommended) or the full beneficiary account number? Show it masked (`****709`) or in
-  full in the view?
-- **Q2 (types)**: which `transaction_type` values are payments/transfers? Suggested: run
-  `select transaction_type, count(*) from transactions where type='DEBIT' group by 1` on prod and freeze the allowlist
-  in code.
-- **Q3 (surface)**: trigger sync+match inside `ingest` (gated, no stdout change) or via a NEW subcommand (changes
-  top-level help, which needs explicit spec allowance plus a re-baseline)?
-- **Q4 (snapshot)**: are past matches frozen at match time, or recomputed against the latest beneficiary snapshot?
-- **Q5**: should `referenceName` (my-reference) rank above `beneficiaryName`? This is recommended, but whether
-  referenceName is really the my-reference needs confirming against one real payload.
+## 11. Behavioural test gaps (treat as higher risk; leave existing code alone unless spec'd)
+- ImapInbox and real SMTP are `pragma: no cover` (R section 7): no test for UNSEEN/seen semantics, header access, or sending. Authentication-Results parsing has nothing to extend.
+- No tests exist for: reply/forward/HTML/message/rfc822 handling, In-Reply-To linkage, quoted-history exclusion, sender allowlist and auth results, 'pay NNN' grammar, execute_after/hold/cancel/expiry, re-verification at execution, submitting/unknown state, POST no-retry, 200-with-ErrorMessage, multi-profile last-3 collisions, timezone boundary of daily cap, secret-code compare.
+- Existing coverage worth keeping green: token (9), dedup/caps (9), accounts (5), beneficiaries (15), extract (12), pipeline (21, offline with fakes), audit (6), notify (5), pg_store (10, needs DB).
+- Needed test style: offline with fake inbox/client (like tests/test_payment_pipeline.py); an injected clock for hold/expiry; a fake client that raises on second POST to prove no retry; a fake that returns 200+ErrorMessage.
+- Whether the approval-by-reply path works end-to-end is unproven (R section 4 defect b). Do not build the hold/cancel on top of it before a test shows how it behaves.
 
-confidence: high on repo invariants and footguns (cited); medium on the PII stance; low on Investec field semantics
-marked [INF] (referenceName vs referenceAccountNumber, transactionType vocabulary, description shape).
+## 12. Human decisions needed at the spec gate (consolidated)
+Q2 (silence pays vs second confirmation) [OPEN]; Q3 sender checks and optional secret code, ARC policy [OPEN]; Q4 where it runs (GitHub Actions vs Railway) [OPEN]; digits-only trigger [OPEN]; mobile-app field order [OPEN]; per-payment and daily caps numbers [OPEN]; expiry grace window [OPEN]; beneficiarypayments scope approval and dedicated payments key [OPEN]; duplicate-request window [OPEN]; business-profile authorisation unsupported [REC].
+Out of scope (human, GOAL.md): Playwright helper and any banking login/2FA automation.

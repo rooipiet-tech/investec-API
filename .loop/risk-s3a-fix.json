@@ -1,0 +1,85 @@
+{
+ "verdict": "MEDIUM overall (no secrets, no SQL/dependency/network/exec change, no auth bypass, no unapproved/duplicate path via any exception injected after the POST). One conditional HIGH remains: outcome classification can still call a money-moved 200 'failed' (release + re-instructable) on falsy/placeholder ErrorMessage or negated-fail-word Status; RS3A-1..7 otherwise closed or reduced to low/info.",
+ "findings": [
+  {
+   "id": "RS3AF-1",
+   "severity": "high (conditional on real Investec 200 shape; human re-approval still required for a duplicate)",
+   "file": "src/invespend/payments/outcome.py",
+   "line": "128-176",
+   "issue": "After the POST, 'failed' (release=True, not duplicate-guarded) is still derived from loose substring/truthiness tests, so a 200 that moved money can be released and re-instructed. Entry/data ErrorMessage of False, 0, [], {}, 'None', 'null', 'N/A', 'OK', 'no error', 'false' (any non-blank str() or non-str value) => failed; entry Status containing a fail word as a substring ('Processed - no errors', 'processed without error', 'Not declined') => failed even with a PaymentReferenceNumber present. A re-sent identical instruction then reaches awaiting_approval (guard excludes failed) => second payment possible, daily reservation freed. RS3A-1 itself (ErrorMessage '' / {} / None / non-dict body) IS closed: '' => executed, shapes => needs_review.",
+   "fix": "Treat only non-empty STRING ErrorMessage as an error and ignore falsy/placeholder values; use needs_review (keep reservation, guard-blocked) whenever a failure indication co-occurs with a PaymentReferenceNumber or a success-looking status, and reserve 'failed'+release for PaymentRejected 4xx or an explicit error with no reference. Match status fail words as whole words with a negation check, else unknown.",
+   "repro": "Env(live=True); responder=lambda:{'data':{'TransferResponses':[{'PaymentReferenceNumber':'PR1','Status':'Processed'}],'ErrorMessage':False}} -> status failed reserved=False; second identical instruction 60 min later -> awaiting_approval (not possible_duplicate). Same for Status 'Processed - no errors'. scratch: scratchpad/a/ex.py, dup.py, oc.py"
+  },
+  {
+   "id": "RS3AF-2",
+   "severity": "medium",
+   "file": "src/invespend/payments/outcome.py",
+   "line": "139-176",
+   "issue": "Status 'Pending'/'awaiting settlement'/'Pending processing' (payment accepted, in flight) maps to needs_authorisation with release=True: reservation freed (daily cap can be re-used while money is moving). Duplicate guard still blocks re-instruction for 7 days (needs_authorisation is guarded), so no duplicate, but the daily cap is understated.",
+   "fix": "Only map explicit authorisation wording (authori[sz]) to needs_authorisation+release; 'pending/awaiting' without authorisation => unknown/needs_review (keep reservation).",
+   "repro": "responder returns Status 'Pending' -> status needs_authorisation reserved=False."
+  },
+  {
+   "id": "RS3AF-3",
+   "severity": "low",
+   "file": "src/invespend/payments/amounts.py",
+   "line": "55-67",
+   "issue": "RS3A-2 only partly closed. Closed: 100 dollars, R100 (USD), USD100, US$ 100, amount 100 usd, R100.00 EUR, $100, Euros, R100 us dollars, 'ZAR + currency: USD' line, full-width digits, image currency USD/$/EUR/'ZAR USD'/'ZAR (USD)'/full-width/Cyrillic all park (currency_conflict / no row). Still read as ZAR 100.00 (awaiting_approval, human sees 'ZAR'): 'R100 US', '100 U S D', '100 \uff35\uff33\uff24' (full-width), 'R100 USDT', 'BTC', yen, rupees, pesos, 'd\u00f3lares'. Image path is clean (any non-ZAR/odd image currency parks image-only, conflicts park).",
+   "fix": "NFKC-normalise and strip spaces/zero-width before the foreign-token test; add USDT/BTC/yen/rupee/peso/dolar/US; or switch to allow-list (only R/ZAR/rand next to the figure).",
+   "repro": "env.instruct('pay 123\\nPayee: Acme Trading\\nAmount: R100 USDT\\n') -> awaiting_approval 100.00 ZAR."
+  },
+  {
+   "id": "RS3AF-4",
+   "severity": "low",
+   "file": "src/invespend/payments/outcome.py",
+   "line": "53-86",
+   "issue": "sanitize_provider_message still leaks: 'api_key=X', 'apikey=X', 'client_secret: X', 'passwd=X', 'pwd: X', 'access_token X', 'refresh_token=X', 'ghp_...', JWTs, AKIA keys, full-width/Cyrillic-lookalike 'token', and the exact configured secrets when hyphenated and <24 chars (e.g. echoed write secret is only masked via the 'secret'/'key' word rules). \\b fails after underscore. Account numbers, 'Bearer x', 'key-77777', 'token<ZWSP>:', split-by-newline 'secret\\nvalue' are redacted (RS3A-3 mostly closed). Output is capped at 200 chars and only emailed to the verified owner / stored; a provider echoing credentials is improbable.",
+   "fix": "Add (?:^|[^A-Za-z])(?:[a-z_]*(?:key|token|secret|passw(?:or)?d|pwd))\\s*[:=]\\s*\\S+ with NFKC fold, or redact by exact configured secret values as scrub_message does.",
+   "repro": "sanitize_provider_message('api_key=SECRET123 client_secret: s3cr3t') returns it unchanged."
+  },
+  {
+   "id": "RS3AF-5",
+   "severity": "info",
+   "file": "src/invespend/payments/v2_cli.py",
+   "line": "17-40",
+   "issue": "scrub_message redacts configured secret values (incl. passphrase, DB url, imap/smtp users) but only exact-case, contiguous: a value split across a newline, upper-cased, or 'Bearer abc.def' survives. Only reachable through exception text in the CLI envelope (class names only elsewhere).",
+   "fix": "Fold case and collapse whitespace before value matching; add the bearer/secret-word rules.",
+   "repro": "scrub_message('hunter2-\\npass', s) / 'HUNTER2-PASS' unchanged."
+  },
+  {
+   "id": "RS3AF-6",
+   "severity": "info",
+   "file": "src/invespend/payments/cycle.py",
+   "line": "80-90",
+   "issue": "RS3A-5 closed for INBOX., INBOX/, \"INBOX\", ' INBOX ', 'INBOX..', 'INBOX./', NBSP/tab/newline variants, '' and None (fetch_calls 0). Unicode lookalikes (full-width, ZWSP, Cyrillic, 'INBOX:'), 'INBOX.INBOX' pass preflight but a real IMAP server treats them as different/nonexistent folders, so no shared-inbox read; fail-safe.",
+   "fix": "Optional: NFKC + drop format chars before comparison.",
+   "repro": "make_settings(imap_mailbox='\\uff29\\uff2e\\uff22\\uff2f\\uff38') -> fetch_calls 1."
+  },
+  {
+   "id": "RS3AF-7",
+   "severity": "info",
+   "file": "src/invespend/payments/cycle.py",
+   "line": "453-458",
+   "issue": "RS3A-6 only half closed: an empty first beneficiary list is now treated as unavailable (park, no paste mail) but bootstrap is still marked done with zero established payees, so with hold>0 the next cycle holds existing payees as new for the hold period. Fail-safe delay only.",
+   "fix": "Do not mark bootstrap done when the list is empty.",
+   "repro": "Env(bootstrap=False, payments_hold_hours=24); client.beneficiaries=[]; cycle -> bootstrap_done True; restore Acme -> held."
+  }
+ ],
+ "closed": {
+  "RS3A-1": "ErrorMessage ''/whitespace => success; body None/{}/[]/'x'/{'data':None}/{'data':{}}/empty or non-list TransferResponses/[None,1]/{'error':..} => unknown => needs_review, reservation kept, never failed; verified through full live cycles (1 POST, 8 further cycles never resend).",
+  "RS3A-3": "mostly (see RS3AF-4)",
+  "RS3A-4": "hold 1e308/1e10/8761/'abc'/nan/inf/-1 clamp to 24h in v2_settings and config._hold_hours; cycle does not raise; 8760 allowed",
+  "RS3A-7": "'pass', imap_user, smtp_user added; value-based scrub covers passphrase"
+ },
+ "verified_clean": {
+  "after_post_exceptions": "finalize raising always/once/returning False, audit 'executed'/'live_execute'/'execute'/all raising, SMTP Exception and KeyboardInterrupt, store.cas_status raising, KeyboardInterrupt/object/1MB-string from the POST: always exactly 1 POST (or 0 when raising before it), row ends executed or needs_review(stale_submitting) with reservation kept, never released, never resent over 8 further cycles 5h apart. 'audit all raises' fails the whole cycle closed (0 POSTs, row stays accepted).",
+  "duplicate_guard": "executed, needs_review (unknown/unrecognised shape), needs_authorisation, awaiting_approval/held/accepted/submitting all park a re-instruction as possible_duplicate within the 7-day window (verified at +1h/+30h/+72h). failed (4xx PaymentRejected or provider error) and parked (PaymentNotSent: provably unsent) are NOT guarded, correct for genuine failures and not-sent; an unknown outcome is not re-instructable inside 7 days (after the window it is, by design). Only RS3AF-1 makes 'failed' unsafe.",
+  "caps": "per/daily cap unset/0/negative/abc/nan/inf/'' (all 14 combos) => no batch offered, 0 POSTs; unset at execution => parked, 0 POSTs; both caps fail early at creation and at offer.",
+  "currency_images": "see RS3AF-3",
+  "empty_beneficiary_list": "parked beneficiary_list_unavailable, no paste email, established-list-goes-empty parks too",
+  "leaks": "account numbers (payee and source), tokens, write creds absent from audit, rows and emails; only exact hyphenated secrets echoed by a provider survive masked-ish (RS3AF-4)",
+  "new_code_surface": "diff 0e025b5..HEAD touches only config/amounts/batch/cycle/mode/outcome/v2_cli + tests: no new import of requests/subprocess/smtplib/socket/urllib, no open/exec/eval, no SQL, no pyproject/uv.lock/.gitignore change; .env ignored and untracked; no secret-shaped literals added (test strings synthetic). uv.lock working-tree dirt (pypdf entries, pyproject already lists pypdf at base) is from an external uv run, not the diff, and had cleared by end of run.",
+  "postgres": "scratch PG16 (new /tmp dir, UTF8 db, removed afterwards): 246 repo tests pass (store sql, pg cycle, migration, preflight, s3a fix, execute); 5 rounds of 8 concurrent approvals, 8 concurrent claims, 2 concurrent finalizes, 6x15000 claims against 50000 cap (exactly 3, total 45000.00) and 6 concurrent releases (released once, 30000.00) all exact."
+ },
+ "scripts": "/tmp/claude-0/-home-user-investec-API/45e6d15e-0e5f-56d4-b19a-413e399ab17b/scratchpad/a/{oc,ex,dup,cur,img,misc,hold,leak,race}.py"
+}

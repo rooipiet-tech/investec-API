@@ -1,0 +1,14 @@
+usage: invespend pay-selftest [-h] --beneficiary BENEFICIARY --amount AMOUNT
+                              [--source SOURCE] [--reference REFERENCE]
+
+options:
+  -h, --help            show this help message and exit
+  --beneficiary BENEFICIARY
+                        Registered Investec beneficiaryId to pay (never an
+                        account number)
+  --amount AMOUNT       Amount to pay (e.g. 1.00); subject to the per-payment
+                        + daily caps
+  --source SOURCE       Last-3 digits selecting the source account (omit if
+                        you have one account)
+  --reference REFERENCE
+                        Optional payment reference

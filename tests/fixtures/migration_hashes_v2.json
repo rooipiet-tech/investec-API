@@ -1,0 +1,6 @@
+{
+  "sha256": {
+    "0012_beneficiary_matching.sql": "4b5fd479a10fbfddc133e8eacbe6e00ca1590700cf7f2b2e7a162c88042f0b5b",
+    "0013_payment_instructions.sql": "c327e5283aa58619a57e4cca06af99c7a9eb9f09b64bd22acbe233aba3d0359d"
+  }
+}

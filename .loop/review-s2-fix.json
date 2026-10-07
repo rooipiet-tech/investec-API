@@ -1,0 +1,5 @@
+{"verdict":"PASS","blockers":[],"concerns":[
+"notify_v2 masking now also masks slash/dot-separated dates with 9+ digits in third-party fields (e.g. 'ref 2026/10/07 12:30' -> '[number hidden]:30'); over-masking only, no money impact.",
+"commands: a first line consisting only of a control char (e.g. '\\x0b') no longer skips to the next line (returns None); conservative.",
+"Non-ASCII whitespace variants return None rather than invalid (existing-test-driven deviation); fuzzed U+0000-U+2FFF C*/Z* chars: none yields a non-invalid command."],
+"checks":{"pytest":"1550 passed, 12 skipped","frozen_files_unchanged":true,"existing_tests_modified":false,"wired_in":false,"redos":"linear, <50ms on 200KB","images_total":true,"paste_email_unmasked":true,"header_injection_rejected":true}}

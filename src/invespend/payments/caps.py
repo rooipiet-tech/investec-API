@@ -25,11 +25,36 @@ def _d(value) -> Decimal:
     return Decimal(str(value))
 
 
+def _cap(value) -> Decimal:
+    """Convert a CAP argument only: unparsable, NaN, infinite or negative -> 0
+    (blocked, the safe direction). Never used for amounts."""
+    try:
+        cap = Decimal(str(value))
+    except Exception:
+        return Decimal(0)
+    if not cap.is_finite() or cap < 0:
+        return Decimal(0)
+    return cap
+
+
+def _amount(value) -> Decimal | None:
+    """Convert an amount / running total via ``_d``; None when unparsable or
+    non-finite. Never mapped to 0 (that would read as "non-positive" or, for a
+    day total, as an empty day, i.e. a cap bypass)."""
+    try:
+        amt = _d(value)
+    except Exception:
+        return None
+    return amt if amt.is_finite() else None
+
+
 def check_per_payment(amount, per_payment_cap) -> CapDecision:
-    amt = _d(amount)
-    cap = _d(per_payment_cap)
+    cap = _cap(per_payment_cap)
     if cap <= 0:
         return CapDecision(False, "per-payment cap not configured (fail-closed)")
+    amt = _amount(amount)
+    if amt is None:
+        return CapDecision(False, "invalid amount")
     if amt <= 0:
         return CapDecision(False, "non-positive amount")
     if amt > cap:
@@ -38,11 +63,13 @@ def check_per_payment(amount, per_payment_cap) -> CapDecision:
 
 
 def check_daily_aggregate(amount, today_total, daily_aggregate_cap) -> CapDecision:
-    amt = _d(amount)
-    total = _d(today_total)
-    cap = _d(daily_aggregate_cap)
+    cap = _cap(daily_aggregate_cap)
     if cap <= 0:
         return CapDecision(False, "daily-aggregate cap not configured (fail-closed)")
+    amt = _amount(amount)
+    total = _amount(today_total)
+    if amt is None or total is None:
+        return CapDecision(False, "invalid amount")
     if total + amt > cap:
         return CapDecision(
             False,

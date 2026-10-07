@@ -1,0 +1,8 @@
+Authentication-Results: mx.google.com; dkim=pass header.i=@evil.example; spf=pass smtp.mailfrom=bounce@evil.example; dmarc=pass header.from=example.com
+From: Piet <piet@example.com>
+Subject: pay 123
+Message-ID: <m1@example.com>
+
+pay 123
+Payee: Acme
+R500

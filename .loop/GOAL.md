@@ -1,19 +1,23 @@
-# GOAL — beneficiary matching (run: beneficiary-matching)
+# GOAL — email-triggered payments v2 (run: email-payment-v2)
 
-<goal>
-Let the user see, for each outgoing EFT/payment transaction ingested from Investec, which of
-their registered Investec beneficiaries it was paid to (beneficiary name, bank, and account
-number). The Investec transactions API does not return beneficiary fields; the
-`/za/pb/v1/accounts/beneficiaries` endpoint (already wrapped by
-`InvestecClient.get_beneficiaries`) does. Deliver: (1) a beneficiary snapshot synced from the API,
-(2) a deterministic, explainable matcher that links debit EFT transactions to at most one
-beneficiary using the transaction `description` (and `raw`) against beneficiary
-name / reference fields, failing closed (no match) on ambiguity, (3) a way to read the result
-(DB view at minimum). Constraints: additive-only schema (new numbered migration, existing
-tables/views untouched, RLS deny-all like 0011); existing ingest/report/statements output
-byte-identical unless the spec explicitly allows a change; feature off by default behind a
-setting; no secrets committed; full pytest stays green (>= current baseline, 0 fail/0 error);
-no new dependencies.
-</goal>
+User request (verbatim intent): "I want to be able to email payments to rooipiet@gmail.com, either a reply or a
+forwarded email. If I say in the body 'pay' followed by three letters [sic: three DIGITS per existing last-3 convention —
+confirm], it means you should search everything in the mail to locate either a beneficiary payment from any profile or a
+new beneficiary to be loaded, and then paid 24 hours later. Research how to do that on the Investec API. The 3 characters
+after 'pay' represent the last 3 digits of which account to pay from."
 
-Previous run (email-payment-approval-loop) archived under `.loop/archive/payments-run/`.
+Phase 0 only (research -> domain -> spec -> STOP for human approval). An email-payment-approval pipeline already exists
+under src/invespend/payments/ (shipped in an earlier run, archived at .loop/archive/payments-run/). This run must establish
+the gap between that pipeline and the request, and what the Investec API actually permits (esp. creating beneficiaries and
+scheduling/delaying payments). Dry-run default and all existing guardrails stay unless the human explicitly changes them.
+
+## Human decisions so far
+- Q1 (unregistered payee): RESOLVED by human — NOTIFY the user (email) that the payee must be added in Investec Online; do NOT try to create it via API (not available).
+  The notification should carry the beneficiary details (name, bank, account number, branch code, reference, any email/cell) laid out in the
+  order the Investec mobile app asks for them, so they can be pasted easily.
+- FOLLOW-UP (separate future run, OUT OF SCOPE here): a Playwright-based helper that holds those details to paste into the mobile app in the correct
+  order to create the beneficiary easily. Open point for that run: does it drive a browser/online banking itself, or only present the details? Do not
+  automate banking login/2FA without a separate security review.
+- Q2 (after 24h), Q3 (sender checks), Q4 (where it runs): NOT answered (question dialog dismissed). Spec drafts the RECOMMENDED defaults as PROPOSALS:
+  Q2 pay automatically after 24h unless cancelled by reply, with summary email now + reminder; Q3 allowed sender + DKIM/SPF pass (+ optional secret code);
+  Q4 GitHub Actions scheduled job. Human must confirm or change at the spec gate.
