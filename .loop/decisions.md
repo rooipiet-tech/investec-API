@@ -44,3 +44,5 @@ APPROVED the spec subject to these decisions:
 - BUILD GO-AHEAD: slice 1 (S0-S6) approved to build.
 
 ## Build go-ahead (human, 2026-10-07): slice 2 (S8, S7, S10) approved to build.
+
+## Build go-ahead (human, 2026-10-07): slice 3 approved. Executed in two steps: STEP A = S9 (migration 0013 + InstructionStore + the approved two-assertion test edit) and S11 (routing, approval handler, execution, v2 cycle, PAYMENTS_MODE=v2 dispatch; dry-run default, live OFF); STEP B = S12 (GitHub Actions workflow, job gated off, live off), S13 (docs/runbook), S14 (Claude vision adapter). Each step gets the full review round. NOTHING is merged to the default branch or enabled until the human says so (migration 0013 is applied automatically by init_db on the next ingest after merge).
