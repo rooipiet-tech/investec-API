@@ -15,6 +15,7 @@ import os
 import re
 import unicodedata
 from collections.abc import Mapping
+from decimal import Decimal
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -27,6 +28,11 @@ ALLOWED_KEYS = ("payee_name", "bank", "account_number", "amount", "currency", "r
 _SAFE_NAME = re.compile(r"[a-z_]{1,32}")
 _STRICT_AMOUNT = re.compile(r"\d+(?:[.,]\d{2})?|\d{1,3}(?:[ ,]\d{3})+(?:[.,]\d{2})?", re.ASCII)
 _ACCOUNT_RAW = re.compile(r"[0-9 \-]{6,60}", re.ASCII)
+# An image amount must be > 0 and <= MAX_AMOUNT (R 1,000,000.00): anything else is a misread or hostile value
+# and is dropped (None), never guessed. The text is length-capped BEFORE any int/float conversion.
+MAX_AMOUNT = 1_000_000
+_MAX_AMOUNT_CHARS = 24
+_MAX_INT_DIGITS = 12
 _ZAR_WORDS = frozenset({"r", "zar", "rand"})
 
 
@@ -107,19 +113,28 @@ def _clean_amount(value: object) -> str | None:
     if isinstance(value, bool):
         return None
     if isinstance(value, int):
+        if not 0 < value <= MAX_AMOUNT:   # bound first: str() of a huge int raises ValueError
+            return None
         text = str(value)
     elif isinstance(value, float):
-        if not math.isfinite(value):
+        if not math.isfinite(value) or not 0 < value <= MAX_AMOUNT:
             return None
         text = f"{value:.2f}"
     elif isinstance(value, str):
+        if len(value) > 4 * _MAX_AMOUNT_CHARS:
+            return None
         text = value.strip()
+        if len(text) > _MAX_AMOUNT_CHARS:
+            return None
     else:
         return None
     # strict shapes only: "100.5" would be read as 1005 by the shared normaliser
     if not _STRICT_AMOUNT.fullmatch(text):
         return None
-    return _norm_amount(text)
+    norm = _norm_amount(text)
+    if norm is None or not Decimal(0) < Decimal(norm) <= MAX_AMOUNT:
+        return None
+    return norm
 
 
 def _clean_account(value: object) -> str | None:
@@ -136,6 +151,20 @@ def _clean_currency(value: object) -> str | None:
     if text.casefold() in _ZAR_WORDS:
         return "ZAR"
     return text.upper() if text.isalpha() else text
+
+
+_CLEANERS = (
+    ("payee_name", _clean_text), ("bank", _clean_text), ("account_number", _clean_account),
+    ("amount", _clean_amount), ("currency", _clean_currency), ("reference", _clean_text),
+)
+
+
+def _safe(cleaner, raw: Mapping[str, object], name: str) -> str | None:
+    """validate_extraction is total: any failure while cleaning one field drops that field."""
+    try:
+        return cleaner(raw.get(name))
+    except Exception:  # noqa: BLE001
+        return None
 
 
 def validate_extraction(
@@ -158,14 +187,7 @@ def validate_extraction(
         count += 1
         if isinstance(key, str) and _SAFE_NAME.fullmatch(key) and key not in names:
             names.append(key)
-    values = {
-        "payee_name": _clean_text(raw.get("payee_name")),
-        "bank": _clean_text(raw.get("bank")),
-        "account_number": _clean_account(raw.get("account_number")),
-        "amount": _clean_amount(raw.get("amount")),
-        "currency": _clean_currency(raw.get("currency")),
-        "reference": _clean_text(raw.get("reference")),
-    }
+    values = {name: _safe(cleaner, raw, name) for name, cleaner in _CLEANERS}
     fields = ImageFields(**values) if any(v is not None for v in values.values()) else None
     return fields, tuple(sorted(names)), count
 

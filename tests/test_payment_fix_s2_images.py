@@ -7,7 +7,6 @@ import pytest
 
 from tests.timing_helper import assert_fast
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S2 fix R2 red: images.py amount bounds not built yet")
 
 
 def images():
