@@ -1,0 +1,7 @@
+{"slice":"3B (S14,S12,S13)","range":"029d2ef^..663b6d1","verdict":"PASS","blockers":0,
+"checks":{"behaviour_preservation":"only new files + additive docs; src diff is images_claude.py only; frozen legacy files, pyproject.toml, db (apart from approved 0013), ingest/tests/weekly workflows zero diff vs 2eee10c; only existing test modified vs 2eee10c is the approved test_beneficiary_migration.py",
+"workflow":"gated on vars.PAYMENTS_CYCLE_ENABLED=='true', environment payments, PAYMENTS_MODE v2 literal + guard step, postgres backend, python 3.12, concurrency no-cancel, contents read, no PR trigger, live via vars||'false', no INVESTEC_PAYMENTS_ENABLED, cron 7,22,37,52 never hits ingest 02:00",
+"adapter":"plain requests, single host, key only in x-api-key, no model default, strict JSON, NaN rejected, 1MB cap, reason codes only, get_extractor needs key+model; image re-validated before post",
+"docs":"trigger, approve/cancel, caps, hold, env vars, gates match code/plan; tests/yaml_lite.py sane",
+"tests":"uv run pytest: 3506 passed, 15 skipped"},
+"notes":["Deviations (cron offset, --dry-run flag, no model default, IMAGE_EXTRACTOR_RETRIES unwired) are justified and documented in .loop/build-s3b.md","uv.lock is modified in the working tree (uncommitted); git checkout uv.lock before ship per plan F2","Runbook says 'no retries' for images, matches default max_retries=0"]}
