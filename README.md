@@ -162,3 +162,18 @@ from transactions_beneficiary
 where match_status = 'matched'
 order by effective_date desc;
 ```
+
+## Optional: email-triggered payments (v2, dry-run only)
+
+Payments are driven by email and every payment waits for your approval reply to a batch email.
+The scheduled workflow `.github/workflows/payments-cycle.yml` is OFF until the repository variable
+`PAYMENTS_CYCLE_ENABLED` is `true`, runs in dry-run, keeps live money movement off, and pins
+`PAYMENTS_MODE=v2`.
+
+- **DEPRECATED:** the legacy token-approval flow (`PAYMENTS_MODE` unset or `legacy`) is retired,
+  unsupported and never scheduled. Use `PAYMENTS_MODE=v2` only.
+- Trigger: `pay NNN` (the last 3 digits of the source account, digits only) from an allowlisted
+  sender. Reply `approve`, `approve 1 3`, `cancel 2` or `cancel` above the quoted text.
+- Caps fail closed: R20,000 per payment, R50,000 per day.
+- Full guide, rollout gates (G1, G2, G3), environment variables and operational notes:
+  [docs/PAYMENTS_RUNBOOK.md](docs/PAYMENTS_RUNBOOK.md).

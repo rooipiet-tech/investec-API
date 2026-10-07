@@ -9,8 +9,6 @@ import pytest
 ROOT = Path(__file__).resolve().parent.parent
 RUNBOOK = ROOT / "docs" / "PAYMENTS_RUNBOOK.md"
 
-pytestmark = pytest.mark.xfail(reason="S13 red: docs not written yet", strict=False)
-
 
 @pytest.fixture(scope="module")
 def runbook() -> str:
@@ -18,7 +16,7 @@ def runbook() -> str:
 
 
 def _has(text: str, *needles: str) -> None:
-    low = text.lower()
+    low = re.sub(r"\s+", " ", text.lower())
     for n in needles:
         assert n.lower() in low, n
 

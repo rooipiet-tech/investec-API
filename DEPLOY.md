@@ -6,6 +6,11 @@ container** (`railway.toml` → `Dockerfile`) whose scheduled jobs invoke the CL
 subcommands. All secrets are **Railway environment variables** — never commit a
 `.env` (it stays git-ignored).
 
+> **Payments v2:** the email-triggered batch-approval flow (`PAYMENTS_MODE=v2`) is run by the
+> GitHub Actions workflow `payments-cycle.yml`, not by Railway. Its variables, rollout gates and
+> operational notes are in [docs/PAYMENTS_RUNBOOK.md](docs/PAYMENTS_RUNBOOK.md); the legacy
+> token flow described below is DEPRECATED.
+
 ## 1. Set the Railway Variables
 
 Add these under the service's **Variables** tab. Group / meaning:
