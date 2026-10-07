@@ -75,3 +75,35 @@ Note: `tests/test_payment_v2_cycle.py::test_all_captured_emails_have_no_token_se
 3. Flake ROOT CAUSE: not Message-ID/Date/boundary. The email body carries the subject-tag `[INV-<12 random hex>]` (refs.py instruction ref, hash-derived); 12 hex chars contain 9+ consecutive decimal digits by chance (~1 in 8). Test now masks `[INV-<12hex>]` before the `\d{9,}` scan; the real assertions (no account number/token/secret outside the paste email) are unchanged. 200/200 runs green; the other digit-run tests (cycle no_digit_runs, execute no_9plus, store row) 150/150 green each (they use lookbehind or fixed refs); notify tests use fixed REF.
 4. RS3A-6 unchanged.
 Counts: 3.11 2162 passed 15 skipped (5 consecutive runs identical, no flakes); 3.11+PG 2251 passed 11 skipped; scratch 3.12 CI=true+PG16 2262 passed 0 skipped 0 xfailed. Scratch venv/cluster deleted. Red was confirmed locally (15 failures) before the code change; items 1+2 committed together with their tests so every commit is green.
+
+## Fix round 3 (RS3AF-1..7 and the review blocker): allow-list outcome classifier
+Commits: red (tests xfail) then one green commit. New tests: `tests/test_payment_v2_s3a_fix3.py` (table driven, end to end through `tests/v2_harness.py` in simulated live mode, timing tests for every touched regex).
+
+Final outcome rules (`payments/outcome.py::parse_payment_response`; Status wording is NEVER used to infer authorisation or failure):
+| # | Condition | Outcome | reason | execute.py mapping |
+|---|---|---|---|---|
+| 1 | body or `data` not a dict | unknown | unrecognised_shape | needs_review, reservation kept |
+| 2 | AuthorisationRequired true (bool True or "true", any case) at data or entry level | needs_authorisation | authorisation_required | needs_authorisation, reservation KEPT (finalize release=False; payment may be authorised later online) |
+| 3 | >= 1 reference and an error (data or entry) | unknown | ref_and_error | needs_review |
+| 4 | >= 1 reference, several entries and not all (dict) entries have one | unknown | mixed_entries | needs_review |
+| 5 | >= 1 reference, an entry Status EQUAL (strip/casefold) to failed/declined/rejected/unsuccessful/unsuccessful payment | unknown | status_conflict | needs_review |
+| 6 | >= 1 reference, none of the above | success | ok | executed |
+| 7 | no reference, non-placeholder STRING ErrorMessage | failed | error_message | failed, reservation released, message sanitised (re-instruction allowed) |
+| 8 | no reference, anything else | unknown | no_reference / unrecognised_shape | needs_review |
+Reference = non-empty STRING PaymentReferenceNumber after strip, not a placeholder (none/null/n/a/na/nil/0/false/-/ok). Error = non-empty STRING ErrorMessage after strip, not a placeholder (none/null/n/a/na/nil/0/false/true/ok/no error/no errors/success/successful/-); non-string ErrorMessage values are ignored. 4xx PaymentRejected stays the only other `failed`. Duplicate guard unchanged (needs_review, needs_authorisation, submitting, executed guarded). STATE TABLE: `FINALIZE_RELEASES["needs_authorisation"]` is now False (instructions.py, plan.md amendment, run-created tests updated: store release-mismatch, state-table (j), execute finalize-flag table, needs_authorisation reservation test).
+
+Other items
+* RS3AF-3 `amounts.has_foreign_currency_token`: NFKC fold, format/zero-width characters dropped, whole-word tokens (US, USD, USDT, USDC, BTC, ETH, JPY, yen, CNY, rmb, yuan, INR, rupee(s), MXN, peso(s), dolar(es), dolar with accent, dollar(s), euro(s), pound(s), GBP, EUR, AUD, CAD, NZD, CHF, SGD, HKD, AED, symbols $ euro pound yen rupee) plus runs of single letters split by up to 3 separators (space, tab, . - _ /), consumed once (linear). `R100 per month` stays R100.
+* RS3AF-4 `sanitize_provider_message(text, secrets=())`: NFKC fold, exact configured secrets (any case, optional whitespace between characters), `[a-z_]{0,20}(key|token|secret|passw(or)?d|pwd|authorization|bearer|passphrase)` + value (underscore aware), JWT, AKIA, ghp_/gho_/sk-/tok_ style tokens; every quantifier bounded, input cut to 2000 first. execute.py passes the settings' secret values (`v2_cli.secret_values`) into the parse and into `_failed`.
+* RS3AF-5 `v2_cli.scrub_message`: case-insensitive, whitespace-tolerant value matching plus the shared bearer/secret-word rules (`outcome.redact_secret_words`).
+* RS3AF-6 `cycle._normalised_mailbox`/`_is_shared_inbox`: NFKC, Cf characters dropped, trailing `. / :` stripped; refuses "", INBOX, `INBOX:`, `INBOX.INBOX`, `INBOX/INBOX`; sub-labels (`INBOX.Payments`, `INBOX.INBOX.Payments`) allowed.
+* RS3AF-7 NO CHANGE (reasoned): bootstrap stays marked done on an empty first list. Plan rule TA: persisting the marker is what stops the first beneficiary added LATER from being treated as an already-established payee (it must count as new and be held). Not marking it would make that first payee established the moment it appears; the parked instruction already fails closed.
+
+Deviations / readings
+1. Red commit used a module-level non-strict xfail (a per-test strict marker was not practical for ~300 parametrised cases); the mark was removed in the green commit.
+2. `US` (the bare code) is matched UPPER-CASE only so the pronoun "us" does not park ordinary text; lower-case "usd", "dollars" etc. are still caught.
+3. A non-dict item inside TransferResponses next to a real entry counts as `mixed_entries` (unknown), stricter than "ignore non-dict items" and in the fail-toward-needs_review direction.
+4. needs_authorisation keeps the sanitised entry Status text as `outcome_message` (display only).
+5. Old run-created tests updated to the new rules, intent kept: test_payment_fix_outcome (failure status/err with reference now unknown, wording ignored), test_payment_client_hardening (authorisation beats error), test_payment_v2_s3a_fix (failed cases use a no-reference body), store/state-table/execute release-flag assertions for needs_authorisation. No test existing at 2eee10c was edited.
+
+Counts (fix round 3): 3.11 `uv run pytest -q` 2465 passed 15 skipped; 3.11 + scratch Postgres 16 2554 passed 11 skipped; scratch CPython 3.12.3 venv outside the repo, CI=true, + scratch Postgres 16 (new empty /tmp dir): 2565 passed 0 skipped, three consecutive runs identical. Venv and cluster deleted; uv.lock restored, not committed.
