@@ -5,7 +5,6 @@ import importlib
 
 import pytest
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S7 red: payments/bankdetails.py not built yet")
 
 
 class _Lazy:

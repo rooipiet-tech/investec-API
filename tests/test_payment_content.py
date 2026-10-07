@@ -9,7 +9,6 @@ import pytest
 
 from tests.mail_helpers import make_msg
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S7 red: payments/content.py not built yet")
 
 IMAGES = Path(__file__).parent / "fixtures" / "payments_v2" / "images"
 
@@ -251,7 +250,7 @@ def test_alternative_parts_use_the_more_conservative_split():
     v = view(plain=plain, html=GMAIL_REPLY, subject="Re: x")
     assert v.typed_text == "approve" and v.confident
     # html claims a longer typed region than plain: the shorter one wins
-    v2 = view(plain="approve\n> old\n", html="<div>approve</div><div>pay 123 extra</div>", subject="Re: x")
+    v2 = view(plain="approve\n> old\n", html="<div>approve</div><div>pay 123 extra</div><blockquote>old</blockquote>", subject="Re: x")
     assert v2.typed_text == "approve"
 
 

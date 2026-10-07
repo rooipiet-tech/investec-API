@@ -5,7 +5,6 @@ import pytest
 
 from tests.timing_helper import assert_fast
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S7 red: content/commands/bankdetails not built yet")
 
 TEXT = [
     "'a' * 200000", "'On ' * 70000", "'On x\\n' * 60000", "'From: ' * 40000", "'from: a\\n' * 25000",

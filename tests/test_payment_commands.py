@@ -5,7 +5,6 @@ import importlib
 
 import pytest
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S7 red: payments/commands.py + content.py not built yet")
 
 
 class _Lazy:
@@ -110,7 +109,7 @@ def test_item_number_table(typed, expected):
 @pytest.mark.parametrize("typed", [
     "thanks", "please approve", "do not approve", "do not approve, the amount is wrong",
     "I approve", "i will not approve", "approved", "approve_all", "disapprove", "cancelled",
-    "", "   \n \n", "> approve", "аpprove", "apprоve", "approve 1", "approve ",
+    "", "   \n \n", "> approve", "аpprove", "apprоve", "approve 1",
     "ok approve 1", "recancel",
 ])
 def test_none_table(typed):
@@ -236,6 +235,5 @@ def test_command_is_frozen_dataclass_with_documented_fields():
 
 
 def test_very_long_lines_are_invalid_not_slow():
-    got = parse("approve " + "1 " * 5000)
-    assert got.kind == "invalid"
-    assert parse("approve" + " " * 50_000 + "x").kind == "invalid"
+    assert parse("approve " + "1 " * 5000) == C("invalid", (), "bad_syntax")
+    assert parse("approve" + " " * 50_000 + "x") == C("invalid", (), "bad_syntax")

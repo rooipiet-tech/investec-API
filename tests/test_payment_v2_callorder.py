@@ -13,7 +13,6 @@ import pytest
 
 from tests.mail_helpers import make_msg
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S7 red: content.py not built yet")
 
 IMAGES = Path(__file__).parent / "fixtures" / "payments_v2" / "images"
 ALLOW = frozenset({"piet@example.com"})
