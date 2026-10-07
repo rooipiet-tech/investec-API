@@ -324,8 +324,12 @@ def build_problem_email(
                  f"Investec message: {sanitize_provider_message(provider_message)}",
                  "It will not be resent automatically. A new attempt needs a fresh instruction and a new approval."]
     elif kind == "needs_review":
-        lines = ["The outcome of this payment is unknown and it MAY HAVE BEEN PAID.", code,
-                 "Check the account before sending it again. It will not be resent automatically."]
+        lines = ["The outcome of this payment is unknown and it MAY HAVE BEEN PAID.", code]
+        shown = sanitize_provider_message(provider_message)
+        if shown:
+            lines.append(f"Investec returned an error: {shown}. It may not have been paid. "
+                         "Check Investec Online before sending again.")
+        lines += ["Check the account before sending it again. It will not be resent automatically."]
     elif kind == "parked":
         lines = ["Your instruction was not turned into a payment and nothing was paid.", code,
                  "Send a new, corrected instruction if you still want it processed."]

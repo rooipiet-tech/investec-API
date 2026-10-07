@@ -3,19 +3,22 @@
 Stdlib only. Imported lazily by ``investec_client`` to avoid a circular import.
 
 Mapping of a decoded HTTP 200 body (``parse_payment_response``): an ALLOW-LIST design that fails toward
-``needs_review``. Money may have moved on any 200, so ``failed`` (reservation released, re-instructable) is reserved
-for a DEFINITE rejection and ``unknown`` is never auto-resent (a caller treats it like ``PaymentUnknownOutcome``).
-Free-text ``Status`` wording is NEVER used to infer authorisation or failure (the documented success status is
-"No authorisation necessary ..."; "Processed - no errors" and "Not declined" contain fail words).
+``needs_review``. DECISION (until the G2 sandbox run shows real Investec failure bodies): a 200 response is NEVER
+``failed``. Money may have moved on any 200, so only a strict reference can make ``success``, an explicit
+authorisation flag makes ``needs_authorisation``, and EVERYTHING ELSE is ``unknown`` (needs_review: reservation
+kept, never resent, never released). ``failed`` (reservation released, re-instructable, message shown) is produced
+ONLY by a definite HTTP 4xx ``PaymentRejected`` (see ``investec_client._post_once`` and ``execute``): 408, 429 and
+5xx stay unknown. Free-text ``Status`` wording is NEVER used to infer authorisation or failure (the documented
+success status is "No authorisation necessary ..."; "Processed - no errors" and "Not declined" contain fail words).
 
 * a *strict reference* (the only thing that can make ``success``) is a non-empty STRING entry-level
   ``PaymentReferenceNumber`` that is not a placeholder. Placeholders are compared after NFKC, dropping Unicode format
   characters (Cf), casefold and stripping leading/trailing punctuation: none/null/n/a/na/nil/0/false/ok ("N/A.", "OK!").
   A *reference-like* value is ANY key (data, entry, nested dicts/lists, any depth) whose folded name contains ``ref`` with a
   present value of ANY type (text that is not blank/punctuation-only/placeholder, nonzero number, non-empty list/dict).
-* an *error* is a non-empty non-placeholder STRING ``ErrorMessage`` (data or entry level); placeholders: none/null/n/a/na/
-  nil/0/false/true/ok/no error(s)/success(ful). An error that CONTAINS a success-sounding word (success*, processed,
-  complete(d), approved, accepted, paid, done, ok, no error(s), without error(s)) is not a definite failure.
+* an *error text* is a non-empty non-placeholder STRING ``ErrorMessage`` (data or entry level); placeholders: none/null/
+  n/a/na/nil/0/false/true/ok/no error(s)/success(ful). It only decides whether the owner's needs_review email carries
+  the (sanitised) provider message; it never decides the outcome.
 
 1. body or ``data`` not a dict                           -> ``unknown`` (``unrecognised_shape``)
 2. ``AuthorisationRequired`` true (bool or "true") at data or entry level -> ``needs_authorisation``
@@ -26,9 +29,8 @@ Free-text ``Status`` wording is NEVER used to infer authorisation or failure (th
    reference -> ``unknown`` (``mixed_entries``); an entry ``Status`` EQUAL (strip/casefold, not substring) to
    failed/declined/rejected/unsuccessful/"unsuccessful payment" -> ``unknown`` (``status_conflict``); else ``success``
 5. reference-like content but no strict reference -> ``unknown`` (``ref_and_error`` / ``reference_unrecognised``)
-6. no reference-like content: a non-placeholder error without success-sounding words -> ``failed`` (``error_message``,
-   sanitised); an error with success-sounding words -> ``unknown`` (``error_sounds_like_success``); else ``unknown``
-   (``no_reference`` / ``unrecognised_shape``)
+6. anything else -> ``unknown`` (``error_message`` when an error text exists, carrying the sanitised message;
+   else ``no_reference`` / ``unrecognised_shape``)
 
 Response field names are UNVERIFIED until the G2 sandbox run.
 """
@@ -188,16 +190,13 @@ class PaymentOutcome:
     status: str            # "success" | "failed" | "needs_authorisation" | "unknown"
     reference: str | None  # PaymentReferenceNumber when present
     reason: str            # short code, never raw body
-    message: str           # F40: sanitised provider text for failed/needs_authorisation, "" otherwise
+    message: str           # F40: sanitised provider text (error_message / needs_authorisation), "" otherwise
 
 
 _REF_PLACEHOLDERS = frozenset({"none", "null", "n/a", "na", "nil", "0", "false", "ok"})
 _ERROR_PLACEHOLDERS = frozenset({"none", "null", "n/a", "na", "nil", "0", "false", "true", "ok", "no error", "no errors",
                                  "success", "successful"})
 _FAILURE_STATUSES = frozenset({"failed", "declined", "rejected", "unsuccessful", "unsuccessful payment"})
-# An error text that sounds like success is NOT a definite failure ("No error.", "Payment processed successfully").
-_SUCCESS_WORDS = re.compile(
-    r"\b(?:success\w*|processed|complete[d]?|approved|accepted|paid|done|ok|no errors?|without errors?)\b")
 _SHORT = 64            # no placeholder or failure status is longer than this
 _FOLD_CUT = 5000       # untrusted text is cut to this before any fold; a longer value that folds to nothing is "present"
 _MAX_NODES = 200_000   # body walk bounds (linear): beyond either the body is ambiguous
@@ -259,10 +258,6 @@ def _error(holder: dict) -> str | None:
     return raw
 
 
-def _sounds_like_success(text: str) -> bool:
-    return _SUCCESS_WORDS.search(unicodedata.normalize("NFKC", text[:_FOLD_CUT]).casefold()) is not None
-
-
 def _value_present(value: object) -> bool:
     """A reference-like value of ANY type: non-empty non-placeholder text, nonzero number, non-empty list/dict."""
     if isinstance(value, str):
@@ -309,7 +304,8 @@ def _status_text(entry: dict) -> str:
 def parse_payment_response(body: object, *, strict: bool = True, secrets=()) -> PaymentOutcome:
     """Interpret a decoded 200 body (module docstring for the allow-list). ``strict`` is accepted for symmetry only.
 
-    Anything not positively recognised is ``unknown`` (never ``failed``): the POST was already sent."""
+    Anything not positively recognised is ``unknown`` (never ``failed``): the POST was already sent. ``message`` is the
+    sanitised provider text for ``unknown``/``error_message`` and ``needs_authorisation``."""
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, dict):
         return PaymentOutcome("unknown", None, "unrecognised_shape", "")
@@ -342,8 +338,6 @@ def parse_payment_response(body: object, *, strict: bool = True, secrets=()) -> 
         return PaymentOutcome("success", next(r for r in refs if r), "ok", "")
     if ref_like:                                   # a reference-like value we do not recognise: money may have moved
         return PaymentOutcome("unknown", None, "ref_and_error" if errors else "reference_unrecognised", "")
-    if errors:
-        if any(_sounds_like_success(x) for x in errors):
-            return PaymentOutcome("unknown", None, "error_sounds_like_success", "")
-        return PaymentOutcome("failed", None, "error_message", sanitize_provider_message(errors[0], secrets))
+    if errors:                                     # a 200 is never "failed": carry the message for the owner's email
+        return PaymentOutcome("unknown", None, "error_message", sanitize_provider_message(errors[0], secrets))
     return PaymentOutcome("unknown", None, "no_reference" if entries else "unrecognised_shape", "")

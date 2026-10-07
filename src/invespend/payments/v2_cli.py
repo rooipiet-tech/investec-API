@@ -40,15 +40,18 @@ def secret_values(settings: object) -> list[str]:
 def scrub_message(text: str, settings: object) -> str:
     """Replace every secret-looking settings value (matched case-insensitively, whitespace runs equivalent, so a value
     split across a newline or upper-cased is still caught), then bearer / secret-word / JWT / token-like values, then
-    every 6+ digit run (T15, R4-T5). The text is cut to 5000 characters and NFKC-folded (format characters dropped)
+    every 6+ digit run, address and 24+ character token (T15, R4-T5). The text is cut to 5000 characters and NFKC-folded (format characters dropped)
     before redaction. Used for the error envelope."""
-    from .outcome import REDACTED, SCRUB_CUT, fold_text, redact_secret_words, secret_value_pattern
+    from .outcome import _ADDRESS, _DIGITS, _TOKEN, REDACTED, SCRUB_CUT, fold_text, redact_secret_words, secret_value_pattern
 
     out = fold_text(str(text)[:SCRUB_CUT])      # bound first (linear), then NFKC + drop zero-width / format characters
     pattern = secret_value_pattern(secret_values(settings))
     if pattern is not None:
         out = pattern.sub(REDACTED, out)
+    out = _ADDRESS.sub(REDACTED, out)
     out = redact_secret_words(out)
+    out = _TOKEN.sub(REDACTED, out)             # 24+ character tokens (same rule as sanitize_provider_message)
+    out = _DIGITS.sub(REDACTED, out)
     return _LONG_DIGITS.sub(REDACTED, out)
 
 

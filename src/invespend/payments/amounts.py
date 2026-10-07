@@ -89,6 +89,16 @@ _AMBIGUOUS_WORD = re.compile(
 )
 _UPPER_CODE = re.compile(r"(?<!" + _LETTER + r")[A-Z]{3}(?!" + _LETTER + r")")
 _GLUED_CODE = re.compile(r"(?<=\d)[A-Za-z]{3}(?!" + _LETTER + r")|(?<!" + _LETTER + r")[A-Za-z]{3}(?=\d)")
+# RS3AF4-2: a lower / mixed-case ISO code IMMEDIATELY after a labelled or marked figure (same line, at most 2 blanks:
+# ``Amount: 100 sek``, ``R100 usd``, ``amount 100 nok``). Ordinary lower-case words elsewhere do not park; a word that is
+# also a code stays unparked in lower / mixed case (``_CODE_WORD_COLLISIONS``).
+_FIGURE_THEN_CODE = re.compile(
+    r"(?:(?<![A-Za-z0-9])amount[\s:=]{0,3}(?:(?:R|ZAR)[ \t]?)?|(?<![A-Za-z0-9\-/#_.])(?:R|ZAR)[ \t]?)"
+    + _NUM + r"[ \t]{0,2}(?P<code>[A-Za-z]{3})(?![A-Za-z])", re.ASCII | re.IGNORECASE)
+# ISO codes that are also ordinary English words / common first names: NOT parked by the adjacent lower-case rule
+# (``Amount: R100 try again``, ``R100 all good``, ``R100 Bob``); their UPPER-CASE spelling still parks (rule above).
+_CODE_WORD_COLLISIONS = frozenset(("ALL", "TOP", "TRY", "BOB", "PEN", "COP", "MAD", "CUP", "SOS", "RON", "RUB", "MOP", "GEL",
+                                   "BAM", "DOP"))
 _LETTER_RUN = re.compile(r"(?<!" + _LETTER + r")" + _LETTER + r"(?:[\s.\-_/]{1,3}" + _LETTER + r")+")
 _SPLIT_TOKENS = ("US", "USDT", "USDC", "USD", "BTC", "ETH", "JPY", "CNY", "RMB", "INR", "MXN", "GBP", "EUR", "AUD",
                  "CAD", "NZD", "CHF", "SGD", "HKD", "AED", "YEN")
@@ -119,6 +129,9 @@ def has_foreign_currency_token(text: str) -> bool:
     if any(m.group() in ISO_4217_CODES for m in _UPPER_CODE.finditer(folded)):
         return True
     if any(m.group().upper() in ISO_4217_CODES for m in _GLUED_CODE.finditer(folded)):
+        return True
+    if any(m.group("code").upper() in ISO_4217_CODES and m.group("code").upper() not in _CODE_WORD_COLLISIONS
+           for m in _FIGURE_THEN_CODE.finditer(folded)):
         return True
     for run in _LETTER_RUN.finditer(folded):
         letters = "".join(ch for ch in run.group() if ch.isalpha()).upper()

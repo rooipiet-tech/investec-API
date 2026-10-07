@@ -7,8 +7,9 @@ balance, caps, the claim CAS, then the POST OUTSIDE any database transaction. Dr
 
 Outcome mapping is POSITIVE about "not sent": only ``PaymentNotSent`` (the client's pre-send token fetch failed)
 releases the reservation and parks; every other exception after the claim is ``needs_review`` with the reservation
-kept and the payment NEVER resent. ``failed`` (release) is ONLY a definite rejection (4xx ``PaymentRejected`` or an
-error message with no payment reference); ``needs_authorisation`` KEEPS the reservation (the payment may be authorised
+kept and the payment NEVER resent. A 200 response is never ``failed`` (until the G2 sandbox run shows real failure
+bodies): ``failed`` (release) is ONLY a definite 4xx ``PaymentRejected``; a 200 with an error text and no reference is
+``needs_review`` and the sanitised text goes in the owner's email. ``needs_authorisation`` KEEPS the reservation (the payment may be authorised
 later in Investec Online and then moves money). Every exit from ``submitting`` is ONE ``store.finalize`` call.
 """
 from __future__ import annotations
@@ -213,15 +214,14 @@ def execute_instruction(settings, store, audit, client, record: dict, *, mode: s
             audit.append("executed", {"ref": ref, "execution_mode": "live", "result": "success"})
             outcome_email("success")
         return "executed:live"
-    if outcome.status == "failed":
-        return _failed(settings, store, audit, smtp_send, row, now, outcome.message, outcome.reason, secrets)
     if outcome.status == "needs_authorisation":
         if _finalize(store, audit, row, "needs_authorisation", release=False, now=now, code="authorisation_required",
                      message=outcome.message):
             audit.append("needs_authorisation", {"ref": ref})
             _problem(settings, smtp_send, audit, row, "needs_authorisation", "authorisation_required")
         return "needs_authorisation"
-    return _needs_review(settings, store, audit, smtp_send, row, now, outcome.reason or "unknown")
+    return _needs_review(settings, store, audit, smtp_send, row, now, outcome.reason or "unknown",
+                         outcome.message if outcome.reason == "error_message" else "")
 
 
 def _failed(settings, store, audit, smtp_send, row, now, message, code, secrets=()) -> str:
@@ -233,9 +233,10 @@ def _failed(settings, store, audit, smtp_send, row, now, message, code, secrets=
     return "failed"
 
 
-def _needs_review(settings, store, audit, smtp_send, row, now, code) -> str:
+def _needs_review(settings, store, audit, smtp_send, row, now, code, provider_message: str = "") -> str:
     safe = "".join(ch for ch in str(code).lower() if ch.isalnum() or ch == "_")[:40] or "unknown"
     if _finalize(store, audit, row, "needs_review", release=False, now=now, code=safe):
         audit.append("needs_review", {"ref": request_ref(row["instruction_id"]), "reason": safe})
-        _problem(settings, smtp_send, audit, row, "needs_review", safe)
+        _problem(settings, smtp_send, audit, row, "needs_review", safe,
+                 provider_message=sanitize_provider_message(provider_message) or None)
     return "needs_review"

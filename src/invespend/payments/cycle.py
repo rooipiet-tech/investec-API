@@ -117,8 +117,10 @@ def _normalised_mailbox(name: object) -> str:
 def _is_shared_inbox(name: object) -> bool:
     """True for ``""``, ``INBOX`` and any spelling that only repeats it (``INBOX.INBOX``, ``INBOX/INBOX``, the same
     in modified UTF-7), and for any name carrying a backslash, ``*`` or ``%`` (RS3AF3-5: wildcards / escapes could
-    select the shared inbox)."""
+    select the shared inbox) or a control character (``\\x00``-``\\x1f``, ``\\x7f``: a server may truncate at NUL)."""
     raw = str(name or "")
+    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw + _decode_utf7(raw)):      # RS3AF4-4: NUL / any control character, never dedicated
+        return True
     if any(ch in _MAILBOX_FORBIDDEN for ch in raw) or any(ch in _MAILBOX_FORBIDDEN for ch in _normalised_mailbox(raw)):
         return True
     parts = [p for p in _MAILBOX_DELIMS.split(_normalised_mailbox(name)) if p]
