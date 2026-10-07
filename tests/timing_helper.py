@@ -18,9 +18,9 @@ def assert_fast(setup: str, call: str, *, limit: float = LIMIT_S, kill_after: fl
         """
         import time
         {setup}
-        t = time.perf_counter()
+        _t0 = time.perf_counter()
         {call}
-        print(time.perf_counter() - t)
+        print(time.perf_counter() - _t0)
         """
     ).format(setup=textwrap.indent(textwrap.dedent(setup), "").strip(), call=call)
     try:
