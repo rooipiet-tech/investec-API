@@ -13,8 +13,6 @@ ROOT = Path(__file__).resolve().parent.parent
 WF_DIR = ROOT / ".github" / "workflows"
 WF = WF_DIR / "payments-cycle.yml"
 
-pytestmark = pytest.mark.xfail(reason="S12 red: workflow not added yet", strict=False)
-
 
 @pytest.fixture(scope="module")
 def wf() -> dict:

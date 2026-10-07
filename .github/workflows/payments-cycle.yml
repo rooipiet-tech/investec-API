@@ -1,0 +1,78 @@
+name: payments-cycle
+
+# Email-triggered payments, v2 batch-approval cycle. DRY-RUN by default, live is OFF.
+# The job is skipped unless the repository VARIABLE PAYMENTS_CYCLE_ENABLED is exactly 'true'
+# (unset = off, so merging this file runs nothing). Secrets live in the GitHub Environment
+# "payments", which must be restricted to the main branch. See docs/PAYMENTS_RUNBOOK.md.
+on:
+  schedule:
+    # Every 15 minutes, offset from ingest.yml (02:00 UTC): init_db's migration 0010 takes an
+    # AccessExclusive lock on tables the cycle also uses, so the two crons must not coincide.
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch: {}    # allow manual runs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: payments-cycle
+  cancel-in-progress: false   # cycles never overlap and a running cycle is never cut off
+
+jobs:
+  cycle:
+    if: ${{ vars.PAYMENTS_CYCLE_ENABLED == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: payments
+    env:
+      # Pinned, literal: the scheduled job can only ever run the v2 flow (legacy is retired).
+      PAYMENTS_MODE: v2
+      PAYMENTS_STATE_BACKEND: postgres
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      PAYMENTS_FINGERPRINT_KEY: ${{ secrets.PAYMENTS_FINGERPRINT_KEY }}
+      INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+      INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+      INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+      INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
+      IMAP_HOST: ${{ secrets.IMAP_HOST }}
+      IMAP_PORT: ${{ secrets.IMAP_PORT }}
+      IMAP_USER: ${{ secrets.IMAP_USER }}
+      IMAP_PASSWORD: ${{ secrets.IMAP_PASSWORD }}
+      SMTP_HOST: ${{ secrets.SMTP_HOST }}
+      SMTP_PORT: ${{ secrets.SMTP_PORT }}
+      SMTP_USER: ${{ secrets.SMTP_USER }}
+      SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+      REPORT_SENDER: ${{ secrets.REPORT_SENDER }}
+      # A dedicated mailbox / label the bot reads (the IMAP fetch marks mail as read).
+      IMAP_MAILBOX: ${{ vars.IMAP_MAILBOX }}
+      PAYMENTS_ALLOWED_SENDERS: ${{ vars.PAYMENTS_ALLOWED_SENDERS }}
+      PAYMENTS_AUTHSERV_ID: ${{ vars.PAYMENTS_AUTHSERV_ID }}
+      # Caps (rand). Unset or malformed fails closed: nothing passes.
+      PER_PAYMENT_CAP: ${{ vars.PER_PAYMENT_CAP }}
+      DAILY_AGGREGATE_CAP: ${{ vars.DAILY_AGGREGATE_CAP }}
+      # Optional override of the new-beneficiary hold; unset keeps the code default.
+      PAYMENTS_HOLD_HOURS: ${{ vars.PAYMENTS_HOLD_HOURS }}
+      # Image reading: key from the secrets context only; the model id is a repo variable.
+      # Either one empty means images are skipped.
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      IMAGE_EXTRACTOR_MODEL: ${{ vars.IMAGE_EXTRACTOR_MODEL }}
+      # Live stays off unless a human sets the variable AND adds write-scoped secrets.
+      PAYMENTS_LIVE_ENABLE: ${{ vars.PAYMENTS_LIVE_ENABLE || 'false' }}
+      INVESTEC_WRITE_CLIENT_ID: ${{ secrets.INVESTEC_WRITE_CLIENT_ID }}
+      INVESTEC_WRITE_CLIENT_SECRET: ${{ secrets.INVESTEC_WRITE_CLIENT_SECRET }}
+      INVESTEC_WRITE_API_KEY: ${{ secrets.INVESTEC_WRITE_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Refuse anything but the v2 flow
+        run: test "$PAYMENTS_MODE" = "v2"
+
+      - name: Run one payments cycle (dry-run unless live is separately enabled)
+        run: invespend approve-payments --dry-run --once
