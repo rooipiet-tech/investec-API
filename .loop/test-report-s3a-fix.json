@@ -1,0 +1,16 @@
+{
+  "slice": "3A", "step": "A after fix rounds", "head": "6f645dd", "base": "2eee10c",
+  "py311": {"runs": ["2162 passed, 15 skipped", "2162 passed, 15 skipped", "2162 passed, 15 skipped"], "flaky": false},
+  "py312_CI": {"runs": ["2173 passed, 4 skipped", "2173 passed, 4 skipped", "2173 passed, 4 skipped"], "wall_s_total": 107, "flaky": false},
+  "postgres16": {"cluster": "scratch under /tmp, deleted", "migrations_twice": "ok", "init_db_twice": "ok",
+    "db_gated_full_suite": {"py311": "2251 passed, 11 skipped (none DB-gated)", "py312_CI": "2262 passed, 0 skipped"},
+    "checks": ["status CHECK rejects bogus", "NOT NULL enforced", "RLS on all payment tables, 14 deny policies, non-owner role denied", "claim race: exactly one winner (test)", "two approve_item race: ['ok','not_awaiting']", "approve-vs-cancel race test passes"]},
+  "frozen_vs_2eee10c": {"frozen_files_unchanged": true, "db": "A 0013 only", "github_pyproject": "unchanged",
+    "cli.py": "+7/-0", "config.py": "+120/-2 (deleted lines are only the two PER_PAYMENT_CAP/DAILY_AGGREGATE_CAP float lines replaced by _opt_cap)",
+    "payments/audit.py": "+1/-0", "existing_tests_modified": ["tests/test_beneficiary_migration.py (-1 assert, 1 assert relaxed to subset)"],
+    "also_modified_src_not_listed_in_brief": ["investec_client.py +95/-14", "payments/accounts.py +25", "payments/beneficiaries.py +22", "payments/caps.py +32/-5"],
+    "help_byte_identical_to_baseline": true, "legacy_sha256_pins": "pass"},
+  "sanity_script": "24/24 scenarios pass (RS3A-1 repro, unknown, failed, 500/timeout, dry-run, caps, currency, hold, mailbox, empty list, e2e approve + no-ops)",
+  "inert_prod": "no workflow/Dockerfile/railway/DEPLOY reference to PAYMENTS_MODE",
+  "verdict": "pass"
+}
