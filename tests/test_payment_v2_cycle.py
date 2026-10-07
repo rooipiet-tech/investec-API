@@ -616,7 +616,10 @@ def test_all_captured_emails_have_no_token_secret_or_full_account_number_except_
         if "Add this beneficiary" in str(m["Subject"]):
             continue
         assert "1234567890" not in text and "5550001111" not in text and "sk-ant" not in text and "test-fingerprint-key" not in text
-        assert not re.search(r"\d{9,}", text)
+        # the informational instruction tag [INV-<12 random hex>] is a hash-derived reference, not an account
+        # number: 9+ consecutive decimal digits occur in it by chance (~1 run in 8), so mask it before the scan
+        scan = re.sub(r"\[INV-[0-9a-f]{12}\]", "[INV-REF]", text)
+        assert not re.search(r"\d{9,}", scan)
 
 
 def test_no_reminder_or_confirm_request_email_is_ever_sent(env):
