@@ -1,0 +1,9 @@
+{"step":"s3b","range":"029d2ef^..663b6d1","rating":"LOW","blockers":0,
+"secrets":"none; .env git-ignored; .env.example blank placeholders; docs clean",
+"sql_change":"none","new_dependencies":"none (requests already present)",
+"findings":[
+{"sev":"info","msg":"images_claude: fixed HTTPS URL, key only in x-api-key header, repr hides key, errors reduced to class name/status code, strict JSON (no NaN), size/mime sniff gate, retries capped at 2 for timeouts/5xx only (extraction is read-only so no double-act); output is a raw mapping gated by images.validate_extraction."},
+{"sev":"low","msg":"Workflow passes INVESTEC_WRITE_* secrets into the job env even though the step is hard-coded --dry-run; consider omitting until live is enabled."},
+{"sev":"low","msg":"Workflow: no PR/fork triggers (schedule + dispatch only), permissions contents:read, no expression injection (secrets/vars only in env), gated by vars.PAYMENTS_CYCLE_ENABLED=='true', environment payments (must be restricted to main in repo settings, not enforceable from file), actions pinned by tag not SHA, cron offset from ingest 02:00."},
+{"sev":"low","msg":"Live cannot be enabled by var alone: step runs invespend approve-payments --dry-run, so a human must edit the workflow."}
+]}
