@@ -14,7 +14,7 @@ import re
 
 from .mode import KNOWN_MODES, payments_mode
 
-_SECRET_NAME = re.compile(r"secret|password|token|key|database_url|api_key", re.IGNORECASE)
+_SECRET_NAME = re.compile(r"secret|password|pass|token|key|database_url|api_key|imap_user|smtp_user", re.IGNORECASE)
 _LONG_DIGITS = re.compile(r"\d{6,}")
 
 

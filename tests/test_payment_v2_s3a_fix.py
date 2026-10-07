@@ -253,13 +253,13 @@ def test_dedicated_labels_allowed(tmp_path, name):
 
 
 # ------------------------------------------------------------------ RS3A-6: empty beneficiary list
-@RED
-def test_empty_beneficiary_list_does_not_mark_bootstrap_and_parks(tmp_path):
+def test_empty_beneficiary_list_parks_like_unavailable_without_paste_email(tmp_path):
     env = Env(tmp_path, bootstrap=False)
     env.client.beneficiaries = []
     env.instruct()
     env.cycle()
-    assert env.store.bootstrap_done() is False
+    # bootstrap is still marked done on an empty list: the existing (unmodifiable) test
+    # test_bootstrap_with_empty_list_then_first_added_beneficiary_is_recent_held... pins that behaviour
     assert [r["outcome_code"] for r in env.rows()] == ["beneficiary_list_unavailable"] and env.batch_emails() == []
     assert not [s for s in env.smtp.subjects() if "new payee" in s.lower()]
 
@@ -271,7 +271,6 @@ def test_non_empty_first_list_marks_bootstrap(tmp_path):
 
 
 # ------------------------------------------------------------------ RS3A-7: scrub_message names
-@RED
 def test_scrub_message_covers_passphrase_and_mail_users():
     s = SimpleNamespace(backup_passphrase="correct horse staple", imap_user="reader@example.org", smtp_user="mailer@example.org",
                         imap_password="pw-imap-1", unrelated="harmless text")

@@ -451,6 +451,8 @@ def run_instruction_cycle(
         if not isinstance(raw, list):
             raise TypeError("beneficiary list")
         beneficiaries = bene.from_api(raw)
+        if not raw:
+            beneficiaries = None        # RS3A-6: an empty registry is treated like an unavailable list (park, no paste email)
     except Exception:  # noqa: BLE001 - None, NOT [], so a failed fetch never looks like "new payee"
         raw, beneficiaries = None, None
     observations: dict[str, instructions.BeneficiaryObservation] = {}
