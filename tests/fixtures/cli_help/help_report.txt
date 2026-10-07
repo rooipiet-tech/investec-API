@@ -1,0 +1,5 @@
+usage: invespend report [-h] [--send]
+
+options:
+  -h, --help  show this help message and exit
+  --send      Email the report

@@ -13,6 +13,7 @@
     "it1-replan: human confirmed batch approval + items 13-16 (decisions Amendment 3); spec v1.2.0 (48 criteria; F43-F48 added). Replanning for batch approval (hold default 0h; Q10 Claude vision configurable; no tokens).",
     "it1-plan: batch-approval replan (r7) APPROVED by plan-review gate (0 blockers); R7-T1..T14 folded. Awaiting human go-ahead for build slice 1 (S0-S6). Confirmations open: C1 cancel semantics, C7 pay-key scope, C9 R20k vs R30k.",
     "it1-plan: human approved C1 (cancel semantics) and changed C9: per-payment cap R20,000 (daily R50,000) (decisions Amendment 4; spec text F18/Q7 amended). C7 pay-key scope explained, pending. Awaiting go-ahead for slice 1.",
-    "it1-build: human decided C7 keep one key (F27 not pursued) and approved build of slice 1 (S0-S6)."
+    "it1-build: human decided C7 keep one key (F27 not pursued) and approved build of slice 1 (S0-S6).",
+    "it1-S0: baseline help refreshed at 2eee10c (BASE_SHA full sha, captures byte-identical to prior, CPython 3.12.3 scratch venv, deterministic); fixtures copied to tests/fixtures/cli_help; floor measured 330 passed."
   ]
 }

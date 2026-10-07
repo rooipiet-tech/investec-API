@@ -1,0 +1,7 @@
+usage: invespend statements [-h] [--send] [--days DAYS]
+
+options:
+  -h, --help   show this help message and exit
+  --send       Email the statements (one attachment per account)
+  --days DAYS  Trailing window in days; omit for full history (account's first
+               transaction → today, the default)
