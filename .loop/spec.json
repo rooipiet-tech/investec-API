@@ -185,7 +185,7 @@
     },
     {
       "id": "F27",
-      "text": "Credential scope split (Q9, resolved yes for now): live mode uses a separate payment-only Investec credential distinct from the read credential used for ingest/report; read credential never performs writes. Note: listing beneficiaries needs the same scope as paying, so the read/ingest key may keep that scope; split has limited value and may be removed later if it does not work.",
+      "text": "[NOT PURSUED by human decision 2026-10-07, decisions.md Amendment 5: keep ONE Investec key] Credential scope split (Q9, resolved yes for now): live mode uses a separate payment-only Investec credential distinct from the read credential used for ingest/report; read credential never performs writes. Note: listing beneficiaries needs the same scope as paying, so the read/ingest key may keep that scope; split has limited value and may be removed later if it does not work.",
       "priority": "Should",
       "verify": "pytest: dry-run builds client with read credential; live uses payment_credentials(); config docs list distinct env vars and the beneficiary-listing scope note."
     },
@@ -384,7 +384,7 @@
       "q": "Separate payment-scoped Investec credential?",
       "recommended_default": "Yes: separate pay key used only in live mode; read key for everything else.",
       "status": "resolved",
-      "resolution": "Resolved: yes, separate payment-only credential for now; F27 stays Should; beneficiary listing needs same scope."
+      "resolution": "Resolved (amended 2026-10-07): keep ONE key; no separate pay credential in this run (existing credential selection unchanged)."
     },
     {
       "id": "Q10",
@@ -447,5 +447,6 @@
   ],
   "amendment_2": "Human decision (after plan-review rounds 1-3): RETIRE the legacy token-approval flow instead of fixing it. F20 and F21 are DROPPED (retired by human decision); replaced by F42. Rationale: the v2 flow authenticates by sender and does not use approval tokens; fixing the legacy flow (emailing approval tokens to the owner) created a bot-approves-its-own-payments loop and quoted-token approval risk and would break existing tests; nothing deploys the legacy flow.",
   "amendment_3": "Human confirmations in .loop/decisions.md 'Amendment 3' (BINDING), with Amendment 2 answers: BATCH APPROVAL confirmed (every payment waits for an authenticated approval reply; one batch email per 15-minute cycle when new items are ready; 'approve' / 'approve 1 3' / 'cancel 2'; approved items execute next cycle; unapproved expire after 24h; sender checks only); new-beneficiary hold configurable default 0h; Q10 Claude vision via requests with configurable model; items 13-16 resolved. Amends F2, F12-F16, F22, F23, F25, F32, F35, F37-F41; adds F43-F48. All other criteria unchanged.",
-  "amendment_4": "Human 2026-10-07: C1 cancel semantics approved as planned (bare 'cancel' cancels the whole batch's unclaimed items; 'cancel N'; honoured even when the reply layout is unparsable; approve stays strict). C9: per-payment cap changed to R20,000 (daily stays R50,000). See decisions.md Amendment 4."
+  "amendment_4": "Human 2026-10-07: C1 cancel semantics approved as planned (bare 'cancel' cancels the whole batch's unclaimed items; 'cancel N'; honoured even when the reply layout is unparsable; approve stays strict). C9: per-payment cap changed to R20,000 (daily stays R50,000). See decisions.md Amendment 4.",
+  "amendment_5": "Human 2026-10-07: C7 keep one key; slice 1 build approved."
 }

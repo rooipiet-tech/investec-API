@@ -38,3 +38,7 @@ APPROVED the spec subject to these decisions:
 - C1 APPROVED: cancel semantics as in the plan: a batch-linked reply whose first line is a bare 'cancel' cancels every item of that batch not yet claimed; 'cancel N..' cancels the listed items; both honoured even when the reply layout is unparsable (raw first line), because cancel only reduces payments; approve stays strict (confident typed first line only, no fallback). Not-understood notices state that already-approved items WILL still run next cycle unless cancelled.
 - C9 CHANGED: per-payment cap R20,000 (was R30,000); daily aggregate stays R50,000. Matches the community-documented (unverified) Investec API per-payment limit. Fail-closed if unset in env.
 - C7 (pay-key scope): human asked for an explanation; decision pending (not blocking slice 1).
+
+## Amendment 5 (human, 2026-10-07) — BINDING
+- C7 DECIDED: KEEP ONE Investec key (option 1). No separate payment-only credential is introduced by this run. Live mode keeps the existing credential selection (settings.payment_credentials(): an already-configured write trio if present, else the main key declared payment-capable via INVESTEC_PAYMENTS_ENABLED). F27 (credential scope split, Should) is therefore not pursued / N/A. The caps, batch approval and sender checks live in our code; Investec itself does not enforce them. Follow-up (separate task, not now): move the beneficiary-list fetch out of ingest so the ingest key could drop the payment permission.
+- BUILD GO-AHEAD: slice 1 (S0-S6) approved to build.
