@@ -8,7 +8,6 @@ import pytest
 from tests.notify_cases import body, render_all
 from tests.timing_helper import assert_fast
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S2 fix R3 red: separator class not broadened yet")
 
 FORMS = ["1234/5678/9012", "1234.5678.9012", "1234_5678_9012", "1234 5678 9012", "acct 1234567890",
          "1234-5678-9012", "1234 - 5678 - 9012", "1234. 5678. 9012", "12/34/56/78/90", "1 2 3 4 5 6 7 8 9",

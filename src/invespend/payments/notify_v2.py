@@ -36,7 +36,8 @@ CANCEL_CAVEAT = (
 NOT_PROVIDED = "(not provided)"
 
 _SAST = timezone(timedelta(hours=2))
-_LONG_NUMBER = re.compile(r"\d(?:[ \-]?\d){8,}")
+# 9+ digits with up to three separator chars (space - . / _) between digits: masked in third-party fields
+_LONG_NUMBER = re.compile(r"\d(?:[ \-./_]{0,3}\d){8,}")
 _CODE = re.compile(r"[a-z0-9_]{1,40}")
 _FIGURE_SOURCES = ("typed", "attachment", "image")
 _PROBLEM_KINDS = ("failed", "needs_review", "parked", "needs_authorisation", "resend", "cycle_failed")
