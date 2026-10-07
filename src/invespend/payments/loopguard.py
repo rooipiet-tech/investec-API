@@ -23,6 +23,9 @@ SUBJECT_REPLY_PREFIXES = (
     "vs:", "aw:", "sv:", "antw:", "odp:",
 )
 OWN_MSGID_RE = re.compile(r"\.invespend-notification(\.[^@]*)?@")
+# RFC 5322 line limit: the (attacker-controlled) id is cut before the unanchored
+# search so matching is linear in a bounded string.
+MAX_MSGID_CHARS = 998
 AUTO_PRECEDENCE = frozenset({"bulk", "junk", "list", "auto_reply"})
 
 
@@ -66,7 +69,7 @@ def is_own_notification(
         return "auto_submitted"
     if (notification_header or "").strip():
         return "x_invespend"
-    if OWN_MSGID_RE.search(message_id or ""):
+    if OWN_MSGID_RE.search((message_id or "")[:MAX_MSGID_CHARS]):
         return "own_message_id"
     headers = auto_headers or {}
     if (headers.get("precedence") or "").strip().lower() in AUTO_PRECEDENCE:

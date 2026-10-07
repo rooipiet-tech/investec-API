@@ -9,7 +9,6 @@ import pytest
 
 from tests.timing_helper import assert_fast
 
-XFAIL_F6 = pytest.mark.xfail(reason="red: risk R3", strict=False)
 
 N = 200_000
 HOSTILE = [
@@ -29,7 +28,6 @@ HOSTILE = [
 ]
 
 
-@XFAIL_F6
 def test_loopguard_message_id_is_linear():
     assert_fast(
         "from invespend.payments.loopguard import is_own_notification as f\n"
@@ -38,7 +36,6 @@ def test_loopguard_message_id_is_linear():
     )
 
 
-@XFAIL_F6
 def test_loopguard_message_id_cut_to_rfc_line_limit():
     from invespend.payments import loopguard as lg
 
@@ -55,9 +52,7 @@ def test_loopguard_still_matches_real_make_msgid_output():
     assert lg.is_own_notification(h["Message-ID"], "", "") == "own_message_id"
 
 
-@pytest.mark.parametrize("data", [
-    pytest.param(d, marks=XFAIL_F6) if "invespend" in d else d for d in HOSTILE
-])
+@pytest.mark.parametrize("data", HOSTILE)
 def test_loopguard_hostile(data):
     assert_fast(
         "from invespend.payments.loopguard import is_own_notification as f\n"
