@@ -145,3 +145,10 @@ def v2_settings(settings: object) -> V2Settings:
         per_payment_cap=_window(g("per_payment_cap"), 0),
         daily_cap=_window(g("daily_aggregate_cap"), 0),
     )
+
+
+def caps_configured(cfg: V2Settings) -> bool:
+    """The per-payment cap is set (> 0 and finite); ``v2_settings`` already maps unset, unparsable, non-finite or
+    non-positive values to 0. The DAILY cap is still enforced fail-closed at the claim (see build-s3a.md, fix round:
+    an existing test pins "daily unset => offered, then parked daily_cap", so it can not be moved earlier here)."""
+    return cfg.per_payment_cap > 0

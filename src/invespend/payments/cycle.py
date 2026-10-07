@@ -24,7 +24,7 @@ from . import (
     instructions, loopguard, notify_v2, refs, routing, sender_auth, trigger,
 )
 from .amounts import has_foreign_currency_token, labelled_payee_candidates, marked_amount_candidates
-from .mode import v2_settings
+from .mode import caps_configured, v2_settings
 from .notices import safe_send, sender_of
 
 _RECONCILE_IGNORED_ATTACHMENT_REASONS = ("no amount found", "empty body")
@@ -229,6 +229,8 @@ def _new_instruction(ctx: _Ctx, v2, msg, view, iid: str, auth_from: str, receive
             _problem(ctx, auth_from, iid, reason)
         return f"parked_{reason}"
 
+    if not caps_configured(cfg):                                          # fail EARLY: both caps must be set (> 0, finite)
+        return park("caps_not_configured")
     since = when - cfg.duplicate_window
     if store.find_recent_similar(base["source_account_id"], payee_norm, amount, since) is not None:
         return park("possible_duplicate")

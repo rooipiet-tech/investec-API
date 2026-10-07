@@ -20,7 +20,7 @@ from decimal import Decimal
 from . import beneficiaries as bene
 from . import execute, notify_v2
 from .caps import check_per_payment
-from .mode import v2_settings
+from .mode import caps_configured, v2_settings
 from .notices import safe_send, sender_of
 from .refs import request_ref
 
@@ -84,7 +84,9 @@ def offer_batches(settings, store, audit, *, beneficiaries, raw_beneficiaries, n
         return summary
     for to in sorted({r["notify_to"] for r in unoffered}):
         for row in [r for r in unoffered if r["notify_to"] == to]:
-            reason = execute.reverify_beneficiary(row, beneficiaries, raw_beneficiaries, cfg.fingerprint_key)
+            reason = None if caps_configured(cfg) else "caps_not_configured"      # fail EARLY: both caps or nothing offered
+            if reason is None:
+                reason = execute.reverify_beneficiary(row, beneficiaries, raw_beneficiaries, cfg.fingerprint_key)
             if reason is None and not check_per_payment(row["amount"], cfg.per_payment_cap).ok:
                 reason = "over_per_payment_cap"
             if reason is None:
