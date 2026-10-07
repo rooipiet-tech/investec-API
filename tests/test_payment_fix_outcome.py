@@ -45,11 +45,11 @@ def test_failed_entry_status_without_reference_is_unknown_never_failed():
     assert out.status == "unknown" and out.reason == "no_reference"
 
 
-def test_entry_error_message_with_reference_is_unknown_without_reference_is_failed():
+def test_entry_error_message_with_or_without_reference_is_unknown():
     out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "ErrorMessage": "Beneficiary blocked"}))
     assert out.status == "unknown" and out.reason == "ref_and_error"
     out = o.parse_payment_response(_body({"ErrorMessage": "Beneficiary blocked"}))
-    assert out.status == "failed" and out.reason == "error_message"
+    assert out.status == "unknown" and out.reason == "error_message"
     assert out.message == "Beneficiary blocked"
 
 

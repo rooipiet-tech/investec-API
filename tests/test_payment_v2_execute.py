@@ -264,12 +264,12 @@ def test_investec_rejection_fails_with_message_notified_once_never_resent(live):
     assert live.payment_calls() == 1 and len(live.rows()) == 1 and len(subjects(live, "Payment failed")) == 1
 
 
-def test_200_error_message_body_is_failed_released(live):
+def test_200_error_message_body_is_needs_review_reservation_kept(live):
     live.client.responder = lambda: {"data": {"TransferResponses": [], "ErrorMessage": "Insufficient funds"}}
     to_accepted(live)
     live.cycle()
-    assert live.row()["status"] == "failed" and live.row()["outcome_message"] == "Insufficient funds"
-    assert live.row()["daily_reserved"] is False
+    assert live.row()["status"] == "needs_review"
+    assert live.row()["daily_reserved"] is True
 
 
 def test_authorisation_required_body_is_needs_authorisation_reservation_kept(live):

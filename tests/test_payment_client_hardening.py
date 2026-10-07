@@ -238,9 +238,9 @@ def test_parse_success():
     assert (out.status, out.reference, out.reason, out.message) == ("success", "REF1", "ok", "")
 
 
-def test_parse_200_error_message_is_failure():
+def test_parse_200_error_message_is_unknown_never_failed():
     out = _o().parse_payment_response({"data": {"TransferResponses": [], "ErrorMessage": "Insufficient funds"}})
-    assert out.status == "failed" and out.reason == "error_message"
+    assert out.status == "unknown" and out.reason == "error_message"
     assert out.message == "Insufficient funds"
 
 

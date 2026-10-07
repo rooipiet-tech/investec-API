@@ -59,10 +59,10 @@ def test_placeholder_error_without_reference_is_unknown_not_failed(err):
     {"data": {"TransferResponses": [{"PaymentReferenceNumber": "None", "ErrorMessage": "Insufficient funds"}]}},
     {"data": {"TransferResponses": [{"PaymentReferenceNumber": "  ", "ErrorMessage": "Insufficient funds"}]}},
 ])
-def test_real_message_without_reference_is_failed(body):
+def test_real_message_without_reference_is_unknown_never_failed(body):
     out = _o().parse_payment_response(body)
-    assert (out.status, out.message) == ("failed", "Insufficient funds")
-    assert out.reason in ("error_message", "entry_error_message")
+    assert (out.status, out.message) == ("unknown", "Insufficient funds")
+    assert out.reason == "error_message"
 
 
 @pytest.mark.parametrize("body", [
@@ -165,15 +165,15 @@ def test_giant_bodies_are_unknown_or_bounded_without_exceptions():
     assert _cls({"data": {"TransferResponses": [{"PaymentReferenceNumber": big, "Status": big}]}}) == "success"
     assert _cls({"data": {"TransferResponses": [{"Status": big, "ErrorMessage": " " * 300_000}]}}) == "unknown"
     out = _o().parse_payment_response({"data": {"ErrorMessage": big}})
-    assert out.status == "failed" and len(out.message) <= 200
+    assert out.status == "unknown" and len(out.message) <= 200
     assert _cls({"data": {"TransferResponses": [{"PaymentReferenceNumber": "R"}] * 50_000}}) == "success"
     assert _cls({"data": {"TransferResponses": [{}] * 50_000}}) == "unknown"
     assert _cls({"data": {"TransferResponses": [{"PaymentReferenceNumber": "R"}] * 3 + [{}]}}) == "unknown"
 
 
-def test_failed_message_is_sanitised():
+def test_provider_message_is_sanitised():
     out = _o().parse_payment_response({"data": {"ErrorMessage": "Acct 123456789012 refused for a@b.com api_key=SECRET123"}})
-    assert out.status == "failed" and "123456789012" not in out.message and "a@b.com" not in out.message and "SECRET123" not in out.message
+    assert out.status == "unknown" and "123456789012" not in out.message and "a@b.com" not in out.message and "SECRET123" not in out.message
 
 
 def test_the_classifier_never_returns_failed_when_a_reference_exists():
@@ -270,8 +270,14 @@ def test_e2e_identical_reinstruction_of_executed_payment_is_blocked(tmp_path):
     assert env.payment_calls() == 1
 
 
-def test_e2e_definite_failure_is_failed_released_and_reinstruction_allowed(tmp_path):
-    env = _live(tmp_path, lambda: {"data": {"TransferResponses": [], "ErrorMessage": "Insufficient funds"}})
+def _reject(message):
+    def responder():
+        raise _o().PaymentRejected(400, message)
+    return responder
+
+
+def test_e2e_definite_4xx_rejection_is_failed_released_and_reinstruction_allowed(tmp_path):
+    env = _live(tmp_path, _reject("Insufficient funds"))
     row = env.row()
     assert row["status"] == "failed" and row["daily_reserved"] is False and row["outcome_message"] == "Insufficient funds"
     assert env.store.daily_total(env.now) == Decimal("0.00")
@@ -281,9 +287,12 @@ def test_e2e_definite_failure_is_failed_released_and_reinstruction_allowed(tmp_p
     assert sorted(r["status"] for r in env.rows()) == ["awaiting_approval", "failed"]
 
 
-def test_e2e_provider_secrets_do_not_reach_row_or_email(tmp_path):
-    env = _live(tmp_path, lambda: {"data": {"TransferResponses": [], "ErrorMessage": "Account 1234567890 rejected Bearer abc.def.ghi key-77777 api_key=ZZTOP99"}})
-    assert env.row()["status"] == "failed"
+@pytest.mark.parametrize("via_4xx", [False, True])
+def test_e2e_provider_secrets_do_not_reach_row_or_email(tmp_path, via_4xx):
+    text_in = "Account 1234567890 rejected Bearer abc.def.ghi key-77777 api_key=ZZTOP99"
+    env = _live(tmp_path, _reject(text_in) if via_4xx else
+                (lambda: {"data": {"TransferResponses": [], "ErrorMessage": text_in}}))
+    assert env.row()["status"] == ("failed" if via_4xx else "needs_review")
     text = env.everything_text()
     for leak in ("abc.def.ghi", "key-77777", "1234567890", "ZZTOP99"):
         assert leak not in text
@@ -295,7 +304,7 @@ def test_e2e_configured_secret_echoed_by_provider_is_redacted(tmp_path):
     env.client.responder = lambda: {"data": {"TransferResponses": [], "ErrorMessage": f"rejected for {secret.upper()}"}}
     _accepted(env)
     env.cycle()
-    assert env.row()["status"] == "failed" and secret not in env.everything_text().lower()
+    assert env.row()["status"] == "needs_review" and secret not in env.everything_text().lower()
 
 
 # ------------------------------------------------------------------ RS3AF-3 currency gate

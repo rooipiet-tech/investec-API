@@ -48,11 +48,11 @@ def test_reference_like_content_with_error_is_never_failed(key, value, where):
 
 @pytest.mark.parametrize("value", ["", "   ", None, False, 0, 0.0, [], {}, "None", "null", "N/A", "N/A.", "None.", "OK!", "ok.", "false",
                                    "-", "--", "...", "!!!", "​", "​‍﻿", "‏", "N​/A", "ＮＯＮＥ", " nil. "])
-def test_placeholder_or_empty_reference_with_error_is_failed(value):
+def test_placeholder_or_empty_reference_with_error_is_unknown_never_failed(value):
     body = {"data": {"TransferResponses": [{"PaymentReferenceNumber": value, "ErrorMessage": "Insufficient funds"}],
                      "reference": value}}
     out = _o().parse_payment_response(body)
-    assert out.status == "failed" and out.message == "Insufficient funds", value
+    assert out.status == "unknown" and out.message == "Insufficient funds", value
 
 
 @pytest.mark.parametrize("msg", ["No error.", "Success.", "Payment processed successfully", "successful payment", "Payment completed",
@@ -66,9 +66,9 @@ def test_success_sounding_error_without_reference_is_unknown(msg):
 
 @pytest.mark.parametrize("msg", ["Insufficient funds", "Invalid beneficiary", "Daily limit exceeded", "Beneficiary not found",
                                  "Unsuccessful payment: account blocked", "Payment declined by bank"])
-def test_real_failure_text_without_reference_is_failed(msg):
+def test_real_failure_text_on_200_without_reference_is_unknown_never_failed(msg):
     out = _o().parse_payment_response({"data": {"TransferResponses": [], "ErrorMessage": msg}})
-    assert out.status == "failed" and out.message == msg
+    assert out.status == "unknown" and out.reason == "error_message" and out.message == msg
 
 
 def test_needs_authorisation_only_from_true():
@@ -77,7 +77,7 @@ def test_needs_authorisation_only_from_true():
     for flag in (1, "yes", "pending", ["x"]):
         out = _o().parse_payment_response({"data": {"AuthorisationRequired": flag, "ErrorMessage": "Insufficient funds"}})
         assert out.status == "unknown"
-    assert _cls({"data": {"AuthorisationRequired": False, "ErrorMessage": "Insufficient funds"}}) == "failed"
+    assert _cls({"data": {"AuthorisationRequired": False, "ErrorMessage": "Insufficient funds"}}) == "unknown"
 
 
 _KEYS = ["PaymentReferenceNumber", "paymentReference", "ref", "reference_no", "ErrorMessage", "Status", "AuthorisationRequired",
@@ -159,12 +159,11 @@ def test_corpus_invariants_i1_to_i3():
         out = _o().parse_payment_response(body)               # I3: never raises
         seen[out.status] += 1
         data = body.get("data") if isinstance(body, dict) else None
-        if out.status == "failed":                            # I1
-            assert not _has_ref_like(data) and not _has_auth_key(data), body
+        assert out.status != "failed", body                   # a 200 is NEVER failed (until the G2 sandbox run)
         if out.status == "success":                           # I2
             assert any(isinstance(e, dict) and isinstance(e.get("PaymentReferenceNumber"), str)
                        and _meaningful(e["PaymentReferenceNumber"]) for e in data["TransferResponses"]), body
-    assert seen["failed"] > 50 and seen["success"] > 50 and seen["unknown"] > 100, seen
+    assert seen["failed"] == 0 and seen["success"] > 50 and seen["unknown"] > 100, seen
 
 
 def test_classifier_is_linear_on_large_bodies():                # I4
@@ -209,11 +208,29 @@ def test_e2e_ambiguous_200_is_needs_review_reservation_kept(tmp_path, body):
     assert env.payment_calls() == 1
 
 
-def test_e2e_insufficient_funds_no_reference_is_failed_released_reinstructable(tmp_path):
-    env = _live(tmp_path, lambda: {"data": {"TransferResponses": [], "ErrorMessage": "Insufficient funds"}})
+@pytest.mark.parametrize("msg", ["Insufficient funds", "Invalid beneficiary", "Daily limit exceeded"])
+def test_e2e_200_with_error_and_no_reference_is_needs_review_reserved_and_guarded(tmp_path, msg):
+    env = _live(tmp_path, lambda: {"data": {"TransferResponses": [], "ErrorMessage": msg}})
     row = env.row()
-    assert row["status"] == "failed" and row["daily_reserved"] is False
+    assert row["status"] == "needs_review" and row["daily_reserved"] is True
+    assert env.store.daily_total(env.now) == Decimal("100.00")
+    env.advance(15)
+    env.instruct()
+    env.cycle()
+    assert sorted(r["status"] for r in env.rows()) == ["needs_review", "parked"]
+    assert [r for r in env.rows() if r["status"] == "parked"][0]["outcome_code"] == "possible_duplicate"
+    assert env.payment_calls() == 1
+
+
+@pytest.mark.parametrize("msg", ["Insufficient funds", "Invalid beneficiary", "Daily limit exceeded"])
+def test_e2e_4xx_rejection_is_failed_released_reinstructable(tmp_path, msg):
+    def responder():
+        raise _o().PaymentRejected(422, msg)
+    env = _live(tmp_path, responder)
+    row = env.row()
+    assert row["status"] == "failed" and row["daily_reserved"] is False and row["outcome_message"] == msg
     assert env.store.daily_total(env.now) == Decimal("0.00")
+    assert env.payment_calls() == 1
     env.advance(15)
     env.instruct()
     env.cycle()
