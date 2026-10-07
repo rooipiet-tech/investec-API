@@ -7,3 +7,7 @@ Items to verify at G2 / G1 with REAL replies (cannot be tested offline):
 - Gmail: topmost Authentication-Results header shape/authserv-id on the real bot mailbox (preflight check; runbook must state the MTA-overwrites-inbound-A-R assumption).
 - IMAP fetch marks mail read: use a dedicated mailbox/label only.
 - Benefits to confirm in Investec Online: which scopes the single API key has.
+
+## Decision 2026-10-08 (orchestrator; classifier)
+- A 200 response is NEVER classified 'failed' until G2 shows real Investec failure bodies: 200 + ErrorMessage and no entry reference => 'unknown' (needs_review, reservation kept, sanitised message in the owner's email, no resend). 'failed' (release, re-instructable) only for a definite HTTP 4xx PaymentRejected.
+- At G2: record real failure bodies (status code, ErrorMessage text, field names), then consider an allow-list of definite-rejection texts to restore 'failed' for 200 rejections.
