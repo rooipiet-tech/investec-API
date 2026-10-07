@@ -56,11 +56,9 @@ jobs:
       # Either one empty means images are skipped.
       ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       IMAGE_EXTRACTOR_MODEL: ${{ vars.IMAGE_EXTRACTOR_MODEL }}
-      # Live stays off unless a human sets the variable AND adds write-scoped secrets.
+      # Live stays off. No write-scoped secrets are passed to this job; at G3 a human adds
+      # the INVESTEC_WRITE_* env lines together with the repo variable below.
       PAYMENTS_LIVE_ENABLE: ${{ vars.PAYMENTS_LIVE_ENABLE || 'false' }}
-      INVESTEC_WRITE_CLIENT_ID: ${{ secrets.INVESTEC_WRITE_CLIENT_ID }}
-      INVESTEC_WRITE_CLIENT_SECRET: ${{ secrets.INVESTEC_WRITE_CLIENT_SECRET }}
-      INVESTEC_WRITE_API_KEY: ${{ secrets.INVESTEC_WRITE_API_KEY }}
     steps:
       - uses: actions/checkout@v4
 

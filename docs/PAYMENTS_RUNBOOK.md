@@ -21,11 +21,13 @@ run otherwise. Use only the v2 flow described below.
   (openapisandbox.investec.com, mocked money), including error bodies and the no-retry behaviour.
   The shape of Investec's rejection body is unverified until this run.
 - **G3, the human enables live:** you set the `PAYMENTS_LIVE_ENABLE` repository variable, add the
-  `INVESTEC_WRITE_*` secrets and the caps, recorded in the audit. Live is never enabled by default
+  `INVESTEC_WRITE_*` secrets to the `payments` Environment, add the three `INVESTEC_WRITE_*` env
+  lines to `.github/workflows/payments-cycle.yml` (they are not wired in the dry-run workflow),
+  and confirm the caps, recorded in the audit. Live is never enabled by default
   and never by the build loop.
 
-To keep live off: leave `PAYMENTS_LIVE_ENABLE` unset (the workflow defaults it to `false`), leave
-the `INVESTEC_WRITE_*` secrets empty, and never set `INVESTEC_PAYMENTS_ENABLED=true`. To stop the
+To keep live off: leave `PAYMENTS_LIVE_ENABLE` unset (the workflow defaults it to `false`), do
+not wire or add the `INVESTEC_WRITE_*` secrets, and never set `INVESTEC_PAYMENTS_ENABLED=true`. To stop the
 cycle entirely, unset or change the `PAYMENTS_CYCLE_ENABLED` variable.
 
 ## Trigger grammar
@@ -120,7 +122,7 @@ no retries. POPIA note: bank details in an image leave the machine for that prov
 
 Payment secrets live in the GitHub Environment `payments`, restricted to the `main` branch. The
 job has `contents: read` only and no `pull_request` trigger. The workflow keeps one Investec key
-(reads and, in live mode, payments); the `INVESTEC_WRITE_*` trio is optional and empty until G3.
+(reads and, in live mode, payments); the `INVESTEC_WRITE_*` trio is not passed to the job until G3.
 
 ## Environment variables
 
