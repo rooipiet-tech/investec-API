@@ -1,0 +1,17 @@
+{
+  "step": "slice 3 STEP A (S9+S11)", "head": "be90173", "verdict": "pass",
+  "py311_uv": {"passed": 2034, "skipped": 15, "failed": 0, "errors": 0, "wall_s": 33},
+  "py312_ci_true": {"passed": 2045, "skipped": 4, "failed": 0, "errors": 0, "wall_s": 35, "ci_slow": false},
+  "py312_with_pg": {"passed": 2134, "skipped": 0, "failed": 0},
+  "py311_with_pg": {"passed": 2123, "skipped": 11, "failed": 0},
+  "timing_redos": {"tests": 609, "runs_3x": "609 passed x3 (26s, 26s, 31s)", "cpu_contention_8_busy_loops_on_4_cores": "609 passed, 56s"},
+  "postgres16": {"migrations_twice_raw_psql": "no errors, idempotent", "init_db_twice": "ok",
+    "rls_and_deny_all_on_4_new_tables": true, "status_check_equals_TRANSITIONS": true,
+    "post_approval_check_rejects_missing_approved_at_or_batch_ref": true, "foreign_keys": 0,
+    "claim_race": "exactly one committed, other cas_lost", "approve_item_x2_concurrent": "one ok, one not_awaiting"},
+  "frozen_paths": {"vs_e84b4e5": "only cli.py(+7/-0), config.py(+100/-0), audit.py(+1/-0), tests/test_beneficiary_migration.py(+1/-2) modified; db only +0013; .github/pyproject/uv.lock untouched; frozen payments modules untouched",
+    "vs_2eee10c": "same plus earlier-slice changes; cli.py +7/-0", "cli_help_byte_identical": true, "legacy_pins": "pass"},
+  "sanity_script": "all v2 cycle checks pass (script in scratchpad/sanity.py, not in repo)",
+  "observations": ["With only daily_aggregate_cap unset (per-payment set) an item IS offered and approved, but is parked fail-closed at claim; 0 payment calls. Both caps or per-payment unset: parked at routing, nothing offered.",
+    "railway.toml startCommand is 'approve-payments --once' but sets no PAYMENTS_MODE; no workflow/Dockerfile/script references PAYMENTS_MODE=v2 (inert)."]
+}
