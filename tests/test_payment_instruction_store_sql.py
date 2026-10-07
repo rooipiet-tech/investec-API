@@ -13,7 +13,6 @@ import pytest
 from invespend import db
 from tests.instr_helpers import GRACE, T0, WINDOW, ins, rec
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S9 red: pg_instructions.py not built yet")
 
 
 class _Cursor:

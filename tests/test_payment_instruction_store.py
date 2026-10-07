@@ -12,8 +12,6 @@ from tests.instr_helpers import (
     GRACE, H, STORE_PARAMS, T0, WINDOW, accepted, approve, ins, make_store, offer, rec, ref_gen,
 )
 
-# RED stage marker (removed in the green commit)
-pytestmark = pytest.mark.xfail(strict=False, reason="S9 red: instructions.py not built yet")
 
 
 @pytest.fixture(params=STORE_PARAMS)
@@ -519,7 +517,7 @@ def _claim(store, iid="id0001", *, amount="100.00", cap=CAP, mode="dry-run", now
 def test_claim_requires_accepted_with_approved_at_and_unexpired(store):
     store.create(rec(1))
     assert _claim(store).reason == "cas_lost"                                   # awaiting_approval is never claimable
-    row = offer(store, 2)[0]
+    row = next(r for r in offer(store, 2) if r["instruction_id"] == "id0002")
     assert _claim(store, "id0002").reason == "cas_lost"
     approve(store, row)
     res = _claim(store, "id0002", now=T0 + H + GRACE + H)

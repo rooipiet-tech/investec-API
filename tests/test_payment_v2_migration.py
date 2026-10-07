@@ -11,7 +11,6 @@ import pytest
 from invespend import db
 from tests.instr_helpers import PG_URL, ins
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S9 red: migration 0013 not written yet")
 
 MIGRATIONS = db.MIGRATIONS_DIR
 M0012 = MIGRATIONS / "0012_beneficiary_matching.sql"

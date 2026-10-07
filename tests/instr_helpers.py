@@ -87,6 +87,6 @@ def approve(store, row, *, now: datetime = T0 + H):
 
 def accepted(store, n: int = 1, **over):
     rows = offer(store, n, **over)
-    res = approve(store, rows[0])
-    assert res.approved
-    return store.get(rows[0]["instruction_id"])
+    target = next(r for r in rows if r["instruction_id"] == f"id{n:04d}")
+    assert approve(store, target).approved
+    return store.get(target["instruction_id"])

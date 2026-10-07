@@ -12,7 +12,6 @@ import pytest
 from invespend import db
 from tests.instr_helpers import GRACE, H, STORE_PARAMS, T0, WINDOW, approve, ins, make_store, offer, rec, ref_gen
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S9 red: instructions.py not built yet")
 
 STATUSES = ["awaiting_approval", "awaiting_beneficiary", "held", "accepted", "submitting", "executed", "failed",
             "needs_review", "needs_authorisation", "cancelled", "expired", "parked"]
