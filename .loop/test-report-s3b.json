@@ -1,0 +1,10 @@
+{"head":"663b6d1","py311":{"runs":3,"passed":3506,"skipped":15,"failed":0,"errors":0},
+"py312_CI_true":{"runs":3,"passed":3517,"skipped":4,"failed":0,"errors":0},
+"pg16_utf8_gated":{"server":"16.13 UTF8","py312_CI":"3606 passed, 0 skipped","py311":"3595 passed, 11 skipped","failed":0,"errors":0},
+"init_db_twice":"ok","payment_tables_rls_enabled":7,"payment_instruction_columns":38,
+"network_isolated_run_unshare_-rn":"3517 passed, 4 skipped (py312 CI=true)",
+"frozen_paths_diff_vs_2eee10c":"zero (payments/{pipeline,token,inbox,notify,dedup,selftest,extract,store,pg_store}.py, pyproject.toml, existing workflows); db/ only adds migrations/0013_payment_instructions.sql (131 lines, pre-existing S9 addition, no existing migration changed)",
+"tests_modified_vs_2eee10c":["tests/test_beneficiary_migration.py"],
+"cli_help_identical_vs_2eee10c":"all 9 (top, init-db, ingest, report, statements, backfill-hashes, backup, approve-payments, pay-selftest)",
+"yaml_lite_vs_pyyaml_payments-cycle.yml":"structure and string values agree; differences only by design: yaml_lite returns scalars as strings (false, 10) and keeps 'on' key while PyYAML gives True/bool/int; tests already compensate",
+"uv_lock":"tracked pre-existing, no diff vs 2eee10c, not committed; was spuriously modified once during venv setup and restored via git checkout"}
