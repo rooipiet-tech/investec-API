@@ -1,0 +1,17 @@
+{
+  "slice": "email-payment-v2 iteration 2 slice 2 (S8, S7, S10)",
+  "head": "0b1962f",
+  "pytest_py311_uv": {"passed": 1245, "skipped": 12, "failed": 0, "errors": 0, "wall_s": 26.6, "uv_lock_restored": true},
+  "pytest_py312_ci_true": {"passed": 1256, "skipped": 1, "failed": 0, "errors": 0, "wall_s": 27.3, "venv": "scratchpad outside repo"},
+  "redos_suites_229_tests": {
+    "runs_uncontended": [{"passed": 229, "s": 21.34}, {"passed": 229, "s": 21.81}, {"passed": 229, "s": 21.40}],
+    "contended_8_busy_loops_on_4_cpus": {"passed": 229, "s": 42.88, "slowest_call_s": 0.77},
+    "slowest_uncontended_call_s": 0.44,
+    "flaky": false
+  },
+  "frozen_paths": {"vs_ff6d7e5": "no change", "vs_2eee10c": "only config.py and investec_client.py differ, both from iteration-1 commits (S3/S4) before ff6d7e5", "tests_name_status_vs_ff6d7e5": "17 A, no M/D/R", "other_non_test_changes": ["5 new modules in payments/", ".loop/*.md/json"], "cli_help": "byte-identical to .loop/baseline (top + 8 subcommands)", "legacy_sha256_pins": "tests/test_payment_legacy_retired.py 14 passed, 1 skipped (v2_cli.py, S11)"},
+  "sanity_script": {"result": "all checks OK, 0 failures", "notes": ["amount '0' and huge ints (1e30) pass validate_extraction as formatted strings; relies on downstream caps (S11)", "paste email deliberately not masked (user's own details); hostile newlines flattened to one line, no header injection", "approve 9 parses as approve (9,); range check is S11"]},
+  "slice_inert": {"imports_of_new_modules_from_cli_ingest_existing_workflows": "none", "smtplib_send_requests_socket_open_in_new_modules": "none", "dynamic_import": "images.get_extractor imports non-existent .images_claude only if settings.anthropic_api_key and image_extractor_model exist (they do not in config.py)"},
+  "plan_test_coverage": {"planned_names_checked": 82, "missing_counterparts": ["test_image_dollar_amount_conflicts_with_zar_body", "test_image_only_non_zar_currency_parks", "test_reconciled_currency_must_be_zar"], "other_non_matches": "file names only (S11 test_payment_v2_selfloop_e2e)", "verdict": "only the three S11-deferred reconcile tests are missing"},
+  "verdict": "pass"
+}
