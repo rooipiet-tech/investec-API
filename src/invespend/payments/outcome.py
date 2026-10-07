@@ -6,7 +6,8 @@ Mapping of a decoded HTTP 200 body (``parse_payment_response``). Money may have
 moved on any 200, so SUCCESS is the narrowest outcome and "unknown" is never
 auto-resent (a caller must treat it like ``PaymentUnknownOutcome``):
 
-* data-level ``ErrorMessage`` present (not ``None``)          -> ``failed``
+* data-level ``ErrorMessage`` that is NON-EMPTY after strip      -> ``failed`` (``None``, ``""`` and
+  whitespace mean "no error", exactly as for an entry)
 * data-level or per-entry ``AuthorisationRequired`` true, or an
   entry ``Status`` that says authori[sz]ation is awaited/required -> ``needs_authorisation``
 * entry ``ErrorMessage`` non-empty, or an entry ``Status`` that positively says
@@ -14,7 +15,9 @@ auto-resent (a caller must treat it like ``PaymentUnknownOutcome``):
 * an entry without a non-empty ``PaymentReferenceNumber`` and no positive
   rejection                                                  -> ``unknown`` (``no_reference``)
 * every entry has a reference and a clean/absent status       -> ``success``
-* no entries (strict) / not a ``data`` object                 -> ``failed`` (``unrecognised_shape``)
+* no entries (strict) / not a ``data`` object                 -> ``failed`` (``unrecognised_shape``) by
+  default, but ``unknown`` when ``unrecognised_is_unknown=True`` (the v2 executor): after the POST was sent an
+  unrecognised 200 is NOT proof that no money moved, so it keeps the reservation and is never resent
 
 Across several entries the precedence is needs_authorisation, failed, unknown,
 success. Response field names are UNVERIFIED until the G2 sandbox run.
@@ -111,13 +114,21 @@ def _truthy(value: object) -> bool:
     return value is True or (isinstance(value, str) and value.strip().lower() == "true")
 
 
-def parse_payment_response(body: dict | None, *, strict: bool = True) -> PaymentOutcome:
-    """Interpret a decoded 200 body. ``strict=False`` exists for symmetry only (unused by v2)."""
+def _non_blank(value: object) -> bool:
+    return value is not None and str(value).strip() != ""
+
+
+def parse_payment_response(body: dict | None, *, strict: bool = True, unrecognised_is_unknown: bool = False) -> PaymentOutcome:
+    """Interpret a decoded 200 body. ``strict=False`` exists for symmetry only (unused by v2).
+
+    ``unrecognised_is_unknown`` (v2 executor): a 200 that is not the expected shape maps to ``unknown`` instead of
+    ``failed`` (the legacy default is kept for the existing callers/tests)."""
+    shape_status = "unknown" if unrecognised_is_unknown else "failed"
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, dict):
-        return PaymentOutcome("failed", None, "unrecognised_shape", "")
+        return PaymentOutcome(shape_status, None, "unrecognised_shape", "")
     error = data.get("ErrorMessage")
-    if error is not None:
+    if _non_blank(error):
         return PaymentOutcome("failed", None, "error_message", sanitize_provider_message(error))
     raw_entries = data.get("TransferResponses")
     entries = [e for e in raw_entries if isinstance(e, dict)] if isinstance(raw_entries, list) else []
@@ -125,7 +136,7 @@ def parse_payment_response(body: dict | None, *, strict: bool = True) -> Payment
         return PaymentOutcome("needs_authorisation", None, "authorisation_required", "")
     if not entries:
         if strict:
-            return PaymentOutcome("failed", None, "unrecognised_shape", "")
+            return PaymentOutcome(shape_status, None, "unrecognised_shape", "")
         return PaymentOutcome("success", None, "ok", "")
     results = [_entry_outcome(e) for e in entries]
     for wanted in ("needs_authorisation", "failed", "unknown"):
@@ -151,7 +162,7 @@ def _entry_outcome(entry: dict) -> PaymentOutcome:
     if _truthy(entry.get("AuthorisationRequired")):
         return PaymentOutcome("needs_authorisation", ref or None, "authorisation_required", msg)
     error = entry.get("ErrorMessage")
-    if error is not None and str(error).strip() != "":
+    if _non_blank(error):
         return PaymentOutcome("failed", ref or None, "entry_error_message", sanitize_provider_message(error))
     if status and _FAIL_WORDS.search(status):
         return PaymentOutcome("failed", ref or None, "entry_status", msg)

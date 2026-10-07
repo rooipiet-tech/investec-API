@@ -21,8 +21,8 @@ def _entry(**kw):
 
 
 # ------------------------------------------------------------------ RS3A-1: outcome mapping
-@pytest.mark.parametrize("blank", [pytest.param("", marks=RED), pytest.param(" ", marks=RED),
-                                   pytest.param("  \t ", marks=RED), None, "MISSING"])
+@pytest.mark.parametrize("blank", ["", " ",
+                                   "  \t ", None, "MISSING"])
 def test_blank_data_error_message_is_no_error(blank):
     data = {"TransferResponses": [_entry()]}
     if blank != "MISSING":
@@ -47,7 +47,6 @@ def test_non_empty_error_message_is_failed():
     assert out.status == "failed"
 
 
-@RED
 @pytest.mark.parametrize("body", [{}, {"data": {}}, {"data": {"TransferResponses": []}}, {"data": None}, None, [], "x",
                                   {"data": "x"}, {"error": "x"}, {"data": {"ErrorMessage": ""}}, {"data": {"ErrorMessage": "  "}}])
 def test_unrecognised_shape_is_unknown_not_failed(body):
@@ -71,7 +70,7 @@ def _accepted(env):
     assert {r["status"] for r in env.rows()} == {"accepted"}
 
 
-@pytest.mark.parametrize("blank", [pytest.param("", marks=RED), pytest.param(" ", marks=RED), None])
+@pytest.mark.parametrize("blank", ["", " ", None])
 def test_e2e_blank_error_message_200_is_executed_reservation_kept(tmp_path, blank):
     env = Env(tmp_path, live=True)
     env.client.responder = lambda: {"data": {"TransferResponses": [{"PaymentReferenceNumber": "PR1", "Status": "Processed"}],
@@ -84,7 +83,6 @@ def test_e2e_blank_error_message_200_is_executed_reservation_kept(tmp_path, blan
     assert env.payment_calls() == 1
 
 
-@RED
 @pytest.mark.parametrize("body", [None, {}, {"error": "x"}, {"data": {}}, {"data": {"TransferResponses": []}}, "oops"])
 def test_e2e_unrecognised_200_is_needs_review_kept_never_resent_blocks_reinstruction(tmp_path, body):
     env = Env(tmp_path, live=True)

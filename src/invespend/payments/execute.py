@@ -192,7 +192,7 @@ def execute_instruction(settings, store, audit, client, record: dict, *, mode: s
     try:
         body = client.create_payment(row["source_account_id"], row["beneficiary_id"], amount_text,
                                      row.get("their_reference") or "", row.get("my_reference") or "", fresh_token=True)
-        outcome = parse_payment_response(body)
+        outcome = parse_payment_response(body, unrecognised_is_unknown=True)
     except PaymentNotSent:
         if _finalize(store, audit, row, "parked", release=True, now=now, code="token_fetch_failed"):
             audit.append("parked", {"ref": ref, "reason": "token_fetch_failed"})
