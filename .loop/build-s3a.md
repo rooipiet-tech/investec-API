@@ -140,3 +140,25 @@ Deviations / readings
 5. Documented false positives of the currency gate (only park): all-capitals words that are codes (TRY, ALL, TOP, BOB), `100 real`, `R100 Franc ...`.
 
 Counts (fix round 4): 3.11 `uv run pytest -q` 3255 passed 15 skipped (twice); 3.11 + scratch Postgres 16 (new empty /tmp dir) 3344 passed 11 skipped x3; scratch CPython 3.12 venv outside the repo, CI=true, + Postgres 3355 passed 0 skipped x3. Cluster and venv deleted; uv.lock restored, not committed.
+
+## Fix round 5 (RS3AF4-1..4): a 200 is NEVER 'failed' (orchestrator decision 2026-10-08, until G2)
+Commits: red (`tests/test_payment_v2_s3a_fix5.py` + edited run-created tests) then one green commit. Not pushed.
+
+FINAL outcome rules (`payments/outcome.py::parse_payment_response`):
+| # | Condition | Outcome | reason |
+|---|---|---|---|
+| 1 | body or `data` not a dict | unknown | unrecognised_shape |
+| 2 | AuthorisationRequired true / "true" (exact) at data or entry level | needs_authorisation (reservation kept) | authorisation_required |
+| 3 | any key containing `authori` (any depth) with a value not clearly false (1/"yes"/"True!"), or body > 200k nodes / depth > 64 | unknown | authorisation_unclear / body_too_large |
+| 4 | strict reference (non-placeholder STRING entry `PaymentReferenceNumber`) + any error / not all entries with one / Status exactly failed-like | unknown | ref_and_error / mixed_entries / status_conflict |
+| 5 | strict reference, nothing else | success | ok |
+| 6 | reference-like content (any `ref` key, any type) without a strict reference | unknown | ref_and_error / reference_unrecognised |
+| 7 | non-placeholder error text, no reference (200 + ErrorMessage) | unknown, sanitised message carried | error_message |
+| 8 | anything else | unknown | no_reference / unrecognised_shape |
+'failed' (release, re-instructable, sanitised message shown) exists ONLY for HTTP 4xx PaymentRejected (client: 4xx except 408/429). 408, 429, 5xx, 1xx/3xx, timeouts, undecodable body stay PaymentUnknownOutcome -> needs_review (verified by tests). Removed: success-wording list and `_sounds_like_success`, the `failed` branch in execute(). Placeholder handling stays only to decide "is there a real error text". needs_review email with a message: "Investec returned an error: <sanitised>. It may not have been paid. Check Investec Online before sending again." plus the unchanged "MAY HAVE BEEN PAID" line; no message -> email unchanged. The message is email-only (the store still keeps outcome_message only for failed / needs_authorisation).
+
+Nits: (1) `amounts._FIGURE_THEN_CODE`: lower/mixed-case ISO code within <=2 blanks after an `amount`-labelled or R/ZAR-marked figure parks ('Amount: 100 sek', 'R100 usd', 'amount 100 nok', 'Amount: 100 Sek'); ISO codes that are common words/names (ALL TOP TRY BOB PEN COP MAD CUP SOS RON RUB MOP GEL BAM DOP) are exempt in lower/mixed case so existing no-false-positive cases ('R100 try again later', 'all good', 'Bob', 'top up') still pass; UPPER-CASE spelling still parks. (2) `cycle._is_shared_inbox` refuses any mailbox with a control char (\x00-\x1f, \x7f), also after UTF-7 decoding. (3) `v2_cli.scrub_message` now also applies the address, 24+ char token and grouped-digit rules of sanitize_provider_message.
+
+Deviations: run-created tests (all absent at 2eee10c) that asserted 'failed' for 200+error were rewritten to 'unknown'/needs_review; the corpus invariant is now "never failed" (failed count == 0); F40 is exercised end-to-end through the 4xx path (message shown, sanitised, no resend, re-instruction allowed). 'R200 try again' is NOT parked (collision exemption above; the brief called parking acceptable, not required).
+
+Counts (fix round 5): 3.11 `uv run pytest -q` 3351 passed 15 skipped x3; 3.11 + scratch Postgres 16 (new empty /tmp dir) 3440 passed 11 skipped x3; scratch CPython 3.12 venv outside the repo, CI=true, + Postgres 3451 passed 0 skipped x3. Cluster and venv deleted; uv.lock restored, not committed. Frozen files, db/, .github/, pyproject.toml untouched.
