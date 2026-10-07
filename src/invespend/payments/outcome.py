@@ -55,6 +55,12 @@ _ADDRESS = re.compile(r"\S+@\S+")
 _DIGITS = re.compile(r"\d(?:[ \-]{0,3}\d){5,}")
 _PRE_CUT = 2000  # bound the regex input first (provider text is untrusted), cut to _MAX last
 _TOKEN = re.compile(r"[A-Za-z0-9_\-]{24,}")
+# RS3A-3: credentials echoed by a provider. Each pattern is a single left-to-right pass over input already cut to
+# 2000 chars with whitespace collapsed; no nested quantifiers.
+_BEARER = re.compile(r"\b(bearer|basic)[ ]+\S+", re.IGNORECASE)
+_SECRET_WORD = re.compile(
+    r"\b(key|token|secret|password|passphrase|authorization)\b[ ]{0,3}[:=]?[ ]{0,3}\S+", re.IGNORECASE)
+_SECRET_LIKE = re.compile(r"\b(?:sk|pk|tok|token|key|secret|api)[-_][A-Za-z0-9_\-]{4,}", re.IGNORECASE)
 _WS = re.compile(r"\s+")
 _MAX = 200
 REDACTED = "[redacted]"
@@ -75,6 +81,9 @@ def sanitize_provider_message(text: object) -> str:
         s = _WS.sub(" ", s)
         s = "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
         s = _ADDRESS.sub(REDACTED, s)
+        s = _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", s)          # the keyword stays, the value goes
+        s = _SECRET_WORD.sub(lambda m: f"{m.group(1)} {REDACTED}", s)
+        s = _SECRET_LIKE.sub(REDACTED, s)
         s = _TOKEN.sub(REDACTED, s)
         s = _DIGITS.sub(REDACTED, s)
         return s.strip()[:_MAX]

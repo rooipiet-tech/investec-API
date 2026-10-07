@@ -139,7 +139,6 @@ def test_zar_only_text_is_not_a_conflict(tmp_path, amount_line):
 
 
 # ------------------------------------------------------------------ RS3A-3: sanitiser
-@RED
 @pytest.mark.parametrize("text,leaks", [
     ("Account 1234567890 rejected Bearer abc.def.ghi key-77777", ["abc.def.ghi", "key-77777", "1234567890"]),
     ("denied: tok_SECRET99", ["tok_SECRET99", "SECRET99"]),
@@ -168,7 +167,6 @@ def test_sanitize_keeps_plain_messages_and_is_linear():
         assert time.perf_counter() - start < 0.5
 
 
-@RED
 def test_e2e_provider_message_secrets_do_not_reach_row_or_email(tmp_path):
     env = Env(tmp_path, live=True)
     env.client.responder = lambda: {"data": {"TransferResponses": [_entry()],
