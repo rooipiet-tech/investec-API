@@ -6,7 +6,6 @@ import pytest
 from tests.mail_helpers import make_msg
 from tests.timing_helper import assert_fast
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S2 fix R4 red: _HIDDEN_STYLE not extended yet")
 
 
 def typed(style, tag="div"):

@@ -172,7 +172,16 @@ _BLOCK = frozenset(
     "dl dt dd center form address tbody thead".split()
 )
 _SKIP_TAGS = frozenset({"script", "style", "head", "title", "template"})
-_HIDDEN_STYLE = re.compile(r"display\s*:\s*none|visibility\s*:\s*hidden|mso-hide\s*:\s*all", re.IGNORECASE)
+# Inline-style hiding (colour-equals-background is deliberately NOT detected). A property must start a declaration
+# ((?<![\w-]) keeps border-width / min-height / margin-height visible); a "zero" is 0, 0.0, .0 with an optional
+# unit and nothing after it but ; or !important; text-indent hides at <= -999.
+_ZERO = r"(?:0+(?:\.0*)?|\.0+)(?:[a-z]{1,4}|%)?(?=\s*(?:;|!|$))"
+_HIDDEN_STYLE = re.compile(
+    r"display\s*:\s*none|visibility\s*:\s*hidden|mso-hide\s*:\s*all"
+    r"|(?<![\w-])(?:opacity|font-size|max-height|max-width|width|height|line-height)\s*:\s*" + _ZERO
+    + r"|(?<![\w-])text-indent\s*:\s*-\s*(?:[1-9][0-9]{3,}|999)",
+    re.IGNORECASE,
+)
 _CLASS_KINDS = {
     "gmail_quote": ("html_gmail_quote", False),
     "gmail_attr": ("html_gmail_attr", False),
