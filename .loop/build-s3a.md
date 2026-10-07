@@ -107,3 +107,36 @@ Deviations / readings
 5. Old run-created tests updated to the new rules, intent kept: test_payment_fix_outcome (failure status/err with reference now unknown, wording ignored), test_payment_client_hardening (authorisation beats error), test_payment_v2_s3a_fix (failed cases use a no-reference body), store/state-table/execute release-flag assertions for needs_authorisation. No test existing at 2eee10c was edited.
 
 Counts (fix round 3): 3.11 `uv run pytest -q` 2465 passed 15 skipped; 3.11 + scratch Postgres 16 2554 passed 11 skipped; scratch CPython 3.12.3 venv outside the repo, CI=true, + scratch Postgres 16 (new empty /tmp dir): 2565 passed 0 skipped, three consecutive runs identical. Venv and cluster deleted; uv.lock restored, not committed.
+
+## Fix round 4 (RS3AF3-1..5): final tightening of the money-path classifier and gates
+Commits: red (`tests/test_payment_v2_s3a_fix4.py`, module-level xfail) then one green commit (xfail removed). Principle: only a DEFINITE failure is 'failed'; every ambiguous 200 is 'unknown' (needs_review, reservation kept); the Investec 200 shape is unverified until G2.
+
+Final outcome rules (`payments/outcome.py::parse_payment_response`):
+| # | Condition | Outcome | reason |
+|---|---|---|---|
+| 1 | body or `data` not a dict | unknown | unrecognised_shape |
+| 2 | AuthorisationRequired true / "true" at data or entry level | needs_authorisation (reservation kept) | authorisation_required |
+| 3 | any key containing `authori` (any depth) with a value not clearly false, or body > 200k nodes / depth > 64 | unknown | authorisation_unclear / body_too_large |
+| 4 | >= 1 strict reference (non-placeholder STRING entry `PaymentReferenceNumber`) + error | unknown | ref_and_error |
+| 5 | strict reference, several entries and not all with one / Status equal failed-like | unknown | mixed_entries / status_conflict |
+| 6 | strict reference, nothing else | success | ok |
+| 7 | no strict reference, but reference-like content anywhere (any key whose NFKC/Cf-folded name contains `ref`, any depth, value of ANY type: non-blank non-placeholder text, nonzero number, non-empty list/dict) | unknown | ref_and_error / reference_unrecognised |
+| 8 | no reference-like content, non-placeholder error WITHOUT success-sounding words (success*, processed, complete(d), approved, accepted, paid, done, ok, no error(s), without error(s)) | failed (released, sanitised) | error_message |
+| 9 | same with a success-sounding error | unknown | error_sounds_like_success |
+| 10 | anything else | unknown | no_reference / unrecognised_shape |
+Placeholder compare folds NFKC, Cf (zero-width/joiners/BOM/RTL), casefold and leading/trailing punctuation ("N/A.", "OK!", zero-width-only and punctuation-only are NOT references). Walk is iterative, node/depth capped (linear).
+
+Other items
+* RS3AF3-2: `scrub_message` cuts to 5000 chars before redaction; `redact_secret_words` cuts to 20,000; JWT pattern anchored at a token boundary (one start per run, linear). `eyJ`*70000 and `_`*200000 finish well under 2s in scrub_message, redact_secret_words and sanitize_provider_message.
+* RS3AF3-3 `amounts.py`: `ISO_4217_CODES` data (all active codes except ZAR + USDT/USDC/BTC/ETH/RMB). Policy: any Unicode `Sc` symbol parks; curated codes/words (kroner, krona, reais, rouble/ruble, dirham, riyal, shekel, baht, ringgit, rupiah, zloty, forint, koruna, dinar, naira, shilling ...) whole-word case-insensitive; other ISO codes only as UPPER-CASE standalone tokens or glued to a digit (lower-case glued, `100sek`); ambiguous words (real, won, franc(s), lira ...) only directly after a number; letter runs split by up to 3 separators of any kind incl. newlines ("U\nS\nD", "E-U-R"; curated substring, other codes exact); NFKC + Cf drop + Cyrillic/Greek look-alike fold. Lower-case ordinary words (try, all, top, sun) and non-code capitals (SUN CO) do not park.
+* RS3AF3-4: scrub_message NFKC + Cf prefold; secret keywords may be split by up to 2 whitespace chars (`ke\ny=ZZ`), optional plural `s`; up to three filler tokens (`:`, `=`, is, was, are, equals) skipped; vendor prefixes xox[abprs]-, xapp-, rk_/sk_ live/test, whsec_, glpat-, npm_, github_pat_, ASIA[0-9A-Z]{16}, SG.x.y; configured secret values fold Cf too.
+* RS3AF3-5 `cycle._is_shared_inbox`: refuses backslash, `*`, `%` anywhere; modified UTF-7 (`&AEkATgBCAE8AWA-`) decoded before the inbox comparison. Sub-labels (Payments, INBOX.Payments, [Gmail]/Payments) and other UTF-7 names stay allowed.
+
+Deviations / readings
+1. Run-created fix3 tests edited (none existed at 2eee10c): int reference + error now unknown (was failed); AuthorisationRequired 1/"yes"/"True!" beside a reference now unknown (was success) because an unclear flag is ambiguous; placeholder-int reason accepts reference_unrecognised.
+2. Strict reference (success path) stays narrow (entry-level `PaymentReferenceNumber` string); the broad scan only ever blocks 'failed'/'success', never creates success.
+3. A whitespace/punctuation-only ErrorMessage longer than 5000 chars is ignored (never a definite failure); a reference-like value that long folds to "present".
+4. scrub_message output is now NFKC-folded (full-width chars appear as ASCII) and truncated at 5000 chars.
+5. Documented false positives of the currency gate (only park): all-capitals words that are codes (TRY, ALL, TOP, BOB), `100 real`, `R100 Franc ...`.
+
+Counts (fix round 4): 3.11 `uv run pytest -q` 3255 passed 15 skipped (twice); 3.11 + scratch Postgres 16 (new empty /tmp dir) 3344 passed 11 skipped x3; scratch CPython 3.12 venv outside the repo, CI=true, + Postgres 3355 passed 0 skipped x3. Cluster and venv deleted; uv.lock restored, not committed.
