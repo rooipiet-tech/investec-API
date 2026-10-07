@@ -120,7 +120,6 @@ FOREIGN_BODIES = [
 ]
 
 
-@RED
 @pytest.mark.parametrize("amount_line", FOREIGN_BODIES)
 def test_foreign_currency_token_parks_currency_conflict(tmp_path, amount_line):
     env = Env(tmp_path)

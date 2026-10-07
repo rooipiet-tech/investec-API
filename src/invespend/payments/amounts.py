@@ -50,6 +50,21 @@ _LABELLED = re.compile(
 )
 _AFTER_REF_LABEL = re.compile(r"\bref(?:erence)?\b[\s:#=.\-]*$", re.IGNORECASE | re.ASCII)
 _LONG_RUN = re.compile(r"\d{6,}")
+# RS3A-2: any non-ZAR currency token in a text region means the figure may not be rand. Linear (alternation of
+# literals, one pass); false positives (a payee called "Euro ...") only park, never pay.
+_FOREIGN = re.compile(
+    r"[$\u20ac\u00a3\u00a5]|(?<![A-Za-z])(?:USD|EUR|GBP|AUD|CAD|NZD|CHF|JPY|CNY|dollars?|euros?|pounds?)(?![A-Za-z])",
+    re.IGNORECASE,
+)
+
+
+def has_foreign_currency_token(text: str) -> bool:
+    """True when ``text`` carries a non-ZAR currency token (code, word or symbol). Fails closed (True) on input
+    longer than ``MAX_TYPED_CHARS``."""
+    text = text or ""
+    if len(text) > MAX_TYPED_CHARS:
+        return True
+    return _FOREIGN.search(text) is not None
 
 
 def marked_amount_candidates(text: str) -> list[str]:

@@ -23,7 +23,7 @@ from . import (
     approval, bankdetails, batch, beneficiaries as bene, commands, content, execute, fingerprints, images,
     instructions, loopguard, notify_v2, refs, routing, sender_auth, trigger,
 )
-from .amounts import labelled_payee_candidates, marked_amount_candidates
+from .amounts import has_foreign_currency_token, labelled_payee_candidates, marked_amount_candidates
 from .mode import v2_settings
 from .notices import safe_send, sender_of
 
@@ -115,6 +115,8 @@ def _candidates(ctx: _Ctx, payloads) -> tuple[list[routing.Candidate], bool, str
             text_for_details.append(region.text)
         for amount in marked_amount_candidates(stripped):
             cands.append(routing.Candidate(amount, "ZAR", None, region.kind))
+        if has_foreign_currency_token(stripped):                  # RS3A-2: reconcile() then parks currency_conflict
+            cands.append(routing.Candidate(None, "FOREIGN", None, region.kind))
         for payee in labelled_payee_candidates(stripped):
             cands.append(routing.Candidate(None, None, payee, region.kind))
     blocked = False
@@ -176,6 +178,8 @@ def _new_instruction(ctx: _Ctx, v2, msg, view, iid: str, auth_from: str, receive
         return _stop(ctx, auth_from, iid, "attachment_ambiguous")
     rec = routing.reconcile(cands)
     if rec.status != "ok":
+        if rec.reason == "no_amount" and any(c.currency == "FOREIGN" for c in cands):
+            return _stop(ctx, auth_from, iid, "currency_conflict")        # "$100": never read as rand, say why
         return _stop(ctx, auth_from, iid, rec.reason)
 
     details = bankdetails.extract_bank_details(details_text)
