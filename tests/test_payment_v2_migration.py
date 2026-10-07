@@ -21,7 +21,7 @@ INSTRUCTION_COLUMNS = [
     "instruction_id", "status", "path", "amount", "currency", "source_account_id", "source_profile_id",
     "source_account_last3", "payee_name_norm", "beneficiary_id", "beneficiary_fingerprint", "account_hmac",
     "recent_beneficiary", "daily_reserved", "reserved_day", "my_reference", "their_reference", "figures_source",
-    "message_id_hash", "notify_to", "received_at", "first_seen_at", "eligible_at", "batch_ref", "item_no",
+    "figures_excerpt", "message_id_hash", "notify_to", "received_at", "first_seen_at", "eligible_at", "batch_ref", "item_no",
     "offered_at", "batch_notified_at", "offer_digest", "approved_at", "expires_at", "paste_notified_at",
     "hold_notified_at", "executed_at", "execution_mode", "outcome_code", "outcome_message", "updated_at",
 ]
@@ -100,8 +100,8 @@ def test_column_set_equals_section_2b_list_per_table(table):
     assert _columns(table) == EXPECTED_COLUMNS[table]
 
 
-def test_column_counts_are_37_5_5_3():
-    assert [len(_columns(t)) for t in FOUR] == [37, 5, 5, 3]
+def test_column_counts_are_38_5_5_3():
+    assert [len(_columns(t)) for t in FOUR] == [38, 5, 5, 3]
 
 
 def test_notify_to_and_expires_at_not_null():
@@ -184,7 +184,7 @@ def test_no_migration_needed_to_change_hold():
 def test_column_set_equals_column_owners_and_every_column_has_an_owner_method():
     owners = ins().COLUMN_OWNERS
     expected = {(t, c) for t, cols in EXPECTED_COLUMNS.items() for c in cols}
-    assert set(owners) == expected and len(owners) == 50
+    assert set(owners) == expected and len(owners) == 51
     store_classes = [ins().MemoryInstructionStore]
     from invespend.payments import pg_instructions
     store_classes.append(pg_instructions.PgInstructionStore)

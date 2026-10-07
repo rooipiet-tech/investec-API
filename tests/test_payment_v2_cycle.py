@@ -7,7 +7,7 @@ from decimal import Decimal
 
 import pytest
 
-from tests.v2_harness import ACME_RAW, INSTRUCTION, KEY, OWNER, T0, Env, body_for, make_mail, mod, offered
+from tests.v2_harness import ACME_RAW, KEY, OWNER, T0, Env, body_for, mod, offered
 
 
 
@@ -192,7 +192,7 @@ def test_all_messages_get_processing_rows_before_any_is_processed(env, monkeypat
 
 def test_exception_in_message_sets_outcome_error_and_cycle_continues(env, monkeypatch):
     first = env.instruct(body_for("101.00"))
-    second = env.instruct(body_for("102.00"))
+    env.instruct(body_for("102.00"))
     calls = {"n": 0}
     real = mod("accounts").resolve_source_unique
 
@@ -212,7 +212,6 @@ def test_message1_raises_message2_approval_still_processed_message1_reported_by_
     env.advance(15)
     bad = env.instruct(body_for("102.00"))
     env.reply("approve")
-    real = mod("accounts").resolve_source_unique
     monkeypatch.setattr(mod("accounts"), "resolve_source_unique", lambda *a: (_ for _ in ()).throw(RuntimeError("boom")))
     env.cycle()
     assert msg_outcome(env, bad) == "error" and env.row(0)["status"] == "accepted"

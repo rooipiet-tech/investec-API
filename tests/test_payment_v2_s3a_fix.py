@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.v2_harness import OWNER, Env, body_for, mod, offered
+from tests.v2_harness import Env, body_for, mod, offered
 
 
 def _o():

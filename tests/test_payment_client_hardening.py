@@ -118,7 +118,6 @@ def test_http_429_and_5xx_are_unknown_outcome(monkeypatch, status):
     assert len(rig.write_calls) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="red: RS3AF5-2 409 is an unknown outcome")
 def test_http_409_on_the_write_path_is_unknown_outcome(monkeypatch):
     rig = Rig(monkeypatch, write=lambda: mk_resp(409, {"message": "Duplicate payment"}))
     with pytest.raises(_o().PaymentUnknownOutcome):
@@ -126,7 +125,6 @@ def test_http_409_on_the_write_path_is_unknown_outcome(monkeypatch):
     assert len(rig.write_calls) == 1
 
 
-@pytest.mark.xfail(strict=True, reason="red: RS3AF5-2 409 is an unknown outcome")
 def test_httperror_409_is_unknown_outcome(monkeypatch):
     conflict = requests.exceptions.HTTPError("x", response=mk_resp(409, {"message": "Duplicate payment"}))
     rig = Rig(monkeypatch, write=lambda: conflict)

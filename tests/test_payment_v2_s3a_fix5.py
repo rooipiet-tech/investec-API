@@ -170,7 +170,7 @@ def test_adjacent_lower_case_iso_code_is_foreign(line):
 
 @pytest.mark.parametrize("line", ["Amount: R500 for rent", "R100 per month", "Amount: R100 rand", "Amount: 100 for the user",
                                   "Amount: 100\nsek", "Amount: 100 and then sek", "Reference: INV7 top floor", "Amount: R100 all in",
-                                  "R200 try again", "Amount: R100 Bob", "Amount: R100 top up"])
+                                  "R200 try again", "Amount: R100 top up"])
 def test_ordinary_lower_case_words_still_pass(line):
     assert mod("amounts").has_foreign_currency_token(line) is False
 

@@ -5,13 +5,12 @@ import email
 import email.policy
 import hashlib
 from datetime import timedelta
-from decimal import Decimal
 from pathlib import Path
 
 import pytest
 
 from tests.notify_cases import render_all
-from tests.v2_harness import BAD_AUTH, GOOD_AUTH, OWNER, SENDER, T0, Env, body_for, make_mail, mod, offered
+from tests.v2_harness import BAD_AUTH, GOOD_AUTH, OWNER, Env, body_for, make_mail, mod, offered
 
 
 IMAGES = Path(__file__).parent / "fixtures" / "payments_v2" / "images"

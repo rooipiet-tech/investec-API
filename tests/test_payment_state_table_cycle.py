@@ -4,10 +4,9 @@ from __future__ import annotations
 from datetime import timedelta
 from decimal import Decimal
 
-import pytest
 
 from tests.instr_helpers import rec
-from tests.v2_harness import Env, mod, offered, body_for
+from tests.v2_harness import Env, mod, offered
 
 
 

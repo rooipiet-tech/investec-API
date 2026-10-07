@@ -4,7 +4,6 @@ A fake psycopg connection records the SQL; ``script`` supplies one result per ex
 The helper classes are copied from tests/test_payment_pg_store.py (never imported from or edited there)."""
 from __future__ import annotations
 
-import re
 from datetime import timedelta
 from decimal import Decimal
 

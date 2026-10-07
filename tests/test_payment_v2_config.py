@@ -1,11 +1,9 @@
 """S11: additive config fields, mode helper, audit `ref` key, scrub_message."""
 from __future__ import annotations
 
-import dataclasses
 import json
 import os
 
-import pytest
 
 from tests.v2_harness import make_settings, mod
 

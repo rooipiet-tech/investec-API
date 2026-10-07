@@ -26,7 +26,9 @@ from . import (
     approval, bankdetails, batch, beneficiaries as bene, commands, content, execute, fingerprints, images,
     instructions, loopguard, notify_v2, refs, routing, sender_auth, trigger,
 )
-from .amounts import has_foreign_currency_token, labelled_payee_candidates, marked_amount_candidates
+from .amounts import (
+    has_foreign_currency_token, labelled_payee_candidates, marked_amount_candidates, marked_amount_excerpts,
+)
 from .mode import caps_configured, v2_settings
 from .notices import safe_send, sender_of
 
@@ -83,6 +85,7 @@ def _fresh(received: datetime | None, when: datetime, cfg) -> bool:
 _MAILBOX_DELIMS = re.compile(r"[./:]+")
 _UTF7_RUN = re.compile(r"&([A-Za-z0-9+,]*)-")
 _MAILBOX_FORBIDDEN = frozenset("\\*%")        # backslash and the IMAP LIST wildcards: never part of a dedicated name
+_MAILBOX_REFUSED_CATEGORIES = frozenset(("Cc", "Zl", "Zp"))   # control (C0, DEL, C1), line separator, paragraph separator
 
 
 def _decode_utf7(name: str) -> str:
@@ -117,10 +120,10 @@ def _normalised_mailbox(name: object) -> str:
 def _is_shared_inbox(name: object) -> bool:
     """True for ``""``, ``INBOX`` and any spelling that only repeats it (``INBOX.INBOX``, ``INBOX/INBOX``, the same
     in modified UTF-7), and for any name carrying a backslash, ``*`` or ``%`` (RS3AF3-5: wildcards / escapes could
-    select the shared inbox) or a control character (``\\x00``-``\\x1f``, ``\\x7f``: a server may truncate at NUL)."""
+    select the shared inbox) or any Unicode control / line-separator character (categories Cc incl. C1, Zl, Zp: a server may truncate at NUL)."""
     raw = str(name or "")
-    if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in raw + _decode_utf7(raw)):      # RS3AF4-4: NUL / any control character, never dedicated
-        return True
+    if any(unicodedata.category(ch) in _MAILBOX_REFUSED_CATEGORIES for ch in raw + _decode_utf7(raw)):
+        return True                                                            # RS3AF4-4 / RS3AF5-3: NUL, C0, DEL, C1, U+2028/2029
     if any(ch in _MAILBOX_FORBIDDEN for ch in raw) or any(ch in _MAILBOX_FORBIDDEN for ch in _normalised_mailbox(raw)):
         return True
     parts = [p for p in _MAILBOX_DELIMS.split(_normalised_mailbox(name)) if p]
@@ -163,8 +166,9 @@ def _candidates(ctx: _Ctx, payloads) -> tuple[list[routing.Candidate], bool, str
         stripped = trigger.strip_trigger(region.text)
         if region.kind in ("typed", "forwarded"):
             text_for_details.append(region.text)
+        excerpts = marked_amount_excerpts(stripped)
         for amount in marked_amount_candidates(stripped):
-            cands.append(routing.Candidate(amount, "ZAR", None, region.kind))
+            cands.append(routing.Candidate(amount, "ZAR", None, region.kind, excerpts.get(amount)))
         if has_foreign_currency_token(stripped):                  # RS3A-2: reconcile() then parks currency_conflict
             cands.append(routing.Candidate(None, "FOREIGN", None, region.kind))
         for payee in labelled_payee_candidates(stripped):
@@ -172,7 +176,8 @@ def _candidates(ctx: _Ctx, payloads) -> tuple[list[routing.Candidate], bool, str
     blocked = False
     for _name, result in payloads.extractions:
         if result.status == "ok" and result.amount:
-            cands.append(routing.Candidate(result.amount, result.currency or "ZAR", None, "attachment"))
+            cands.append(routing.Candidate(result.amount, result.currency or "ZAR", None, "attachment",
+                                           f"attachment: amount {result.amount} {result.currency or 'ZAR'}"))
             if result.payee:
                 cands.append(routing.Candidate(None, None, result.payee, "attachment"))
         elif result.status == "needs_review" and result.reason not in _RECONCILE_IGNORED_ATTACHMENT_REASONS:
@@ -189,7 +194,7 @@ def _candidates(ctx: _Ctx, payloads) -> tuple[list[routing.Candidate], bool, str
             continue
         f = outcome.fields
         if f.amount:
-            cands.append(routing.Candidate(f.amount, f.currency, None, "image"))
+            cands.append(routing.Candidate(f.amount, f.currency, None, "image", f"image: amount {f.amount} {f.currency or ''}"))
         if f.payee_name:
             cands.append(routing.Candidate(None, None, f.payee_name, "image"))
         image_account = image_account or f.account_number
@@ -252,7 +257,7 @@ def _new_instruction(ctx: _Ctx, v2, msg, view, iid: str, auth_from: str, receive
         "source_profile_id": accounts_mod.source_profile_id(source) or None,
         "source_account_last3": trig.last3, "payee_name_norm": payee_norm, "account_hmac": mac,
         "my_reference": their_reference or None, "their_reference": their_reference or None,
-        "figures_source": rec.figures_source,
+        "figures_source": rec.figures_source, "figures_excerpt": rec.figures_excerpt,
         "message_id_hash": hashlib.sha256(v2.message_id.strip().lower().encode("utf-8")).hexdigest(),
         "notify_to": auth_from, "received_at": received, "updated_at": when,
     }

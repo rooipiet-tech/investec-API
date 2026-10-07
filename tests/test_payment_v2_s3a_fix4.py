@@ -293,7 +293,7 @@ def test_split_and_symbol_variants_park(text):
                                   "Amount: ZAR 100", "Amount: R100 rand", "Amount: R100.00", "Amount: R100 for the user manual",
                                   "Amount: R100 a b c", "pay Real Estate Agents Amount: R100", "we won the tender, Amount: R100",
                                   "Payee: Sunbird Trading Amount: R100", "Amount: R100 try again later",
-                                  "Amount: R100 all good", "Amount: R100 Bob", "Amount: R100 top up", "ask us about it Amount: R100",
+                                  "Amount: R100 all good", "Amount: R100 top up", "ask us about it Amount: R100",
                                   "Amount: R100 SUN CO", "Amount: R100 ABC PTY LTD", "Amount: R100 INV7781", "Amount: R100 KFC"])
 def test_no_false_positive_table(text):
     assert not _gate(text), text

@@ -1,13 +1,12 @@
 """S11: execution (F3, F15, F17, F18, F40, NB-R3-3), only for the cycle-start snapshot of accepted rows."""
 from __future__ import annotations
 
-from datetime import timedelta
 from decimal import Decimal
 
 import pytest
 import requests
 
-from tests.v2_harness import ACME_RAW, OWNER, SUCCESS_BODY, Env, body_for, mod, offered
+from tests.v2_harness import SUCCESS_BODY, Env, mod, offered
 
 
 

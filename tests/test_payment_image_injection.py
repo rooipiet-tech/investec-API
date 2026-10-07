@@ -4,7 +4,6 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-import pytest
 
 from tests.mail_helpers import make_msg
 

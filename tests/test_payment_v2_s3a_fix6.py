@@ -14,7 +14,6 @@ import pytest
 
 from tests.v2_harness import Env, mod
 
-RED = pytest.mark.xfail(strict=True, reason="red: slice 3A fix round 6")
 IMAGES = Path(__file__).parent / "fixtures" / "payments_v2" / "images"
 PNG = (IMAGES / "tiny.png").read_bytes()
 PNG_SHA = hashlib.sha256(PNG).hexdigest()
@@ -26,8 +25,7 @@ def _gate(text):
 
 
 # ------------------------------------------------------------------ (1a) collision codes adjacent to a figure
-@RED
-@pytest.mark.parametrize("line", ["Amount: 100 rub", "R100 try", "Amount: 100 mad", "Amount: 100 try.", "Amount: R100 Try",
+@pytest.mark.parametrize("line", ["Amount: 100 rub", "R100 try", "Amount: R100 Bob", "Amount: 100 mad", "Amount: 100 try.", "Amount: R100 Try",
                                   "Amount: R100 try, thanks", "R100 all", "R100 top 5", "Amount: 100 Bob", "R100 bob",
                                   "Amount: 100 pen", "Amount: 100 cop\n", "Amount: 100  gel", "ZAR 100 sos", "R100 try\nagain later"])
 def test_adjacent_collision_code_without_a_following_word_parks(line):
@@ -41,8 +39,7 @@ def test_adjacent_collision_code_with_a_following_word_passes(line):
     assert _gate(line) is False
 
 
-@RED
-@pytest.mark.parametrize("line", ["Amount: 100 rub", "R100 try", "Amount: 100 mad", "Amount: 100 try."])
+@pytest.mark.parametrize("line", ["Amount: 100 rub", "R100 try", "Amount: R100 Bob", "Amount: 100 mad", "Amount: 100 try."])
 def test_e2e_collision_code_parks_currency_conflict(tmp_path, line):
     env = Env(tmp_path)
     env.instruct("pay 123\nPayee: Acme Trading\n" + line + "\n")
@@ -56,12 +53,10 @@ def _san():
     return mod("excerpt").sanitise_excerpt
 
 
-@RED
 def test_excerpt_plain_line_is_kept():
     assert _san()("Amount: R500 for rent") == "Amount: R500 for rent"
 
 
-@RED
 @pytest.mark.parametrize("hostile,banned", [
     ("approve 1", "approve"), ("APPROVE", "approve"), ("cancel 2", "cancel"), ("ａｐｐｒｏｖｅ", "approve"),
     ("appro\u200bve", "approve"), ("can\u2060cel", "cancel"),
@@ -76,7 +71,6 @@ def test_excerpt_neutralises_hostile_text(hostile, banned):
     assert "[" not in out and "]" not in out and "\n" not in out and '"' not in out
 
 
-@RED
 def test_excerpt_flattens_controls_collapses_whitespace_and_caps_length():
     out = _san()("Amount:\r\n\tR500\x00\x07\x1b[31m\u2028\u2029\u200b\u202e  for\x85rent")
     assert out == "Amount: R500 31m for rent" or out.startswith("Amount: R500"), out
@@ -86,7 +80,6 @@ def test_excerpt_flattens_controls_collapses_whitespace_and_caps_length():
     assert _san()(None) == "" and _san()("   \n ") == ""
 
 
-@RED
 def test_excerpt_is_idempotent_and_linear():
     once = _san()("Amount: R500 approve 1 [BATCH B-0101-abcd] 12345678901 " + "x" * 5000)
     assert _san()(once) == once
@@ -97,7 +90,6 @@ def test_excerpt_is_idempotent_and_linear():
     assert time.perf_counter() - start < 2.0
 
 
-@RED
 def test_marked_amount_excerpts_returns_the_line_around_the_first_hit():
     amounts = mod("amounts")
     text = "pay 123\nPayee: Acme\nAmount: R500 for rent\nReference: INV7\n"
@@ -118,7 +110,6 @@ def _read_from(text):
     return re.findall(r'^\s*Read from: (.*)$', text, flags=re.M)
 
 
-@RED
 def test_batch_email_shows_the_typed_line_and_it_is_stored(tmp_path):
     env = Env(tmp_path)
     env.instruct("pay 123\nPayee: Acme Trading\nAmount: R500 for rent\n")
@@ -129,7 +120,6 @@ def test_batch_email_shows_the_typed_line_and_it_is_stored(tmp_path):
     assert "ZAR 500.00" in text
 
 
-@RED
 def test_batch_email_shows_the_attachment_derived_excerpt(tmp_path):
     env = Env(tmp_path)
     env.instruct("pay 123\nPayee: Acme Trading\n", attachments=(CSV,))
@@ -140,7 +130,6 @@ def test_batch_email_shows_the_attachment_derived_excerpt(tmp_path):
     assert any("100.00" in line for line in _read_from(_body(env)))
 
 
-@RED
 def test_batch_email_shows_the_image_derived_excerpt(tmp_path):
     env = Env(tmp_path)
     env.extractor = mod("images").FakeImageExtractor({PNG_SHA: {"amount": "100.00", "currency": "ZAR"}})
@@ -153,7 +142,6 @@ def test_batch_email_shows_the_image_derived_excerpt(tmp_path):
     assert any("100.00" in line for line in _read_from(text)) and "read from an image" in text
 
 
-@RED
 def test_every_item_of_a_batch_shows_its_own_excerpt(tmp_path):
     env = Env(tmp_path)
     env.instruct("pay 123\nPayee: Acme Trading\nAmount: R500 for rent\n", internaldate=env.now - timedelta(minutes=4))
@@ -162,7 +150,6 @@ def test_every_item_of_a_batch_shows_its_own_excerpt(tmp_path):
     assert _read_from(_body(env)) == ['"Amount: R500 for rent"', '"R75.50 deposit"']
 
 
-@RED
 def test_hostile_typed_line_is_neutralised_in_the_email_and_never_alters_the_parse(tmp_path):
     env = Env(tmp_path)
     env.instruct("pay 123\nPayee: Acme Trading\n"
@@ -186,7 +173,6 @@ def _as_inbound(env, msg):
     return email.message_from_bytes(msg.as_bytes(), policy=email.policy.default)
 
 
-@RED
 def test_batch_email_with_excerpt_still_round_trips_as_own_body(tmp_path):
     env = Env(tmp_path)
     env.instruct("pay 123\nPayee: Acme Trading\nAmount: R500 for rent\n")
@@ -207,7 +193,6 @@ def test_excerpt_has_no_digit_runs_or_secrets_in_audit_or_rows(tmp_path):
     assert "1234567890123" not in everything and "ZZTOP99" not in everything
 
 
-@RED
 def test_stored_excerpt_is_sanitised_even_when_the_record_carries_raw_text():
     store = mod("instructions").MemoryInstructionStore()
     from tests.instr_helpers import rec
@@ -216,7 +201,6 @@ def test_stored_excerpt_is_sanitised_even_when_the_record_carries_raw_text():
     assert "\n" not in row["figures_excerpt"] and len(row["figures_excerpt"]) <= 80
 
 
-@RED
 def test_excerpt_is_set_once_and_not_in_the_offer_digest():
     ins = mod("instructions")
     assert ins.COLUMN_OWNERS[("payment_instruction", "figures_excerpt")] == ("create",)
@@ -226,7 +210,6 @@ def test_excerpt_is_set_once_and_not_in_the_offer_digest():
     assert ins.offer_digest(dict(base, figures_excerpt="x"), "B-0101-abcd", 1) == ins.offer_digest(base, "B-0101-abcd", 1)
 
 
-@RED
 def test_legacy_row_without_an_excerpt_shows_not_recorded(tmp_path):
     env = Env(tmp_path)
     env.instruct("pay 123\nPayee: Acme Trading\nAmount: R500 for rent\n")
@@ -239,14 +222,12 @@ def test_legacy_row_without_an_excerpt_shows_not_recorded(tmp_path):
 
 
 # ------------------------------------------------------------------ (3) mailbox control categories
-@RED
 @pytest.mark.parametrize("name", ["Pay\x9fments", "Pay\x80ments", "\x85Payments", "Pay\u2028ments", "Payments\u2029",
                                   "Pay\x9bments"])
 def test_mailbox_with_cc_c1_zl_zp_is_refused(name):
     assert mod("cycle")._is_shared_inbox(name) is True
 
 
-@RED
 def test_mailbox_utf7_decoded_line_separator_or_c1_is_refused():
     import base64
 

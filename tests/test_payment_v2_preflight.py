@@ -1,9 +1,7 @@
 """S11: preflight order (no fetch before it passes), error envelope, dispatch (cli.py), F26, F27, F10."""
 from __future__ import annotations
 
-import ast
 import difflib
-import hashlib
 import json
 import re
 from pathlib import Path
@@ -102,7 +100,7 @@ def test_default_smtp_send_is_emailer_smtp_send(env, monkeypatch):
 # ------------------------------------------------------------------ dispatch
 def stub_cli_env(monkeypatch, settings, *, inbox=None, store=None, client=None, smtp=None):
     """Seam of TR3-9: PgInstructionStore / PgAuditLog replaced; nothing else is touched."""
-    from invespend import cli, config
+    from invespend import cli
     inbox, client, smtp = inbox or FakeInbox(), client or FakeClient(), smtp or FakeSMTP()
     store = store or mod("instructions").MemoryInstructionStore()
     monkeypatch.setattr(cli.Settings, "load", classmethod(lambda cls: settings))
@@ -177,7 +175,6 @@ def test_run_v2_never_constructs_PgPaymentStore(monkeypatch):
 
 def test_dry_run_builds_client_with_read_credential_live_uses_payment_credentials(monkeypatch):
     built = []
-    from invespend import cli
     ctx = stub_cli_env(monkeypatch, v2_settings())
     monkeypatch.setattr("invespend.investec_client.InvestecClient", lambda *a, **k: built.append(a) or ctx.client)
     ctx.cli.main(["approve-payments", "--once"])
@@ -192,7 +189,7 @@ def test_dry_run_builds_client_with_read_credential_live_uses_payment_credential
 
 
 def test_cli_main_f26_summary_and_exit_codes_for_ignore_offer_approve_cancel_execute(monkeypatch, capsys):
-    from tests.v2_harness import make_mail, body_for, T0
+    from tests.v2_harness import make_mail, body_for
     ctx = stub_cli_env(monkeypatch, v2_settings(live=True))
     s = ctx.cli
     # ignore
@@ -201,7 +198,6 @@ def test_cli_main_f26_summary_and_exit_codes_for_ignore_offer_approve_cancel_exe
     first = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert first["messages"] == 1 and first["offered"] == 0
     # offer
-    mod_obj = ctx.store
     ctx.inbox.queue(make_mail(body_for()))
     assert s.main(["approve-payments", "--once"]) == 0
     second = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
@@ -251,7 +247,7 @@ class LegacyStub:
 
 
 def test_minimal_stub_settings_runs_legacy_rc0(monkeypatch, capsys):
-    from invespend import cli, config
+    from invespend import cli
     called = {}
     monkeypatch.setattr(cli.Settings, "load", classmethod(lambda cls: LegacyStub()))
     monkeypatch.setattr("invespend.payments.inbox.ImapInbox", lambda s: "inbox")
@@ -266,7 +262,7 @@ def test_minimal_stub_settings_runs_legacy_rc0(monkeypatch, capsys):
 
 @pytest.mark.parametrize("value", [None, "", "legacy", "LEGACY"])
 def test_payments_mode_unset_or_legacy_runs_legacy(monkeypatch, value):
-    from invespend import cli, config
+    from invespend import cli
     called = []
     stub = LegacyStub()
     stub.payments_mode = value

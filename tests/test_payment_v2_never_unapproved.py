@@ -1,7 +1,6 @@
 """S11 (F45): no code path executes an item that was not approved by an authenticated reply."""
 from __future__ import annotations
 
-from datetime import timedelta
 
 import pytest
 

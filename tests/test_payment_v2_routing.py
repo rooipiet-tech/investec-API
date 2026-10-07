@@ -1,8 +1,7 @@
 """S11: reconcile / route / fingerprints / reverify (pure, offline)."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
-from decimal import Decimal
+from datetime import timedelta
 
 import pytest
 
@@ -141,20 +140,20 @@ def test_hold_zero_makes_registered_recent_flag_inert():
 
 
 def test_recent_registered_beneficiary_held_when_hold_nonzero():
-    I = mod("instructions").BeneficiaryObservation
-    fresh = {"ben-acme": I(T0 - timedelta(hours=1), False, "f", None)}
+    Obs = mod("instructions").BeneficiaryObservation
+    fresh = {"ben-acme": Obs(T0 - timedelta(hours=1), False, "f", None)}
     result = route(observations=fresh, hold=timedelta(hours=24), now=T0)
     assert result.kind == "held" and result.recent and result.eligible_at == T0 - timedelta(hours=1) + timedelta(hours=24)
-    old = {"ben-acme": I(T0 - timedelta(hours=48), False, "f", None)}
+    old = {"ben-acme": Obs(T0 - timedelta(hours=48), False, "f", None)}
     assert route(observations=old, hold=timedelta(hours=24)).kind == "ready"
-    established = {"ben-acme": I(T0 - timedelta(hours=1), True, "f", None)}
+    established = {"ben-acme": Obs(T0 - timedelta(hours=1), True, "f", None)}
     assert route(observations=established, hold=timedelta(hours=24)).kind == "ready"          # bootstrap beneficiaries
     assert route(observations=fresh, hold=timedelta(hours=24), hold_recent=False).kind == "ready"
 
 
 def test_fingerprint_change_on_established_beneficiary_is_recent_held_first_seen_unchanged():
-    I = mod("instructions").BeneficiaryObservation
-    obs = {"ben-acme": I(T0 - timedelta(days=30), True, "f2", T0 - timedelta(hours=2))}
+    Obs = mod("instructions").BeneficiaryObservation
+    obs = {"ben-acme": Obs(T0 - timedelta(days=30), True, "f2", T0 - timedelta(hours=2))}
     result = route(observations=obs, hold=timedelta(hours=24))
     assert result.kind == "held" and result.eligible_at == T0 - timedelta(hours=2) + timedelta(hours=24)
 

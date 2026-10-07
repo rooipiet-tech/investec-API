@@ -17,6 +17,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Protocol
 
 from .caps import check_daily_aggregate
+from .excerpt import sanitise_excerpt
 from .outcome import sanitize_provider_message
 
 # ---------------------------------------------------------------- constants
@@ -63,7 +64,7 @@ INSTRUCTION_COLUMNS = (
     "instruction_id", "status", "path", "amount", "currency", "source_account_id", "source_profile_id",
     "source_account_last3", "payee_name_norm", "beneficiary_id", "beneficiary_fingerprint", "account_hmac",
     "recent_beneficiary", "daily_reserved", "reserved_day", "my_reference", "their_reference", "figures_source",
-    "message_id_hash", "notify_to", "received_at", "first_seen_at", "eligible_at", "batch_ref", "item_no",
+    "figures_excerpt", "message_id_hash", "notify_to", "received_at", "first_seen_at", "eligible_at", "batch_ref", "item_no",
     "offered_at", "batch_notified_at", "offer_digest", "approved_at", "expires_at", "paste_notified_at",
     "hold_notified_at", "executed_at", "execution_mode", "outcome_code", "outcome_message", "updated_at",
 )
@@ -74,8 +75,8 @@ META_COLUMNS = ("key", "value", "set_at")
 CREATE_COLUMNS = frozenset({
     "instruction_id", "status", "path", "amount", "currency", "source_account_id", "source_profile_id",
     "source_account_last3", "payee_name_norm", "beneficiary_id", "beneficiary_fingerprint", "account_hmac",
-    "recent_beneficiary", "my_reference", "their_reference", "figures_source", "message_id_hash", "notify_to",
-    "received_at", "first_seen_at", "eligible_at", "expires_at", "outcome_code", "updated_at",
+    "recent_beneficiary", "my_reference", "their_reference", "figures_source", "figures_excerpt", "message_id_hash",
+    "notify_to", "received_at", "first_seen_at", "eligible_at", "expires_at", "outcome_code", "updated_at",
 })
 _REQUIRED_CREATE = ("instruction_id", "status", "path", "amount", "source_account_id", "source_account_last3",
                     "figures_source", "message_id_hash", "notify_to", "received_at", "expires_at")
@@ -95,7 +96,7 @@ def _build_column_owners() -> dict[tuple[str, str], tuple[str, ...]]:
         "instruction_id": create_only, "path": create_only, "amount": create_only, "currency": create_only,
         "source_account_id": create_only, "source_profile_id": create_only, "source_account_last3": create_only,
         "payee_name_norm": create_only, "my_reference": create_only, "their_reference": create_only,
-        "recent_beneficiary": create_only, "message_id_hash": create_only, "figures_source": create_only,
+        "recent_beneficiary": create_only, "message_id_hash": create_only, "figures_source": create_only, "figures_excerpt": create_only,
         "notify_to": create_only, "account_hmac": create_only, "received_at": create_only,
         "beneficiary_id": _owners("create", "set_held"),
         "beneficiary_fingerprint": _owners("create", "set_held"),
@@ -181,7 +182,8 @@ def offer_digest(row: Mapping, batch_ref: str, item_no: int) -> str:
 
     Fields in this exact order: batch_ref, item_no, amount (2 decimal places), currency, source_account_id,
     payee_name_norm, beneficiary_id, beneficiary_fingerprint; ``None`` is the empty string; joined with
-    ``\\x1f``; UTF-8; sha256 hex digest.
+    ``\\x1f``; UTF-8; sha256 hex digest. ``figures_excerpt`` is deliberately NOT bound (RS3AF5-1): it is display text
+    set once at creation, never used to decide anything, and binding it would change every pinned digest.
     """
     def text(value: object) -> str:
         return "" if value is None else str(value)
@@ -224,6 +226,7 @@ def validate_create_record(record: Mapping) -> dict:
     out["currency"] = record.get("currency") or "ZAR"
     out["notify_to"] = str(record["notify_to"]).strip()
     out["amount"] = _amount(record["amount"])
+    out["figures_excerpt"] = sanitise_excerpt(record.get("figures_excerpt")) or None     # RS3AF5-1: never stored raw
     out["recent_beneficiary"] = bool(out.get("recent_beneficiary"))
     if out.get("updated_at") is None:
         out["updated_at"] = datetime.now(timezone.utc)

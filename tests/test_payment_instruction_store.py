@@ -33,7 +33,7 @@ def test_create_roundtrip_every_create_owned_column(store):
     row, _ = store.create(held)
     for key, value in held.items():
         assert row[key] == value, key
-    assert len(ins().INSTRUCTION_COLUMNS) == 37
+    assert len(ins().INSTRUCTION_COLUMNS) == 38
     assert set(row) == set(ins().INSTRUCTION_COLUMNS)
     assert row["daily_reserved"] is False and row["batch_ref"] is None and row["approved_at"] is None
 

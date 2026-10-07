@@ -157,7 +157,7 @@ class InvestecClient:
         never fetches one, so "not sent" is decided entirely before it is called.
 
         No retries, no redirects. Every outcome after the request may have left the
-        process is either a definite rejection (4xx other than 408/429) or
+        process is either a definite rejection (4xx other than 408/409/429) or
         ``PaymentUnknownOutcome`` (money may have moved; never resent).
         """
         from .payments.outcome import (
@@ -190,17 +190,17 @@ class InvestecClient:
             )
         except requests.exceptions.HTTPError as exc:
             status = getattr(exc.response, "status_code", None)
-            if isinstance(status, int) and 400 <= status < 500 and status not in (408, 429):
+            if isinstance(status, int) and 400 <= status < 500 and status not in (408, 409, 429):
                 raise _rejected(exc.response) from None
             raise PaymentUnknownOutcome("HTTPError") from None
         except requests.RequestException as exc:
             raise PaymentUnknownOutcome(type(exc).__name__) from None
 
         status = resp.status_code
-        if 400 <= status < 500 and status not in (408, 429):
+        if 400 <= status < 500 and status not in (408, 409, 429):
             raise _rejected(resp)
         if status < 200 or status >= 300:
-            # 1xx, 3xx (never followed), 408 (receipt ambiguous), 429, 5xx
+            # 1xx, 3xx (never followed), 408 (receipt ambiguous), 409 (a duplicate means the first payment may exist), 429, 5xx
             raise PaymentUnknownOutcome(f"HTTP {status}")
         body = _decoded(resp)
         if not isinstance(body, dict):

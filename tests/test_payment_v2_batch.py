@@ -7,7 +7,7 @@ from datetime import timedelta
 
 import pytest
 
-from tests.v2_harness import ACME_RAW, INSTRUCTION, OWNER, Env, body_for, instruct_many, mod, offered, second_sender
+from tests.v2_harness import ACME_RAW, OWNER, Env, body_for, instruct_many, mod, offered, second_sender
 
 
 PENDING = "awaiting_approval"
@@ -256,7 +256,7 @@ def test_batch_email_send_timeout_after_data_leaves_batch_offered_and_resend_del
     env.advance(20)
     env.cycle()                                                     # 40 minutes after the offer: resend of the SAME batch
     assert len(env.batch_emails()) == 1 and env.batch_ref() == ref
-    assert f"1. Acme Trading" in str(env.last_batch().get_content()) and number == 1
+    assert "1. Acme Trading" in str(env.last_batch().get_content()) and number == 1
     assert env.row()["batch_ref"] == ref and env.row()["batch_notified_at"] == env.now
     # a reply to that copy still links and approves
     env.advance(15)

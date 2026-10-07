@@ -9,12 +9,13 @@ says so. ``route`` decides where a reconciled instruction goes; no route can exe
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from . import beneficiaries as bene
 from .caps import check_per_payment
+from .excerpt import sanitise_excerpt
 
 TEXT_ORIGINS = ("typed", "forwarded", "quoted")
 NON_IMAGE_ORIGINS = TEXT_ORIGINS + ("attachment",)
@@ -26,6 +27,7 @@ class Candidate:
     currency: str | None
     payee: str | None
     origin: str          # "typed" | "forwarded" | "quoted" | "attachment" | "image"
+    excerpt: str | None = field(default=None, compare=False)   # RS3AF5-1: raw text the amount was read from (not an identity field)
 
 
 @dataclass(frozen=True)
@@ -37,6 +39,7 @@ class Reconciled:
     image_derived: bool
     figures_source: str  # "typed" | "attachment" | "image"
     reason: str
+    figures_excerpt: str | None = field(default=None, compare=False)   # sanitised, <= 80 chars; None when nothing was recorded
 
 
 @dataclass(frozen=True)
@@ -64,6 +67,16 @@ def _amount_key(value: str) -> Decimal | None:
 
 def _stop(status: str, reason: str) -> Reconciled:
     return Reconciled(status, None, None, None, False, "typed", reason)
+
+
+def _excerpt_of(with_amount: Sequence[Candidate]) -> str | None:
+    """The sanitised excerpt of the figure the amount was read from: the first typed / forwarded / quoted line, else the
+    attachment, else the image (the same precedence as ``figures_source``)."""
+    for origins in (TEXT_ORIGINS, ("attachment",), ("image",)):
+        for c in with_amount:
+            if c.origin in origins and c.excerpt:
+                return sanitise_excerpt(c.excerpt) or None
+    return None
 
 
 def reconcile(cands: Sequence[Candidate]) -> Reconciled:
@@ -98,7 +111,7 @@ def reconcile(cands: Sequence[Candidate]) -> Reconciled:
         source = "attachment"
     else:
         source = "typed"
-    return Reconciled("ok", amount, "ZAR", payee, image_derived, source, "")
+    return Reconciled("ok", amount, "ZAR", payee, image_derived, source, "", _excerpt_of(with_amount))
 
 
 def beneficiary_path(payee: str, beneficiaries: list[bene.Beneficiary] | None) -> tuple[str, bene.Beneficiary | None, str]:

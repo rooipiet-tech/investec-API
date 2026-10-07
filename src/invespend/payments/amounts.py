@@ -95,10 +95,13 @@ _GLUED_CODE = re.compile(r"(?<=\d)[A-Za-z]{3}(?!" + _LETTER + r")|(?<!" + _LETTE
 _FIGURE_THEN_CODE = re.compile(
     r"(?:(?<![A-Za-z0-9])amount[\s:=]{0,3}(?:(?:R|ZAR)[ \t]?)?|(?<![A-Za-z0-9\-/#_.])(?:R|ZAR)[ \t]?)"
     + _NUM + r"[ \t]{0,2}(?P<code>[A-Za-z]{3})(?![A-Za-z])", re.ASCII | re.IGNORECASE)
-# ISO codes that are also ordinary English words / common first names: NOT parked by the adjacent lower-case rule
-# (``Amount: R100 try again``, ``R100 all good``, ``R100 Bob``); their UPPER-CASE spelling still parks (rule above).
+# ISO codes that are also ordinary English words / common first names: in lower / mixed case they are NOT parked by the
+# adjacent rule only when at least one more alphabetic word follows on the same line after blanks (``R100 try again
+# later``, ``R200 all good``); at the end of the line, before punctuation or before a non-word (``Amount: 100 rub``,
+# ``R100 try``, ``Amount: 100 try.``) they park (RS3AF5-1). Their UPPER-CASE spelling always parks (rule above).
 _CODE_WORD_COLLISIONS = frozenset(("ALL", "TOP", "TRY", "BOB", "PEN", "COP", "MAD", "CUP", "SOS", "RON", "RUB", "MOP", "GEL",
                                    "BAM", "DOP"))
+_WORD_FOLLOWS = re.compile(r"[ \t]+" + _LETTER)
 _LETTER_RUN = re.compile(r"(?<!" + _LETTER + r")" + _LETTER + r"(?:[\s.\-_/]{1,3}" + _LETTER + r")+")
 _SPLIT_TOKENS = ("US", "USDT", "USDC", "USD", "BTC", "ETH", "JPY", "CNY", "RMB", "INR", "MXN", "GBP", "EUR", "AUD",
                  "CAD", "NZD", "CHF", "SGD", "HKD", "AED", "YEN")
@@ -130,9 +133,11 @@ def has_foreign_currency_token(text: str) -> bool:
         return True
     if any(m.group().upper() in ISO_4217_CODES for m in _GLUED_CODE.finditer(folded)):
         return True
-    if any(m.group("code").upper() in ISO_4217_CODES and m.group("code").upper() not in _CODE_WORD_COLLISIONS
-           for m in _FIGURE_THEN_CODE.finditer(folded)):
-        return True
+    for m in _FIGURE_THEN_CODE.finditer(folded):
+        code = m.group("code").upper()
+        if code in ISO_4217_CODES and (code not in _CODE_WORD_COLLISIONS
+                                       or not _WORD_FOLLOWS.match(folded, m.end())):
+            return True
     for run in _LETTER_RUN.finditer(folded):
         letters = "".join(ch for ch in run.group() if ch.isalpha()).upper()
         if letters in ISO_4217_CODES or any(token in letters for token in _SPLIT_TOKENS):
@@ -140,11 +145,8 @@ def has_foreign_currency_token(text: str) -> bool:
     return False
 
 
-def marked_amount_candidates(text: str) -> list[str]:
-    """Normalised ``"123.45"`` strings in first-seen order, marked amounts only."""
-    text = text or ""
-    if len(text) > MAX_TYPED_CHARS:
-        return []  # fail closed: never truncate a payee-relevant region
+def _marked_hits(text: str) -> list[tuple[int, str]]:
+    """``(start offset, normalised amount)`` of every marked amount, ordered by position (all hits, no de-duplication)."""
     found: list[tuple[int, str]] = []
     for pattern, guard_ref in ((_PREFIXED, True), (_SUFFIXED, True), (_LABELLED, False)):
         for m in pattern.finditer(text):
@@ -157,10 +159,39 @@ def marked_amount_candidates(text: str) -> list[str]:
             if norm is not None:
                 found.append((m.start(), norm))
     found.sort(key=lambda item: item[0])
+    return found
+
+
+def marked_amount_candidates(text: str) -> list[str]:
+    """Normalised ``"123.45"`` strings in first-seen order, marked amounts only."""
+    text = text or ""
+    if len(text) > MAX_TYPED_CHARS:
+        return []  # fail closed: never truncate a payee-relevant region
     out: list[str] = []
-    for _, norm in found:
+    for _, norm in _marked_hits(text):
         if norm not in out:
             out.append(norm)
+    return out
+
+
+_EXCERPT_WINDOW = (30, 90)   # raw characters kept before / after the hit when its line is long (sanitised later)
+
+
+def marked_amount_excerpts(text: str) -> dict[str, str]:
+    """RS3AF5-1: for each normalised amount of ``marked_amount_candidates`` the RAW line (a window of it when the line
+    is long) its first marked hit was read from. Not yet sanitised: ``excerpt.sanitise_excerpt`` does that."""
+    text = text or ""
+    if len(text) > MAX_TYPED_CHARS:
+        return {}
+    out: dict[str, str] = {}
+    for start, norm in _marked_hits(text):
+        if norm in out:
+            continue
+        line_start = text.rfind("\n", 0, start) + 1
+        line_end = text.find("\n", start)
+        line_end = len(text) if line_end < 0 else line_end
+        lo, hi = max(line_start, start - _EXCERPT_WINDOW[0]), min(line_end, start + _EXCERPT_WINDOW[1])
+        out[norm] = text[lo:hi]
     return out
 
 

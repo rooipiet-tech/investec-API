@@ -17,7 +17,6 @@ from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 
-from . import beneficiaries as bene
 from . import execute, notify_v2
 from .caps import check_per_payment
 from .mode import caps_configured, v2_settings
@@ -40,7 +39,8 @@ def _payee_name(row: dict, beneficiaries: list | None) -> str:
 def _email(settings, store, to: str, ref: str, rows: list[dict], beneficiaries, now: datetime):
     items = [
         notify_v2.BatchItem(r["item_no"], _payee_name(r, beneficiaries), Decimal(str(r["amount"])), r["currency"],
-                            r["source_account_last3"], r.get("their_reference") or "", r["figures_source"])
+                            r["source_account_last3"], r.get("their_reference") or "", r["figures_source"],
+                            r.get("figures_excerpt"))
         for r in sorted(rows, key=lambda r: r["item_no"])
     ]
     pending = [

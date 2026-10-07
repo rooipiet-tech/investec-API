@@ -21,6 +21,7 @@ from decimal import Decimal, InvalidOperation
 from email.message import EmailMessage
 
 from .bankdetails import BankDetails
+from .excerpt import sanitise_excerpt
 from .loopguard import NOTICE_FIRST_LINE, SUBJECT_REPLY_PREFIXES, apply_loop_guard
 from .outcome import sanitize_provider_message
 
@@ -52,6 +53,7 @@ class BatchItem:
     source_last3: str
     their_reference: str
     figures_source: str      # typed | attachment | image
+    figures_excerpt: str | None = None   # RS3AF5-1: what the sender wrote (sanitised again when rendered)
 
 
 @dataclass(frozen=True)
@@ -187,6 +189,8 @@ def build_batch_approval_email(
             f"from account ending {_last3(item.source_last3)} | "
             f"reference: {_clean(item.their_reference)} | figures from: {source}"
         )
+        excerpt = sanitise_excerpt(item.figures_excerpt)
+        lines.append(f'   Read from: "{excerpt}"' if excerpt else "   Read from: (not recorded)")
         if source == "image":
             lines.append("   (read from an image; check the amount and payee)")
         totals[currency] = totals.get(currency, Decimal(0)) + Decimal(item.amount)

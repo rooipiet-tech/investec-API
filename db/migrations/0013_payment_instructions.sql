@@ -29,6 +29,7 @@ create table if not exists payment_instruction (
     my_reference          text,
     their_reference       text,
     figures_source        text not null check (figures_source in ('typed','attachment','image')),
+    figures_excerpt       text,                        -- sanitised <= 80 char excerpt of the line the amount was read from (display only, set once at create, NOT bound by offer_digest)
     message_id_hash       text not null,
     notify_to             text not null,               -- allowlisted auth_from of the creating message; every email about the row goes here
     received_at           timestamptz not null,        -- trusted receipt time (older of INTERNALDATE / topmost Received), NOT the Date header

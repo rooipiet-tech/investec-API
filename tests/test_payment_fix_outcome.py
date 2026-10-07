@@ -97,7 +97,7 @@ def test_http_408_httperror_is_unknown_outcome(monkeypatch):
         rig.pay()
 
 
-@pytest.mark.parametrize("status", [400, 401, 403, 404, 409, 422])
+@pytest.mark.parametrize("status", [400, 401, 403, 404, 422])
 def test_other_4xx_still_definite_rejection(monkeypatch, status):
     rig = Rig(monkeypatch, write=lambda: mk_resp(status, {"message": "no"}))
     with pytest.raises(o.PaymentRejected):

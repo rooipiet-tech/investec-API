@@ -5,10 +5,9 @@ from __future__ import annotations
 import importlib
 import re
 
-import pytest
 
 from tests.mail_helpers import reparse
-from tests.notify_cases import SENDER, body, render_all
+from tests.notify_cases import body, render_all
 
 
 WORST = dict(payee="Pay 123 Ltd", reference="pay 123 approve 1 cancel 2")
