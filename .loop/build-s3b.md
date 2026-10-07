@@ -1,0 +1,14 @@
+# Build note: slice 3 STEP B (S14, S12, S13)
+
+Commits (red then green per sub-slice, order S14, S12, S13):
+- S14 red 029d2ef, green 996dbd2: `src/invespend/payments/images_claude.py` (`ClaudeVisionExtractor`, plain `requests`, no SDK). `images.get_extractor` already wired it (both key and model required); no edit to images.py/cycle.py. One POST, `(5,30)` timeouts, `max_retries=0` default (cap 2, only on timeout/connection error/5xx, never 4xx), image re-checked (mime sniff, size) before any request, response capped at 1 MB, strict JSON (NaN rejected, optional fence stripped), non-object -> None, failure reason code only in `.note` (class name or status), key only in `x-api-key`, repr hides key. `post` resolves `requests.post` at call time so monkeypatching works. Call-site ordering (no egress before auth, trigger, age) is tested through the real cycle with the real adapter and a mocked post.
+- S12 red b276689, green 38adcfc: `.github/workflows/payments-cycle.yml` (gated on `vars.PAYMENTS_CYCLE_ENABLED == 'true'`, environment `payments`, `PAYMENTS_MODE: v2` pinned + guard step, postgres backend, python "3.12", concurrency no-cancel, `contents: read`, timeout 10, `approve-payments --dry-run --once`, live only via `vars.PAYMENTS_LIVE_ENABLE || 'false'`). `tests/yaml_lite.py` is a stdlib YAML-subset loader because PyYAML is not a dependency (cross-checked against PyYAML 6 on all workflows: equal except one block-scalar detail in weekly-report.yml which is irrelevant here).
+- S13 red 5b2939c, green 23823b4: `docs/PAYMENTS_RUNBOOK.md`, README section, DEPLOY.md note, `.env.example` v2 block.
+
+Deviations (for the orchestrator):
+1. No default model id. The hand-off asked for default `claude-haiku-4-5-20251001`; the frozen spec (F37/F46), plan S14, decisions Amendment 2 and the plan's `test_no_hard_coded_model_id_in_src` require NO model id in src/workflow/.env.example and images disabled when the model is unset. Followed the frozen spec. A default would change behaviour (key alone would enable egress).
+2. Cron is `7,22,37,52 * * * *` (15-minute cadence offset from ingest's `0 2 * * *`) instead of the plan's literal `*/15`, because ingest.yml cannot be edited and `*/15` hits minute 0. The runbook says so.
+3. `IMAGE_EXTRACTOR_RETRIES` env is not wired (the constructor parameter exists, default 0); the plan only allowed it "when configured".
+4. Workflow command is `approve-payments --dry-run --once` (the flag is advisory, live is decided by settings).
+
+Verification: 3.11 3506 passed 15 skipped; 3.11 + scratch PG16 3595 passed 11 skipped; scratch 3.12 venv CI=true 3517 passed 4 skipped; 3.12 + PG16 3606 passed 0 skipped. Baseline before step B: 3423 passed. Frozen legacy files, pyproject.toml, uv.lock, db/, ingest.yml, tests.yml: zero diff. Scratch venv and cluster outside the repo.
