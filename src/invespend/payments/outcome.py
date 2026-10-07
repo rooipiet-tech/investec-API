@@ -2,24 +2,27 @@
 
 Stdlib only. Imported lazily by ``investec_client`` to avoid a circular import.
 
-Mapping of a decoded HTTP 200 body (``parse_payment_response``). Money may have
-moved on any 200, so SUCCESS is the narrowest outcome and "unknown" is never
-auto-resent (a caller must treat it like ``PaymentUnknownOutcome``):
+Mapping of a decoded HTTP 200 body (``parse_payment_response``): an ALLOW-LIST design that fails toward
+``needs_review``. Money may have moved on any 200, so ``failed`` (reservation released, re-instructable) is reserved
+for a DEFINITE rejection and ``unknown`` is never auto-resent (a caller treats it like ``PaymentUnknownOutcome``).
+Free-text ``Status`` wording is NEVER used to infer authorisation or failure (the documented success status is
+"No authorisation necessary ..."; "Processed - no errors" and "Not declined" contain fail words).
 
-* data-level ``ErrorMessage`` that is NON-EMPTY after strip      -> ``failed`` (``None``, ``""`` and
-  whitespace mean "no error", exactly as for an entry)
-* data-level or per-entry ``AuthorisationRequired`` true, or an
-  entry ``Status`` that says authori[sz]ation is awaited/required -> ``needs_authorisation``
-* entry ``ErrorMessage`` non-empty, or an entry ``Status`` that positively says
-  fail/reject/decline/deny/invalid/insufficient/error/cancel/expire -> ``failed``
-* an entry without a non-empty ``PaymentReferenceNumber`` and no positive
-  rejection                                                  -> ``unknown`` (``no_reference``)
-* every entry has a reference and a clean/absent status       -> ``success``
-* no entries (strict) / not a ``data`` object                 -> ``unknown`` (``unrecognised_shape``): after the
-  POST was sent an unrecognised 200 is NOT proof that no money moved, so it keeps the reservation and is never resent
+* a *reference* is a non-empty STRING ``PaymentReferenceNumber`` (after strip) that is not a placeholder
+  (none/null/n/a/na/nil/0/false/-/ok, case-insensitive); an *error* is a non-empty STRING ``ErrorMessage`` (data or
+  entry level) that is not a placeholder (none/null/n/a/na/nil/0/false/true/ok/no error(s)/success(ful)/-); non-string
+  ``ErrorMessage`` values (False, 0, [], {}, None) are ignored.
 
-Across several entries the precedence is needs_authorisation, failed, unknown,
-success. Response field names are UNVERIFIED until the G2 sandbox run.
+1. body or ``data`` not a dict                           -> ``unknown`` (``unrecognised_shape``)
+2. ``AuthorisationRequired`` true (bool or "true") at data or entry level -> ``needs_authorisation``
+   (reservation KEPT: it may be authorised later in Investec Online and then moves money)
+3. at least one reference: with an error -> ``unknown`` (``ref_and_error``); several entries and not all with a
+   reference -> ``unknown`` (``mixed_entries``); an entry ``Status`` EQUAL (strip/casefold, not substring) to
+   failed/declined/rejected/unsuccessful/"unsuccessful payment" -> ``unknown`` (``status_conflict``); else ``success``
+4. no reference: a (non-placeholder string) error -> ``failed`` (``error_message``, sanitised); else ``unknown``
+   (``no_reference`` / ``unrecognised_shape``)
+
+Response field names are UNVERIFIED until the G2 sandbox run.
 """
 from __future__ import annotations
 
@@ -54,35 +57,71 @@ _ADDRESS = re.compile(r"\S+@\S+")
 _DIGITS = re.compile(r"\d(?:[ \-]{0,3}\d){5,}")
 _PRE_CUT = 2000  # bound the regex input first (provider text is untrusted), cut to _MAX last
 _TOKEN = re.compile(r"[A-Za-z0-9_\-]{24,}")
-# RS3A-3: credentials echoed by a provider. Each pattern is a single left-to-right pass over input already cut to
-# 2000 chars with whitespace collapsed; no nested quantifiers.
+# Credentials echoed by a provider. Each pattern is a single left-to-right pass over input already cut to 2000
+# chars with whitespace collapsed; every quantifier is bounded, no nested quantifiers (linear).
 _BEARER = re.compile(r"\b(bearer|basic)[ ]+\S+", re.IGNORECASE)
-_SECRET_WORD = re.compile(
-    r"\b(key|token|secret|password|passphrase|authorization)\b[ ]{0,3}[:=]?[ ]{0,3}\S+", re.IGNORECASE)
-_SECRET_LIKE = re.compile(r"\b(?:sk|pk|tok|token|key|secret|api)[-_][A-Za-z0-9_\-]{4,}", re.IGNORECASE)
+# RS3AF-4: underscore-aware ("api_key", "client_secret", "x-api-key"): the keyword may carry a <= 20 letter/underscore
+# prefix; the keyword is kept, its value goes.
+SECRET_WORD = re.compile(
+    r"(?P<lead>^|[^A-Za-z])(?P<word>[a-z_]{0,20}(?:key|token|secret|passw(?:or)?d|pwd|authorization|bearer|passphrase))"
+    r"\s{0,3}[:=]?\s{0,3}\S+", re.IGNORECASE)
+_JWT = re.compile(r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}")
+_AKIA = re.compile(r"AKIA[0-9A-Z]{16}")
+_SECRET_LIKE = re.compile(
+    r"(?<![A-Za-z0-9])(?:(?:sk|pk|tok|token|key|secret|api)[-_]|gh[pousr]_)[A-Za-z0-9_\-]{4,}", re.IGNORECASE)
 _WS = re.compile(r"\s+")
 _MAX = 200
 REDACTED = "[redacted]"
+_MIN_SECRET = 4
+_MAX_SECRETS = 64
 
 
-def sanitize_provider_message(text: object) -> str:
+def redact_secret_words(text: str) -> str:
+    """The bearer / secret-word / JWT / AKIA / token-like rules (no digit or address rules). Linear."""
+    text = _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", text)           # the keyword stays, the value goes
+    text = SECRET_WORD.sub(lambda m: f"{m.group('lead')}{m.group('word')} {REDACTED}", text)
+    text = _JWT.sub(REDACTED, text)
+    text = _AKIA.sub(REDACTED, text)
+    return _SECRET_LIKE.sub(REDACTED, text)
+
+
+def secret_value_pattern(values) -> re.Pattern | None:
+    """One case-insensitive pattern for exact secret values; optional whitespace may sit between any two characters
+    (a value split across a newline is still caught). Values shorter than 4 characters are ignored (they would
+    redact ordinary text); longer than 200 are matched on their first 200 characters. Linear: no nested quantifier."""
+    parts = []
+    for value in list(values or ())[:_MAX_SECRETS]:
+        if not isinstance(value, str):
+            continue
+        chars = "".join(unicodedata.normalize("NFKC", value).split())[:200]
+        if len(chars) < _MIN_SECRET:
+            continue
+        parts.append(r"\s*".join(re.escape(c) for c in chars))
+    if not parts:
+        return None
+    parts.sort(key=len, reverse=True)
+    return re.compile("|".join(parts), re.IGNORECASE)
+
+
+def sanitize_provider_message(text: object, secrets=()) -> str:
     """F40: the provider text made safe to store, email and audit. Never raises.
 
-    str-coerce, collapse whitespace, drop other control characters, redact
-    addresses, 6+ digit runs (also space/hyphen grouped) and token-like strings,
-    truncate to 200 characters. The input is first bounded to 2000 characters so
-    every regex runs on a small string.
+    str-coerce, NFKC fold, collapse whitespace, drop control/format characters, redact the exact configured
+    ``secrets`` (any case), addresses, bearer/secret-word values, JWTs, AKIA keys, token-like strings, 6+ digit runs
+    (also space/hyphen grouped) and long tokens, truncate to 200 characters. The input is first bounded to 2000
+    characters so every regex runs on a small string.
     """
     try:
         if text is None:
             return ""
-        s = str(text)[:_PRE_CUT]
+        s = unicodedata.normalize("NFKC", str(text)[:_PRE_CUT])
         s = _WS.sub(" ", s)
         s = "".join(ch for ch in s if unicodedata.category(ch)[0] != "C")
+        pattern = secret_value_pattern(secrets)
+        if pattern is not None:
+            s = pattern.sub(REDACTED, s)
         s = _ADDRESS.sub(REDACTED, s)
-        s = _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", s)          # the keyword stays, the value goes
-        s = _SECRET_WORD.sub(lambda m: f"{m.group(1)} {REDACTED}", s)
-        s = _SECRET_LIKE.sub(REDACTED, s)
+        s = redact_secret_words(s)
         s = _TOKEN.sub(REDACTED, s)
         s = _DIGITS.sub(REDACTED, s)
         return s.strip()[:_MAX]
@@ -118,63 +157,79 @@ class PaymentOutcome:
     message: str           # F40: sanitised provider text for failed/needs_authorisation, "" otherwise
 
 
+_REF_PLACEHOLDERS = frozenset({"none", "null", "n/a", "na", "nil", "0", "false", "-", "ok"})
+_ERROR_PLACEHOLDERS = frozenset({"none", "null", "n/a", "na", "nil", "0", "false", "true", "ok", "no error", "no errors",
+                                 "success", "successful", "-"})
+_FAILURE_STATUSES = frozenset({"failed", "declined", "rejected", "unsuccessful", "unsuccessful payment"})
+_SHORT = 64  # no placeholder or failure status is longer than this: longer text is never folded/compared
+
+
+def _folded(value: str) -> str:
+    return value.strip().casefold() if len(value) <= _SHORT + 64 else ""
+
+
 def _truthy(value: object) -> bool:
-    return value is True or (isinstance(value, str) and value.strip().lower() == "true")
+    return value is True or (isinstance(value, str) and len(value) <= _SHORT and value.strip().lower() == "true")
 
 
-def _non_blank(value: object) -> bool:
-    return value is not None and str(value).strip() != ""
+def _reference(entry: dict) -> str | None:
+    """A non-empty, non-placeholder STRING PaymentReferenceNumber (stripped), else None."""
+    raw = entry.get("PaymentReferenceNumber")
+    if not isinstance(raw, str):
+        return None
+    ref = raw.strip()
+    if not ref or _folded(ref) in _REF_PLACEHOLDERS:
+        return None
+    return ref
 
 
-def parse_payment_response(body: dict | None, *, strict: bool = True) -> PaymentOutcome:
-    """Interpret a decoded 200 body. ``strict=False`` exists for symmetry only (unused by v2).
+def _error(holder: dict) -> str | None:
+    """A non-empty, non-placeholder STRING ErrorMessage, else None (non-string values are ignored)."""
+    raw = holder.get("ErrorMessage")
+    if not isinstance(raw, str):
+        return None
+    text = raw.strip()
+    if not text or _folded(text) in _ERROR_PLACEHOLDERS:
+        return None
+    return raw
 
-    A 200 that is not the expected shape is ``unknown`` (never ``failed``): the POST was already sent."""
-    shape_status = "unknown"
+
+def _status_text(entry: dict) -> str:
+    raw = entry.get("Status")
+    return sanitize_provider_message(raw) if isinstance(raw, str) and raw.strip() else ""
+
+
+def parse_payment_response(body: object, *, strict: bool = True, secrets=()) -> PaymentOutcome:
+    """Interpret a decoded 200 body (module docstring for the allow-list). ``strict`` is accepted for symmetry only.
+
+    Anything not positively recognised is ``unknown`` (never ``failed``): the POST was already sent."""
     data = body.get("data") if isinstance(body, dict) else None
     if not isinstance(data, dict):
-        return PaymentOutcome(shape_status, None, "unrecognised_shape", "")
-    error = data.get("ErrorMessage")
-    if _non_blank(error):
-        return PaymentOutcome("failed", None, "error_message", sanitize_provider_message(error))
+        return PaymentOutcome("unknown", None, "unrecognised_shape", "")
     raw_entries = data.get("TransferResponses")
-    entries = [e for e in raw_entries if isinstance(e, dict)] if isinstance(raw_entries, list) else []
+    items = raw_entries if isinstance(raw_entries, list) else []
+    entries = [e for e in items if isinstance(e, dict)]
+    clean = len(entries) == len(items)             # a non-dict item beside real entries is a mixed response
+
+    # authorisation: never inferred from Status wording, only the explicit flag
     if _truthy(data.get("AuthorisationRequired")):
         return PaymentOutcome("needs_authorisation", None, "authorisation_required", "")
-    if not entries:
-        if strict:
-            return PaymentOutcome(shape_status, None, "unrecognised_shape", "")
-        return PaymentOutcome("success", None, "ok", "")
-    results = [_entry_outcome(e) for e in entries]
-    for wanted in ("needs_authorisation", "failed", "unknown"):
-        for r in results:
-            if r.status == wanted:
-                return r
-    return results[0]
+    for e in entries:
+        if _truthy(e.get("AuthorisationRequired")):
+            return PaymentOutcome("needs_authorisation", _reference(e), "authorisation_required", _status_text(e))
 
-
-_AUTH_WORDS = re.compile(r"authori[sz]|awaiting|pending", re.IGNORECASE)
-_FAIL_WORDS = re.compile(
-    r"fail|reject|declin|denied|deny|invalid|insufficient|error|cancel|expire|unsuccess",
-    re.IGNORECASE,
-)
-
-
-def _entry_outcome(entry: dict) -> PaymentOutcome:
-    raw_ref = entry.get("PaymentReferenceNumber")
-    ref = str(raw_ref).strip() if raw_ref is not None else ""
-    status_text = entry.get("Status")
-    status = status_text.strip() if isinstance(status_text, str) else ""
-    msg = sanitize_provider_message(status_text) if status else ""
-    if _truthy(entry.get("AuthorisationRequired")):
-        return PaymentOutcome("needs_authorisation", ref or None, "authorisation_required", msg)
-    error = entry.get("ErrorMessage")
-    if _non_blank(error):
-        return PaymentOutcome("failed", ref or None, "entry_error_message", sanitize_provider_message(error))
-    if status and _FAIL_WORDS.search(status):
-        return PaymentOutcome("failed", ref or None, "entry_status", msg)
-    if status and _AUTH_WORDS.search(status):
-        return PaymentOutcome("needs_authorisation", ref or None, "authorisation_required", msg)
-    if not ref:
-        return PaymentOutcome("unknown", None, "no_reference", msg)
-    return PaymentOutcome("success", ref, "ok", "")
+    refs = [_reference(e) for e in entries]
+    errors = [x for x in [_error(data)] + [_error(e) for e in entries] if x is not None]
+    if any(refs):
+        if errors:
+            return PaymentOutcome("unknown", None, "ref_and_error", "")
+        if (len(items) > 1 and not (clean and all(refs))):
+            return PaymentOutcome("unknown", None, "mixed_entries", "")
+        for e in entries:
+            status = e.get("Status")
+            if isinstance(status, str) and _folded(status) in _FAILURE_STATUSES:
+                return PaymentOutcome("unknown", None, "status_conflict", "")
+        return PaymentOutcome("success", next(r for r in refs if r), "ok", "")
+    if errors:
+        return PaymentOutcome("failed", None, "error_message", sanitize_provider_message(errors[0], secrets))
+    return PaymentOutcome("unknown", None, "no_reference" if entries else "unrecognised_shape", "")

@@ -27,27 +27,37 @@ def test_no_reference_is_unknown_never_success(entry):
     assert out.status == "unknown" and out.reference is None and out.reason == "no_reference"
 
 
-@pytest.mark.parametrize("status", ["Failed", "REJECTED", "Declined", "Unsuccessful", "Error", "Insufficient funds"])
-def test_failed_entry_status_is_failed_even_with_reference(status):
+@pytest.mark.parametrize("status", ["Failed", "REJECTED", "Declined", "Unsuccessful", "unsuccessful payment"])
+def test_failure_status_with_reference_is_unknown_never_success_never_failed(status):
+    # fix round 3: a reference plus a failure status is a CONFLICT -> needs_review (reservation kept), never released
     out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "Status": status}))
-    assert out.status == "failed" and out.reason == "entry_status"
-    assert out.message == status
+    assert out.status == "unknown" and out.reason == "status_conflict"
 
 
-def test_failed_entry_status_without_reference_is_failed_not_unknown():
+@pytest.mark.parametrize("status", ["Error", "Insufficient funds"])
+def test_status_wording_that_is_not_an_exact_failure_status_is_ignored(status):
+    out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "Status": status}))
+    assert out.status == "success"
+
+
+def test_failed_entry_status_without_reference_is_unknown_never_failed():
     out = o.parse_payment_response(_body({"Status": "Failed"}))
-    assert out.status == "failed" and out.reason == "entry_status"
+    assert out.status == "unknown" and out.reason == "no_reference"
 
 
-def test_entry_error_message_is_failed():
+def test_entry_error_message_with_reference_is_unknown_without_reference_is_failed():
     out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "ErrorMessage": "Beneficiary blocked"}))
-    assert out.status == "failed" and out.reason == "entry_error_message"
+    assert out.status == "unknown" and out.reason == "ref_and_error"
+    out = o.parse_payment_response(_body({"ErrorMessage": "Beneficiary blocked"}))
+    assert out.status == "failed" and out.reason == "error_message"
     assert out.message == "Beneficiary blocked"
 
 
 @pytest.mark.parametrize("status", ["Awaiting authorisation", "Authorization required", "Pending authorisation"])
-def test_entry_status_authorisation_wording_is_needs_authorisation(status):
+def test_entry_status_authorisation_wording_is_ignored_only_the_flag_counts(status):
     out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "Status": status}))
+    assert out.status == "success" and out.reference == "REF1"
+    out = o.parse_payment_response(_body({"PaymentReferenceNumber": "REF1", "Status": status, "AuthorisationRequired": True}))
     assert out.status == "needs_authorisation" and out.reference == "REF1"
 
 
@@ -63,7 +73,7 @@ def test_reference_with_benign_or_absent_status_is_success(status):
 def test_any_bad_entry_prevents_success_in_multi_entry_response():
     body = {"data": {"ErrorMessage": None, "TransferResponses": [
         {"PaymentReferenceNumber": "A"}, {"Status": "Failed"}]}}
-    assert o.parse_payment_response(body).status == "failed"
+    assert o.parse_payment_response(body).status == "unknown"
     body["data"]["TransferResponses"] = [{"PaymentReferenceNumber": "A"}, {}]
     assert o.parse_payment_response(body).status == "unknown"
 

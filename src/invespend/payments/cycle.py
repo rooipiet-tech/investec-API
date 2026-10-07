@@ -12,7 +12,9 @@ from __future__ import annotations
 import email
 import functools
 import hashlib
+import re
 import secrets
+import unicodedata
 from collections import Counter
 from collections.abc import Callable
 from datetime import datetime, timezone
@@ -77,16 +79,27 @@ def _fresh(received: datetime | None, when: datetime, cfg) -> bool:
     return received is not None and cfg.max_age_hours > 0 and when - received <= cfg.max_age
 
 
+_MAILBOX_DELIMS = re.compile(r"[./:]+")
+
+
 def _normalised_mailbox(name: object) -> str:
-    """RS3A-5: lower-cased mailbox name without surrounding whitespace/quotes and trailing ``.`` / ``/`` delimiters,
-    so ``INBOX.``, ``INBOX/`` and ``"INBOX"`` equal ``inbox``. A dedicated sub-label (``INBOX.Payments``) is NOT
-    stripped to ``inbox`` and stays allowed (the SAFER reading: only exact inbox spellings are the shared inbox)."""
-    text = str(name or "")
+    """RS3A-5 / RS3AF-6: lower-cased mailbox name, NFKC-folded (full-width letters) with format / zero-width
+    characters dropped, without surrounding whitespace/quotes and trailing ``.`` / ``/`` / ``:`` delimiters, so
+    ``INBOX.``, ``INBOX/``, ``INBOX:`` and ``"INBOX"`` equal ``inbox``. A dedicated sub-label (``INBOX.Payments``) is
+    NOT stripped to ``inbox`` and stays allowed (the SAFER reading: only inbox spellings are the shared inbox)."""
+    text = unicodedata.normalize("NFKC", str(name or ""))
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
     while True:
-        stripped = text.strip().strip("\"'").rstrip("./").strip()
+        stripped = text.strip().strip("\"'").rstrip("./:").strip()
         if stripped == text:
             return text.lower()
         text = stripped
+
+
+def _is_shared_inbox(name: object) -> bool:
+    """True for ``""``, ``INBOX`` and any spelling that only repeats it (``INBOX.INBOX``, ``INBOX/INBOX``)."""
+    parts = [p for p in _MAILBOX_DELIMS.split(_normalised_mailbox(name)) if p]
+    return all(p.strip() == "inbox" for p in parts)
 
 
 def _preflight(settings, cfg, store, audit, allow_non_durable: bool) -> None:
@@ -96,7 +109,7 @@ def _preflight(settings, cfg, store, audit, allow_non_durable: bool) -> None:
 
     if not getattr(store, "durable", False) and not allow_non_durable:
         fail("v2_requires_durable_store")
-    if _normalised_mailbox(cfg.mailbox) in ("", "inbox"):
+    if _is_shared_inbox(cfg.mailbox):
         fail("mailbox_not_dedicated")
     if not sender_auth.strict_address_parser_available():
         fail("strict_parser_unavailable")

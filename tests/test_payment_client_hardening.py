@@ -259,9 +259,10 @@ def test_parse_missing_transferresponses_is_unknown_by_default():
         assert (out.status, out.reason, out.message) == ("unknown", "unrecognised_shape", ""), body
 
 
-def test_parse_error_message_beats_authorisation():
+def test_parse_authorisation_required_beats_error_message():
+    # fix round 3: authorisation may still be granted online and then moves money -> keep the reservation, never fail
     body = {"data": {"TransferResponses": [{"AuthorisationRequired": True}], "ErrorMessage": "bad"}}
-    assert _o().parse_payment_response(body).status == "failed"
+    assert _o().parse_payment_response(body).status == "needs_authorisation"
 
 
 # ---- F40 provider message ----------------------------------------------------------

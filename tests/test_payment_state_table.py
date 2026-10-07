@@ -138,9 +138,9 @@ def test_accepted_reachable_only_through_approve_item(store):                   
     assert ("parked" in ins().TRANSITIONS["submitting"])
 
 
-def test_finalize_releases_on_failed_needs_authorisation_parked_keeps_on_executed_needs_review(store):   # (j)
+def test_finalize_releases_on_failed_parked_keeps_on_executed_needs_review_needs_authorisation(store):   # (j)
     for status, released in (("executed", False), ("needs_review", False), ("failed", True),
-                             ("needs_authorisation", True), ("parked", True)):
+                             ("needs_authorisation", False), ("parked", True)):   # reservation stays: may be authorised later
         s = store
         iid = reach(s, "submitting")
         before = s.daily_total(T0 + 2 * H)

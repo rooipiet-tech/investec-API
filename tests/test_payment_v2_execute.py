@@ -272,11 +272,11 @@ def test_200_error_message_body_is_failed_released(live):
     assert live.row()["daily_reserved"] is False
 
 
-def test_authorisation_required_body_is_needs_authorisation_released(live):
+def test_authorisation_required_body_is_needs_authorisation_reservation_kept(live):
     live.client.responder = lambda: {"data": {"AuthorisationRequired": True, "TransferResponses": [{"PaymentReferenceNumber": "R", "Status": "x"}]}}
     to_accepted(live)
     live.cycle()
-    assert live.row()["status"] == "needs_authorisation" and live.row()["daily_reserved"] is False
+    assert live.row()["status"] == "needs_authorisation" and live.row()["daily_reserved"] is True
     assert subjects(live, "needs authorisation")
 
 
@@ -380,7 +380,7 @@ def test_every_exit_from_submitting_uses_finalize_with_matching_release_flag(liv
     live.cycle()
     assert [c[0] for c in calls] == ["submitting"] * 5
     expected = {("submitting", "executed", False), ("submitting", "failed", True), ("submitting", "needs_review", False),
-                ("submitting", "parked", True), ("submitting", "needs_authorisation", True)}
+                ("submitting", "parked", True), ("submitting", "needs_authorisation", False)}
     assert set(calls) == expected
 
 

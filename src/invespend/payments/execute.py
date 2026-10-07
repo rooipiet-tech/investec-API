@@ -7,7 +7,9 @@ balance, caps, the claim CAS, then the POST OUTSIDE any database transaction. Dr
 
 Outcome mapping is POSITIVE about "not sent": only ``PaymentNotSent`` (the client's pre-send token fetch failed)
 releases the reservation and parks; every other exception after the claim is ``needs_review`` with the reservation
-kept and the payment NEVER resent. Every exit from ``submitting`` is ONE ``store.finalize`` call.
+kept and the payment NEVER resent. ``failed`` (release) is ONLY a definite rejection (4xx ``PaymentRejected`` or an
+error message with no payment reference); ``needs_authorisation`` KEEPS the reservation (the payment may be authorised
+later in Investec Online and then moves money). Every exit from ``submitting`` is ONE ``store.finalize`` call.
 """
 from __future__ import annotations
 
@@ -21,8 +23,9 @@ from . import fingerprints, instructions, notify_v2
 from .caps import check_per_payment
 from .mode import v2_settings
 from .notices import safe_send, sender_of
-from .outcome import PaymentNotSent, PaymentRejected, parse_payment_response
+from .outcome import PaymentNotSent, PaymentRejected, parse_payment_response, sanitize_provider_message
 from .refs import request_ref
+from .v2_cli import secret_values
 
 
 def reverify_beneficiary(record: dict, beneficiaries: list | None, raw_beneficiaries: list | None, key: str) -> str | None:
@@ -189,17 +192,19 @@ def execute_instruction(settings, store, audit, client, record: dict, *, mode: s
 
     # (7) live: the client fetches a FRESH token itself; the POST is outside any DB transaction
     audit.append("live_execute", {"ref": ref, "execution_mode": "live"})
+    secrets = secret_values(settings)
     try:
         body = client.create_payment(row["source_account_id"], row["beneficiary_id"], amount_text,
                                      row.get("their_reference") or "", row.get("my_reference") or "", fresh_token=True)
-        outcome = parse_payment_response(body)
+        outcome = parse_payment_response(body, secrets=secrets)
     except PaymentNotSent:
         if _finalize(store, audit, row, "parked", release=True, now=now, code="token_fetch_failed"):
             audit.append("parked", {"ref": ref, "reason": "token_fetch_failed"})
             _problem(settings, smtp_send, audit, row, "parked", "token_fetch_failed")
         return "parked:token_fetch_failed"
     except PaymentRejected as exc:
-        return _failed(settings, store, audit, smtp_send, row, now, getattr(exc, "message", ""), "rejected")
+        return _failed(settings, store, audit, smtp_send, row, now, getattr(exc, "message", ""), "rejected",
+                       secrets)
     except Exception as exc:  # noqa: BLE001 - unknown outcome: money may have moved, never resent
         return _needs_review(settings, store, audit, smtp_send, row, now, type(exc).__name__)
 
@@ -209,9 +214,9 @@ def execute_instruction(settings, store, audit, client, record: dict, *, mode: s
             outcome_email("success")
         return "executed:live"
     if outcome.status == "failed":
-        return _failed(settings, store, audit, smtp_send, row, now, outcome.message, outcome.reason)
+        return _failed(settings, store, audit, smtp_send, row, now, outcome.message, outcome.reason, secrets)
     if outcome.status == "needs_authorisation":
-        if _finalize(store, audit, row, "needs_authorisation", release=True, now=now, code="authorisation_required",
+        if _finalize(store, audit, row, "needs_authorisation", release=False, now=now, code="authorisation_required",
                      message=outcome.message):
             audit.append("needs_authorisation", {"ref": ref})
             _problem(settings, smtp_send, audit, row, "needs_authorisation", "authorisation_required")
@@ -219,7 +224,8 @@ def execute_instruction(settings, store, audit, client, record: dict, *, mode: s
     return _needs_review(settings, store, audit, smtp_send, row, now, outcome.reason or "unknown")
 
 
-def _failed(settings, store, audit, smtp_send, row, now, message, code) -> str:
+def _failed(settings, store, audit, smtp_send, row, now, message, code, secrets=()) -> str:
+    message = sanitize_provider_message(message, secrets)
     safe_code = code if isinstance(code, str) and code else "rejected"
     if _finalize(store, audit, row, "failed", release=True, now=now, code=safe_code[:40], message=message):
         audit.append("failed", {"ref": request_ref(row["instruction_id"])})

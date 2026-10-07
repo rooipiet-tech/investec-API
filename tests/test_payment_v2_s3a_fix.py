@@ -39,10 +39,13 @@ def test_blank_entry_error_message_is_no_error(blank):
 
 
 def test_non_empty_error_message_is_failed():
-    out = _o().parse_payment_response({"data": {"TransferResponses": [_entry()], "ErrorMessage": "Insufficient funds"}})
+    out = _o().parse_payment_response({"data": {"TransferResponses": [], "ErrorMessage": "Insufficient funds"}})
     assert (out.status, out.reason, out.message) == ("failed", "error_message", "Insufficient funds")
-    out = _o().parse_payment_response({"data": {"TransferResponses": [_entry(ErrorMessage="Insufficient funds")]}})
+    out = _o().parse_payment_response({"data": {"TransferResponses": [{"ErrorMessage": "Insufficient funds"}]}})
     assert out.status == "failed"
+    # fix round 3: with a payment reference an error is a conflict, never a definite failure
+    out = _o().parse_payment_response({"data": {"TransferResponses": [_entry(ErrorMessage="Insufficient funds")]}})
+    assert out.status == "unknown"
 
 
 @pytest.mark.parametrize("body", [{}, {"data": {}}, {"data": {"TransferResponses": []}}, {"data": None}, None, [], "x",
@@ -103,7 +106,7 @@ def test_e2e_unrecognised_200_is_needs_review_kept_never_resent_blocks_reinstruc
 
 def test_e2e_non_empty_error_message_is_failed_released(tmp_path):
     env = Env(tmp_path, live=True)
-    env.client.responder = lambda: {"data": {"TransferResponses": [_entry()], "ErrorMessage": "Insufficient funds"}}
+    env.client.responder = lambda: {"data": {"TransferResponses": [], "ErrorMessage": "Insufficient funds"}}
     _accepted(env)
     env.cycle()
     assert env.row()["status"] == "failed" and env.store.daily_total(env.now) == Decimal("0.00")
@@ -167,7 +170,7 @@ def test_sanitize_keeps_plain_messages_and_is_linear():
 
 def test_e2e_provider_message_secrets_do_not_reach_row_or_email(tmp_path):
     env = Env(tmp_path, live=True)
-    env.client.responder = lambda: {"data": {"TransferResponses": [_entry()],
+    env.client.responder = lambda: {"data": {"TransferResponses": [],
                                              "ErrorMessage": "Account 1234567890 rejected Bearer abc.def.ghi key-77777"}}
     _accepted(env)
     env.cycle()

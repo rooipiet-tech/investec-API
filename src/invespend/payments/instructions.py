@@ -49,7 +49,7 @@ DUPLICATE_GUARD_STATUSES = frozenset({
     "needs_review", "needs_authorisation",
 })
 FINALIZE_RELEASES: Mapping[str, bool] = {
-    "executed": False, "needs_review": False, "failed": True, "needs_authorisation": True, "parked": True,
+    "executed": False, "needs_review": False, "failed": True, "needs_authorisation": False, "parked": True,
 }
 CLAIM_REASONS = ("ok", "daily_cap", "stale", "cas_lost")
 APPROVE_REASONS = ("ok", "not_awaiting", "expired", "wrong_batch")

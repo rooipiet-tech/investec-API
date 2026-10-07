@@ -671,7 +671,7 @@ def test_finalize_keeps_reservation_on_executed_and_needs_review(store):
 def test_finalize_rejects_release_flag_mismatch(store):
     accepted(store, 1)
     _claim(store)
-    for new, wrong in (("executed", True), ("needs_review", True), ("failed", False), ("needs_authorisation", False),
+    for new, wrong in (("executed", True), ("needs_review", True), ("failed", False), ("needs_authorisation", True),
                        ("parked", False)):
         with pytest.raises(ValueError):
             store.finalize("id0001", "submitting", new, release=wrong, now=T0 + 3 * H)
@@ -681,7 +681,7 @@ def test_finalize_rejects_release_flag_mismatch(store):
         store.finalize("id0001", "submitting", "cancelled", release=False, now=T0 + 3 * H)
     assert store.get("id0001")["status"] == "submitting"
     assert dict(ins().FINALIZE_RELEASES) == {"executed": False, "needs_review": False, "failed": True,
-                                             "needs_authorisation": True, "parked": True}
+                                             "needs_authorisation": False, "parked": True}
 
 
 def test_finalize_uses_stored_reserved_day_not_now(store):
@@ -719,7 +719,7 @@ def test_finalize_failed_stores_sanitised_provider_message(store):
 def test_outcome_message_has_no_9plus_digit_runs(store):
     accepted(store, 1)
     _claim(store)
-    store.finalize("id0001", "submitting", "needs_authorisation", release=True, now=T0 + 3 * H,
+    store.finalize("id0001", "submitting", "needs_authorisation", release=False, now=T0 + 3 * H,
                    outcome_message="ref 1234567890123 pending")
     assert not re.search(r"\d{9,}", store.get("id0001")["outcome_message"] or "")
 

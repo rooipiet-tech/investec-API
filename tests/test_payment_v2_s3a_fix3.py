@@ -11,8 +11,6 @@ import pytest
 from tests.timing_helper import assert_fast
 from tests.v2_harness import Env, mod, offered
 
-pytestmark = pytest.mark.xfail(reason="fix3 red", strict=False)
-
 
 def _o():
     return mod("outcome")

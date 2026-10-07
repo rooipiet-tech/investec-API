@@ -18,24 +18,37 @@ _SECRET_NAME = re.compile(r"secret|password|pass|token|key|database_url|api_key|
 _LONG_DIGITS = re.compile(r"\d{6,}")
 
 
+def secret_values(settings: object) -> list[str]:
+    """Every non-empty (>= 4 chars) string value of a secret-looking settings attribute, longest first. Never raises."""
+    try:
+        values: set[str] = set()
+        names = set(getattr(settings, "__dict__", {})) | {n for n in dir(settings) if not n.startswith("_")}
+        for name in names:
+            if not _SECRET_NAME.search(name):
+                continue
+            try:
+                value = getattr(settings, name)
+            except Exception:  # noqa: BLE001
+                continue
+            if isinstance(value, str) and len(value) >= 4:
+                values.add(value)
+        return sorted(values, key=len, reverse=True)
+    except Exception:  # noqa: BLE001
+        return []
+
+
 def scrub_message(text: str, settings: object) -> str:
-    """Replace every non-empty (>= 4 chars) string value of a secret-looking settings attribute with ``[redacted]``,
-    then every 6+ digit run (T15, R4-T5). Used for the error envelope."""
+    """Replace every secret-looking settings value (matched case-insensitively, whitespace runs equivalent, so a value
+    split across a newline or upper-cased is still caught), then bearer / secret-word / JWT / token-like values, then
+    every 6+ digit run (T15, R4-T5). Used for the error envelope."""
+    from .outcome import REDACTED, redact_secret_words, secret_value_pattern
+
     out = str(text)
-    values: set[str] = set()
-    names = set(getattr(settings, "__dict__", {})) | {n for n in dir(settings) if not n.startswith("_")}
-    for name in names:
-        if not _SECRET_NAME.search(name):
-            continue
-        try:
-            value = getattr(settings, name)
-        except Exception:  # noqa: BLE001
-            continue
-        if isinstance(value, str) and len(value) >= 4:
-            values.add(value)
-    for value in sorted(values, key=len, reverse=True):
-        out = out.replace(value, "[redacted]")
-    return _LONG_DIGITS.sub("[redacted]", out)
+    pattern = secret_value_pattern(secret_values(settings))
+    if pattern is not None:
+        out = pattern.sub(REDACTED, out)
+    out = redact_secret_words(out)
+    return _LONG_DIGITS.sub(REDACTED, out)
 
 
 def _envelope(exc_name: str, message: str, requested_mode: str) -> dict:

@@ -29,6 +29,7 @@ only its private number normaliser is reused so formats stay identical.
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from .extract import _PAYEE_RE, _norm_amount
 
@@ -50,21 +51,36 @@ _LABELLED = re.compile(
 )
 _AFTER_REF_LABEL = re.compile(r"\bref(?:erence)?\b[\s:#=.\-]*$", re.IGNORECASE | re.ASCII)
 _LONG_RUN = re.compile(r"\d{6,}")
-# RS3A-2: any non-ZAR currency token in a text region means the figure may not be rand. Linear (alternation of
-# literals, one pass); false positives (a payee called "Euro ...") only park, never pay.
-_FOREIGN = re.compile(
-    r"[$\u20ac\u00a3\u00a5]|(?<![A-Za-z])(?:USD|EUR|GBP|AUD|CAD|NZD|CHF|JPY|CNY|dollars?|euros?|pounds?)(?![A-Za-z])",
+# RS3A-2 / RS3AF-3: any non-ZAR currency token in a text region means the figure may not be rand. The text is first
+# NFKC-folded (full-width letters/digits, NBSP) and format/zero-width characters are dropped; tokens are then looked
+# for (a) as whole words and (b) inside runs of single letters split by one separator ("U S D", "U.S.D"). Linear
+# (alternation of literals, one pass, runs consumed once); false positives (a payee called "Euro ...") only park,
+# never pay. ``US`` is matched upper-case only (the pronoun "us" is common in prose).
+_FOREIGN_WORD = re.compile(
+    r"(?<![^\W\d_])(?:(?-i:US)|USDT|USDC|USD|BTC|ETH|JPY|yen|CNY|rmb|yuan|INR|rupees?|MXN|pesos?|d[o\u00f3]lar(?:es)?|"
+    r"dollars?|euros?|pounds?|GBP|EUR|AUD|CAD|NZD|CHF|SGD|HKD|AED)(?![^\W\d_])",
     re.IGNORECASE,
 )
+_FOREIGN_SYMBOL = re.compile(r"[$\u20ac\u00a3\u00a5\u20b9]")
+_LETTER_RUN = re.compile(r"(?<![^\W\d_])[^\W\d_](?:[ \t.\-_/]{1,3}[^\W\d_])+")
+_SPLIT_TOKENS = ("US", "USDT", "USDC", "USD", "BTC", "ETH", "JPY", "CNY", "RMB", "INR", "MXN", "GBP", "EUR", "AUD",
+                 "CAD", "NZD", "CHF", "SGD", "HKD", "AED", "YEN")
 
 
 def has_foreign_currency_token(text: str) -> bool:
-    """True when ``text`` carries a non-ZAR currency token (code, word or symbol). Fails closed (True) on input
-    longer than ``MAX_TYPED_CHARS``."""
+    """True when ``text`` carries a non-ZAR currency token (code, word or symbol, also full-width, zero-width or
+    space-split). Fails closed (True) on input longer than ``MAX_TYPED_CHARS``."""
     text = text or ""
     if len(text) > MAX_TYPED_CHARS:
         return True
-    return _FOREIGN.search(text) is not None
+    folded = "".join(ch for ch in unicodedata.normalize("NFKC", text) if unicodedata.category(ch) != "Cf")
+    if _FOREIGN_SYMBOL.search(folded) or _FOREIGN_WORD.search(folded):
+        return True
+    for run in _LETTER_RUN.finditer(folded):
+        letters = "".join(ch for ch in run.group() if ch.isalpha()).upper()
+        if any(token in letters for token in _SPLIT_TOKENS):
+            return True
+    return False
 
 
 def marked_amount_candidates(text: str) -> list[str]:
