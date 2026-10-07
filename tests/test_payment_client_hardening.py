@@ -12,8 +12,6 @@ import requests
 
 from invespend.investec_client import InvestecClient
 
-# RED-COMMIT-MARKER (removed by the green commit)
-pytestmark = pytest.mark.xfail(strict=False, reason="S3 red commit: fix lands in the next commit")
 
 
 def _o():
@@ -285,7 +283,7 @@ def test_message_redacts_6plus_digit_runs_token_like_strings_and_addresses_and_t
     assert s("acct 123456789012 x") == "acct [redacted] x"
     assert s("five 12345 ok") == "five 12345 ok"
     assert s("key abcdefghijklmnopqrstuvwxyz012345 end") == "key [redacted] end"
-    assert s("short abcdefghij-klmnopqrstuvw ok").count("[redacted]") == 0   # 23 chars
+    assert s("short abcdefghij-klmnopqrstuv ok").count("[redacted]") == 0   # 23 chars
     assert s("mail me at someone@example.com now") == "mail me at [redacted] now"
     long = s("word " * 100)
     assert len(long) <= 200
