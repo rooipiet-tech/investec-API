@@ -9,6 +9,7 @@ access), sender authentication, commands, trigger, age gate, ``gather_payloads``
 """
 from __future__ import annotations
 
+import base64
 import email
 import functools
 import hashlib
@@ -80,6 +81,22 @@ def _fresh(received: datetime | None, when: datetime, cfg) -> bool:
 
 
 _MAILBOX_DELIMS = re.compile(r"[./:]+")
+_UTF7_RUN = re.compile(r"&([A-Za-z0-9+,]*)-")
+_MAILBOX_FORBIDDEN = frozenset("\\*%")        # backslash and the IMAP LIST wildcards: never part of a dedicated name
+
+
+def _decode_utf7(name: str) -> str:
+    """IMAP modified UTF-7 (RFC 3501 5.1.3): ``&AEk-`` -> ``I``, ``&-`` -> ``&``. Undecodable runs stay as written."""
+    def one(m: re.Match) -> str:
+        body = m.group(1)
+        if not body:
+            return "&"
+        try:
+            raw = base64.b64decode(body.replace(",", "/") + "=" * (-len(body) % 4), validate=True)
+            return raw.decode("utf-16-be")
+        except Exception:  # noqa: BLE001
+            return m.group(0)
+    return _UTF7_RUN.sub(one, name)
 
 
 def _normalised_mailbox(name: object) -> str:
@@ -87,7 +104,8 @@ def _normalised_mailbox(name: object) -> str:
     characters dropped, without surrounding whitespace/quotes and trailing ``.`` / ``/`` / ``:`` delimiters, so
     ``INBOX.``, ``INBOX/``, ``INBOX:`` and ``"INBOX"`` equal ``inbox``. A dedicated sub-label (``INBOX.Payments``) is
     NOT stripped to ``inbox`` and stays allowed (the SAFER reading: only inbox spellings are the shared inbox)."""
-    text = unicodedata.normalize("NFKC", str(name or ""))
+    text = _decode_utf7(str(name or ""))
+    text = unicodedata.normalize("NFKC", text)
     text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf")
     while True:
         stripped = text.strip().strip("\"'").rstrip("./:").strip()
@@ -97,7 +115,12 @@ def _normalised_mailbox(name: object) -> str:
 
 
 def _is_shared_inbox(name: object) -> bool:
-    """True for ``""``, ``INBOX`` and any spelling that only repeats it (``INBOX.INBOX``, ``INBOX/INBOX``)."""
+    """True for ``""``, ``INBOX`` and any spelling that only repeats it (``INBOX.INBOX``, ``INBOX/INBOX``, the same
+    in modified UTF-7), and for any name carrying a backslash, ``*`` or ``%`` (RS3AF3-5: wildcards / escapes could
+    select the shared inbox)."""
+    raw = str(name or "")
+    if any(ch in _MAILBOX_FORBIDDEN for ch in raw) or any(ch in _MAILBOX_FORBIDDEN for ch in _normalised_mailbox(raw)):
+        return True
     parts = [p for p in _MAILBOX_DELIMS.split(_normalised_mailbox(name)) if p]
     return all(p.strip() == "inbox" for p in parts)
 

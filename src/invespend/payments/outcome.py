@@ -8,18 +8,26 @@ for a DEFINITE rejection and ``unknown`` is never auto-resent (a caller treats i
 Free-text ``Status`` wording is NEVER used to infer authorisation or failure (the documented success status is
 "No authorisation necessary ..."; "Processed - no errors" and "Not declined" contain fail words).
 
-* a *reference* is a non-empty STRING ``PaymentReferenceNumber`` (after strip) that is not a placeholder
-  (none/null/n/a/na/nil/0/false/-/ok, case-insensitive); an *error* is a non-empty STRING ``ErrorMessage`` (data or
-  entry level) that is not a placeholder (none/null/n/a/na/nil/0/false/true/ok/no error(s)/success(ful)/-); non-string
-  ``ErrorMessage`` values (False, 0, [], {}, None) are ignored.
+* a *strict reference* (the only thing that can make ``success``) is a non-empty STRING entry-level
+  ``PaymentReferenceNumber`` that is not a placeholder. Placeholders are compared after NFKC, dropping Unicode format
+  characters (Cf), casefold and stripping leading/trailing punctuation: none/null/n/a/na/nil/0/false/ok ("N/A.", "OK!").
+  A *reference-like* value is ANY key (data, entry, nested dicts/lists, any depth) whose folded name contains ``ref`` with a
+  present value of ANY type (text that is not blank/punctuation-only/placeholder, nonzero number, non-empty list/dict).
+* an *error* is a non-empty non-placeholder STRING ``ErrorMessage`` (data or entry level); placeholders: none/null/n/a/na/
+  nil/0/false/true/ok/no error(s)/success(ful). An error that CONTAINS a success-sounding word (success*, processed,
+  complete(d), approved, accepted, paid, done, ok, no error(s), without error(s)) is not a definite failure.
 
 1. body or ``data`` not a dict                           -> ``unknown`` (``unrecognised_shape``)
 2. ``AuthorisationRequired`` true (bool or "true") at data or entry level -> ``needs_authorisation``
    (reservation KEPT: it may be authorised later in Investec Online and then moves money)
-3. at least one reference: with an error -> ``unknown`` (``ref_and_error``); several entries and not all with a
+3. any key containing ``authori`` (any depth) with a value not clearly false, or a body beyond 200k nodes / depth 64
+   -> ``unknown`` (``authorisation_unclear`` / ``body_too_large``)
+4. at least one strict reference: with an error -> ``unknown`` (``ref_and_error``); several entries and not all with a
    reference -> ``unknown`` (``mixed_entries``); an entry ``Status`` EQUAL (strip/casefold, not substring) to
    failed/declined/rejected/unsuccessful/"unsuccessful payment" -> ``unknown`` (``status_conflict``); else ``success``
-4. no reference: a (non-placeholder string) error -> ``failed`` (``error_message``, sanitised); else ``unknown``
+5. reference-like content but no strict reference -> ``unknown`` (``ref_and_error`` / ``reference_unrecognised``)
+6. no reference-like content: a non-placeholder error without success-sounding words -> ``failed`` (``error_message``,
+   sanitised); an error with success-sounding words -> ``unknown`` (``error_sounds_like_success``); else ``unknown``
    (``no_reference`` / ``unrecognised_shape``)
 
 Response field names are UNVERIFIED until the G2 sandbox run.
@@ -60,13 +68,27 @@ _TOKEN = re.compile(r"[A-Za-z0-9_\-]{24,}")
 # Credentials echoed by a provider. Each pattern is a single left-to-right pass over input already cut to 2000
 # chars with whitespace collapsed; every quantifier is bounded, no nested quantifiers (linear).
 _BEARER = re.compile(r"\b(bearer|basic)[ ]+\S+", re.IGNORECASE)
-# RS3AF-4: underscore-aware ("api_key", "client_secret", "x-api-key"): the keyword may carry a <= 20 letter/underscore
-# prefix; the keyword is kept, its value goes.
+
+
+def _loose(word: str) -> str:
+    """A keyword that may be split by up to two whitespace characters between letters (a newline inside "key")."""
+    return r"\s{0,2}".join(word)
+
+
+# RS3AF-4 / RS3AF3-4: underscore-aware ("api_key", "client_secret", "x-api-key"): the keyword may carry a <= 20
+# letter/underscore prefix and may be split by a newline/space; the keyword is kept, its value goes. Up to three filler
+# tokens (":", "=", is, was, are, equals) between the keyword and the value are skipped ("password is hunter22").
+_SECRET_KEYWORDS = "|".join(_loose(w) for w in ("key", "token", "secret", "password", "passwd", "pwd", "authorization",
+                                                "bearer", "passphrase"))
 SECRET_WORD = re.compile(
-    r"(?P<lead>^|[^A-Za-z])(?P<word>[a-z_]{0,20}(?:key|token|secret|passw(?:or)?d|pwd|authorization|bearer|passphrase))"
-    r"\s{0,3}[:=]?\s{0,3}\S+", re.IGNORECASE)
-_JWT = re.compile(r"eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}")
+    r"(?P<lead>^|[^A-Za-z])(?P<word>[a-z_]{0,20}(?:" + _SECRET_KEYWORDS + r")s?)"
+    r"(?:\s{0,3}(?:[:=]|\b(?:is|was|are|equals?)\b)){0,3}\s{0,3}\S+", re.IGNORECASE)
+# linear: a JWT must start at a token boundary, so a run of "eyJeyJeyJ..." has ONE start (no restart per "eyJ")
+_JWT = re.compile(r"(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}")
 _AKIA = re.compile(r"AKIA[0-9A-Z]{16}")
+_VENDOR = re.compile(
+    r"(?<![A-Za-z0-9])(?:(?:xox[abprs]-|xapp-|rk_live_|rk_test_|sk_live_|sk_test_|whsec_|glpat-|npm_|github_pat_)[A-Za-z0-9_\-]{4,}"
+    r"|(?-i:ASIA[0-9A-Z]{16})|(?-i:SG)\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)", re.IGNORECASE)
 _SECRET_LIKE = re.compile(
     r"(?<![A-Za-z0-9])(?:(?:sk|pk|tok|token|key|secret|api)[-_]|gh[pousr]_)[A-Za-z0-9_\-]{4,}", re.IGNORECASE)
 _WS = re.compile(r"\s+")
@@ -76,12 +98,24 @@ _MIN_SECRET = 4
 _MAX_SECRETS = 64
 
 
+SCRUB_CUT = 5000          # callers bound untrusted text before redaction (the tail is dropped, never emitted)
+_REDACT_CUT = 20_000
+
+
+def fold_text(text: str) -> str:
+    """NFKC fold with format characters (category Cf: zero-width, joiners, BOM, RTL marks) dropped."""
+    return "".join(ch for ch in unicodedata.normalize("NFKC", text) if unicodedata.category(ch) != "Cf")
+
+
 def redact_secret_words(text: str) -> str:
-    """The bearer / secret-word / JWT / AKIA / token-like rules (no digit or address rules). Linear."""
+    """The bearer / secret-word / JWT / AKIA / vendor-prefix / token-like rules (no digit or address rules). Linear
+    (input beyond 20,000 characters is dropped)."""
+    text = text[:_REDACT_CUT]
     text = _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", text)           # the keyword stays, the value goes
     text = SECRET_WORD.sub(lambda m: f"{m.group('lead')}{m.group('word')} {REDACTED}", text)
     text = _JWT.sub(REDACTED, text)
     text = _AKIA.sub(REDACTED, text)
+    text = _VENDOR.sub(REDACTED, text)
     return _SECRET_LIKE.sub(REDACTED, text)
 
 
@@ -93,7 +127,7 @@ def secret_value_pattern(values) -> re.Pattern | None:
     for value in list(values or ())[:_MAX_SECRETS]:
         if not isinstance(value, str):
             continue
-        chars = "".join(unicodedata.normalize("NFKC", value).split())[:200]
+        chars = "".join(fold_text(value).split())[:200]
         if len(chars) < _MIN_SECRET:
             continue
         parts.append(r"\s*".join(re.escape(c) for c in chars))
@@ -157,41 +191,114 @@ class PaymentOutcome:
     message: str           # F40: sanitised provider text for failed/needs_authorisation, "" otherwise
 
 
-_REF_PLACEHOLDERS = frozenset({"none", "null", "n/a", "na", "nil", "0", "false", "-", "ok"})
+_REF_PLACEHOLDERS = frozenset({"none", "null", "n/a", "na", "nil", "0", "false", "ok"})
 _ERROR_PLACEHOLDERS = frozenset({"none", "null", "n/a", "na", "nil", "0", "false", "true", "ok", "no error", "no errors",
-                                 "success", "successful", "-"})
+                                 "success", "successful"})
 _FAILURE_STATUSES = frozenset({"failed", "declined", "rejected", "unsuccessful", "unsuccessful payment"})
-_SHORT = 64  # no placeholder or failure status is longer than this: longer text is never folded/compared
+# An error text that sounds like success is NOT a definite failure ("No error.", "Payment processed successfully").
+_SUCCESS_WORDS = re.compile(
+    r"\b(?:success\w*|processed|complete[d]?|approved|accepted|paid|done|ok|no errors?|without errors?)\b")
+_SHORT = 64            # no placeholder or failure status is longer than this
+_FOLD_CUT = 5000       # untrusted text is cut to this before any fold; a longer value that folds to nothing is "present"
+_MAX_NODES = 200_000   # body walk bounds (linear): beyond either the body is ambiguous
+_MAX_DEPTH = 64
 
 
-def _folded(value: str) -> str:
-    return value.strip().casefold() if len(value) <= _SHORT + 64 else ""
+def _is_strip(ch: str) -> bool:
+    return unicodedata.category(ch)[0] in "PSZC"       # punctuation, symbols, separators, controls / format
+
+
+def _folded(value: str) -> str | None:
+    """NFKC, Cf dropped, casefolded, stripped of leading/trailing punctuation, symbols and whitespace. ``None`` when the
+    value is too long to compare cheaply and folds to nothing (treated as present by the callers)."""
+    text = unicodedata.normalize("NFKC", value[:_FOLD_CUT])
+    text = "".join(ch for ch in text if unicodedata.category(ch) != "Cf").casefold()
+    lo, hi = 0, len(text)
+    while lo < hi and _is_strip(text[lo]):
+        lo += 1
+    while hi > lo and _is_strip(text[hi - 1]):
+        hi -= 1
+    text = text[lo:hi]
+    return None if (not text and len(value) > _FOLD_CUT) else text
+
+
+def _meaningful_text(value: str, placeholders: frozenset, *, long_blank: bool = True) -> bool:
+    """``long_blank``: the answer for a value longer than the fold cut that folds to nothing (True for reference-like
+    values: present is the safe reading; False for errors: a blank error is never a definite failure)."""
+    folded = _folded(value)
+    if folded is None:
+        return long_blank
+    return bool(folded) and (len(folded) > _SHORT or folded not in placeholders)
 
 
 def _truthy(value: object) -> bool:
     return value is True or (isinstance(value, str) and len(value) <= _SHORT and value.strip().lower() == "true")
 
 
+def _falsey(value: object) -> bool:
+    if value is None or value is False or (isinstance(value, (int, float)) and value == 0):
+        return True
+    if isinstance(value, (list, dict)):
+        return not value
+    return isinstance(value, str) and (_folded(value) or "") in ("", "false", "0", "no", "none", "null", "n/a", "na", "nil")
+
+
 def _reference(entry: dict) -> str | None:
     """A non-empty, non-placeholder STRING PaymentReferenceNumber (stripped), else None."""
     raw = entry.get("PaymentReferenceNumber")
-    if not isinstance(raw, str):
+    if not isinstance(raw, str) or not _meaningful_text(raw, _REF_PLACEHOLDERS):
         return None
-    ref = raw.strip()
-    if not ref or _folded(ref) in _REF_PLACEHOLDERS:
-        return None
-    return ref
+    return raw.strip()
 
 
 def _error(holder: dict) -> str | None:
     """A non-empty, non-placeholder STRING ErrorMessage, else None (non-string values are ignored)."""
     raw = holder.get("ErrorMessage")
-    if not isinstance(raw, str):
-        return None
-    text = raw.strip()
-    if not text or _folded(text) in _ERROR_PLACEHOLDERS:
+    if not isinstance(raw, str) or not _meaningful_text(raw, _ERROR_PLACEHOLDERS, long_blank=False):
         return None
     return raw
+
+
+def _sounds_like_success(text: str) -> bool:
+    return _SUCCESS_WORDS.search(unicodedata.normalize("NFKC", text[:_FOLD_CUT]).casefold()) is not None
+
+
+def _value_present(value: object) -> bool:
+    """A reference-like value of ANY type: non-empty non-placeholder text, nonzero number, non-empty list/dict."""
+    if isinstance(value, str):
+        return _meaningful_text(value, _REF_PLACEHOLDERS)
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return value != 0
+    return bool(value) if isinstance(value, (list, dict)) else False
+
+
+def _scan(root: object) -> tuple[bool, bool, bool]:
+    """(reference_like, authorisation_like, overflow) over the whole body, recursively through dicts and lists.
+
+    reference_like: ANY key whose folded name contains ``ref`` with a present value; authorisation_like: any key
+    containing ``authori`` whose value is not clearly false; overflow: too many nodes or too deep (ambiguous)."""
+    ref = auth = False
+    stack = [(root, 0)]
+    nodes = 0
+    while stack:
+        node, depth = stack.pop()
+        nodes += 1
+        if nodes > _MAX_NODES or depth > _MAX_DEPTH:
+            return ref, auth, True
+        if isinstance(node, dict):
+            for key, value in node.items():
+                name = fold_text(str(key)[:_SHORT * 4]).casefold()
+                if "ref" in name and _value_present(value):
+                    ref = True
+                if "authori" in name and not _falsey(value):
+                    auth = True
+                if isinstance(value, (dict, list)):
+                    stack.append((value, depth + 1))
+        elif isinstance(node, list):
+            stack.extend((value, depth + 1) for value in node if isinstance(value, (dict, list)))
+    return ref, auth, False
 
 
 def _status_text(entry: dict) -> str:
@@ -220,6 +327,9 @@ def parse_payment_response(body: object, *, strict: bool = True, secrets=()) -> 
 
     refs = [_reference(e) for e in entries]
     errors = [x for x in [_error(data)] + [_error(e) for e in entries] if x is not None]
+    ref_like, auth_like, overflow = _scan(data)
+    if auth_like or overflow:                      # an unclear authorisation flag / unbounded body: never decide
+        return PaymentOutcome("unknown", None, "authorisation_unclear" if auth_like else "body_too_large", "")
     if any(refs):
         if errors:
             return PaymentOutcome("unknown", None, "ref_and_error", "")
@@ -230,6 +340,10 @@ def parse_payment_response(body: object, *, strict: bool = True, secrets=()) -> 
             if isinstance(status, str) and _folded(status) in _FAILURE_STATUSES:
                 return PaymentOutcome("unknown", None, "status_conflict", "")
         return PaymentOutcome("success", next(r for r in refs if r), "ok", "")
+    if ref_like:                                   # a reference-like value we do not recognise: money may have moved
+        return PaymentOutcome("unknown", None, "ref_and_error" if errors else "reference_unrecognised", "")
     if errors:
+        if any(_sounds_like_success(x) for x in errors):
+            return PaymentOutcome("unknown", None, "error_sounds_like_success", "")
         return PaymentOutcome("failed", None, "error_message", sanitize_provider_message(errors[0], secrets))
     return PaymentOutcome("unknown", None, "no_reference" if entries else "unrecognised_shape", "")

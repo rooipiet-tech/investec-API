@@ -14,8 +14,6 @@ import pytest
 from tests.timing_helper import assert_fast
 from tests.v2_harness import Env, mod
 
-pytestmark = pytest.mark.xfail(reason="S3A fix round 4 red phase", strict=False)
-
 
 def _o():
     return mod("outcome")
@@ -115,15 +113,37 @@ def _has_ref_like(node):
     return False
 
 
+def _auth_false(v):
+    if isinstance(v, str):
+        return "".join(ch for ch in v if ch.isalnum()).casefold() in {"", "false", "0", "no", "none", "null", "na", "nil"}
+    return v in (False, 0, None, [], {})
+
+
 def _has_auth_key(node):
     if isinstance(node, dict):
-        return any("authori" in str(k).casefold() and v not in (False, 0, None, "", "false") or _has_auth_key(v) for k, v in node.items())
+        return any("authori" in str(k).casefold() and not _auth_false(v) or _has_auth_key(v) for k, v in node.items())
     if isinstance(node, list):
         return any(_has_auth_key(v) for v in node)
     return False
 
 
+_TAME_KEYS = ["PaymentReferenceNumber", "ErrorMessage", "Status", "id", "x", "ref"]
+_TAME_VALS = ["P1", "", "none", "Insufficient funds", "No error.", "Processed", "Invalid beneficiary", None, "OK!", 0, 12, "\u200b"]
+
+
+def _tame_corpus(n=3000):
+    rng = random.Random(77)
+    for _ in range(n):
+        ents = [{k: rng.choice(_TAME_VALS) for k in rng.sample(_TAME_KEYS, rng.randint(0, 3)) if k != "ref" or rng.random() < 0.1}
+                for _ in range(rng.randint(0, 2))]
+        data = {"TransferResponses": ents}
+        if rng.random() < 0.4:
+            data["ErrorMessage"] = rng.choice(_TAME_VALS)
+        yield {"data": data}
+
+
 def _corpus(n=4000):
+    yield from _tame_corpus()
     rng = random.Random(20260507)
     for _ in range(n):
         data = {rng.choice(_KEYS): _gen(rng, 1) for _ in range(rng.randint(0, 6))}
@@ -144,7 +164,7 @@ def test_corpus_invariants_i1_to_i3():
         if out.status == "success":                           # I2
             assert any(isinstance(e, dict) and isinstance(e.get("PaymentReferenceNumber"), str)
                        and _meaningful(e["PaymentReferenceNumber"]) for e in data["TransferResponses"]), body
-    assert seen["failed"] > 20 and seen["success"] > 20 and seen["unknown"] > 100, seen
+    assert seen["failed"] > 50 and seen["success"] > 50 and seen["unknown"] > 100, seen
 
 
 def test_classifier_is_linear_on_large_bodies():                # I4
@@ -212,7 +232,7 @@ def test_redactors_finish_fast(data):
 # ------------------------------------------------------------------ RS3AF3-3 currency gate
 ISO_SAMPLE = ["SEK", "NOK", "DKK", "BRL", "RUB", "KRW", "TRY", "AED", "SAR", "ILS", "THB", "MYR", "IDR", "PLN", "HUF", "CZK", "CHF",
               "NGN", "KES", "ISK", "EGP", "PHP", "VND", "UAH", "LSL", "NAD", "SZL", "BWP", "MUR", "ZMW", "XOF", "XAU", "TWD", "ARS"]
-WORDS = ["kroner", "krone", "krona", "kronor", "real 100".split()[0], "reais", "rouble", "roubles", "ruble", "rubles", "dirham",
+WORDS = ["kroner", "krone", "krona", "kronor", "reais", "rouble", "roubles", "ruble", "rubles", "dirham",
          "riyal", "shekel", "shekels", "baht", "ringgit", "rupiah", "zloty", "forint", "koruna", "dinar", "dinars", "naira", "bitcoin",
          "quid", "sterling", "shilling", "hryvnia"]
 
@@ -238,7 +258,7 @@ def test_currency_words_park(word):
     assert _gate(f"Amount: 100 {word}") and _gate(f"Amount: {word.upper()} 100")
 
 
-@pytest.mark.parametrize("text", ["Amount: 100 real", "Amount: 100 won", "Amount: 100 lira", "Amount: 100 francs", "Amount: 5 franc"])
+@pytest.mark.parametrize("text", ["Amount: 100 real", "Amount: 100 won", "Amount: 100 lira", "Amount: 100 francs", "Amount: 5 franc", "Amount: R100 Franc Botha"])
 def test_ambiguous_words_park_only_after_a_number(text):
     assert _gate(text)
 
@@ -255,7 +275,7 @@ def test_split_and_symbol_variants_park(text):
 @pytest.mark.parametrize("text", ["Amount: R500 for rent", "Amount: R100 per month", "R100 Sun Co", "Amount: R100 Sunday lunch",
                                   "Amount: ZAR 100", "Amount: R100 rand", "Amount: R100.00", "Amount: R100 for the user manual",
                                   "Amount: R100 a b c", "pay Real Estate Agents Amount: R100", "we won the tender, Amount: R100",
-                                  "Amount: R100 Franc Botha", "Payee: Sunbird Trading Amount: R100", "Amount: R100 try again later",
+                                  "Payee: Sunbird Trading Amount: R100", "Amount: R100 try again later",
                                   "Amount: R100 all good", "Amount: R100 Bob", "Amount: R100 top up", "ask us about it Amount: R100",
                                   "Amount: R100 SUN CO", "Amount: R100 ABC PTY LTD", "Amount: R100 INV7781", "Amount: R100 KFC"])
 def test_no_false_positive_table(text):

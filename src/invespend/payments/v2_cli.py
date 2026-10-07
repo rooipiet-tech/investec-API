@@ -40,10 +40,11 @@ def secret_values(settings: object) -> list[str]:
 def scrub_message(text: str, settings: object) -> str:
     """Replace every secret-looking settings value (matched case-insensitively, whitespace runs equivalent, so a value
     split across a newline or upper-cased is still caught), then bearer / secret-word / JWT / token-like values, then
-    every 6+ digit run (T15, R4-T5). Used for the error envelope."""
-    from .outcome import REDACTED, redact_secret_words, secret_value_pattern
+    every 6+ digit run (T15, R4-T5). The text is cut to 5000 characters and NFKC-folded (format characters dropped)
+    before redaction. Used for the error envelope."""
+    from .outcome import REDACTED, SCRUB_CUT, fold_text, redact_secret_words, secret_value_pattern
 
-    out = str(text)
+    out = fold_text(str(text)[:SCRUB_CUT])      # bound first (linear), then NFKC + drop zero-width / format characters
     pattern = secret_value_pattern(secret_values(settings))
     if pattern is not None:
         out = pattern.sub(REDACTED, out)

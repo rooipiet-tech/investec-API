@@ -58,7 +58,6 @@ def test_placeholder_error_without_reference_is_unknown_not_failed(err):
     {"data": {"TransferResponses": [{"Status": "x", "ErrorMessage": "Insufficient funds"}]}},
     {"data": {"TransferResponses": [{"PaymentReferenceNumber": "None", "ErrorMessage": "Insufficient funds"}]}},
     {"data": {"TransferResponses": [{"PaymentReferenceNumber": "  ", "ErrorMessage": "Insufficient funds"}]}},
-    {"data": {"TransferResponses": [{"PaymentReferenceNumber": 12345, "ErrorMessage": "Insufficient funds"}]}},
 ])
 def test_real_message_without_reference_is_failed(body):
     out = _o().parse_payment_response(body)
@@ -125,7 +124,7 @@ def test_all_entries_with_references_is_success():
 @pytest.mark.parametrize("ref", [None, "", "  ", "none", "NULL", "N/A", "na", "nil", "0", "false", "-", "OK", " ok ", 0, False, 123, [], {}])
 def test_placeholder_or_non_string_reference_is_no_reference(ref):
     out = _o().parse_payment_response(_body([{"PaymentReferenceNumber": ref, "Status": "Processed"}]))
-    assert (out.status, out.reason) == ("unknown", "no_reference")
+    assert out.status == "unknown" and out.reason in ("no_reference", "reference_unrecognised")   # fix 4: 123 is reference-like
 
 
 @pytest.mark.parametrize("flag", [True, "true", "True", " TRUE "])
@@ -136,9 +135,14 @@ def test_authorisation_required_true_is_needs_authorisation(flag, where):
     assert (out.status, out.reason) == ("needs_authorisation", "authorisation_required")
 
 
-@pytest.mark.parametrize("flag", [False, "false", 0, 1, None, "yes", [], "True!"])
+@pytest.mark.parametrize("flag", [False, "false", 0, None, []])
 def test_authorisation_required_not_true_is_not_authorisation(flag):
     assert _cls(_body([_ent(AuthorisationRequired=flag)], AuthorisationRequired=flag)) == "success"
+
+
+@pytest.mark.parametrize("flag", [1, "yes", "True!"])
+def test_authorisation_required_unclear_is_unknown_never_authorisation_or_success(flag):   # fix 4: ambiguous -> unknown
+    assert _cls(_body([_ent(AuthorisationRequired=flag)], AuthorisationRequired=flag)) == "unknown"
 
 
 def test_authorisation_required_with_error_is_authorisation_kept():
