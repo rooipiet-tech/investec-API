@@ -18,8 +18,6 @@ from invespend.payments.caps import check_daily_aggregate, check_per_payment
 
 ROOT = Path(__file__).resolve().parent.parent
 
-# RED-COMMIT-MARKER (removed by the green commit)
-pytestmark = pytest.mark.xfail(strict=False, reason="S4 red commit: fix lands in the next commit")
 
 BAD = ["", "0", "-5", "abc", "nan", "inf", "-inf", "NaN", "Infinity", "1e999", " "]
 

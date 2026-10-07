@@ -8,6 +8,7 @@ of setting secrets.
 """
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 
@@ -43,6 +44,20 @@ def _require(name: str) -> str:
             f"Copy .env.example to .env (local) or set it as a GitHub secret (CI)."
         )
     return value
+
+
+def _opt_cap(name: str) -> float:
+    """Spending cap from the environment, FAIL-CLOSED (F18): unset, empty,
+    unparsable, NaN, infinite or non-positive all mean 0.0 ("no payment may
+    pass"). Never raises, so a malformed cap cannot break non-payment commands."""
+    raw = os.getenv(name)
+    if raw is None:
+        return 0.0
+    try:
+        value = float(raw.strip())
+    except ValueError:
+        return 0.0
+    return value if math.isfinite(value) and value > 0 else 0.0
 
 
 def _opt(name: str, default: str = "") -> str:
@@ -200,8 +215,8 @@ class Settings:
             backup_passphrase=_opt("BACKUP_PASSPHRASE"),
             # ── Email-payment-approval (all optional) ─────────────────────────
             approval_signing_secret=_opt("APPROVAL_SIGNING_SECRET"),
-            per_payment_cap=float(_opt("PER_PAYMENT_CAP", "0")),
-            daily_aggregate_cap=float(_opt("DAILY_AGGREGATE_CAP", "0")),
+            per_payment_cap=_opt_cap("PER_PAYMENT_CAP"),
+            daily_aggregate_cap=_opt_cap("DAILY_AGGREGATE_CAP"),
             payments_dry_run=_opt_bool("PAYMENTS_DRY_RUN", True),
             payments_live_enable=_opt_bool("PAYMENTS_LIVE_ENABLE", False),
             investec_write_client_id=_opt("INVESTEC_WRITE_CLIENT_ID"),
