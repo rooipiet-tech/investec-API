@@ -236,7 +236,7 @@ def test_huge_hold_does_not_abort_the_cycle(tmp_path):
 
 
 # ------------------------------------------------------------------ RS3A-5: mailbox preflight
-@pytest.mark.parametrize("name", [pytest.param(n, marks=RED) for n in ("INBOX.", "INBOX/", '"INBOX"', "'inbox'", '"INBOX."', "Inbox//")]
+@pytest.mark.parametrize("name", [pytest.param(n) for n in ("INBOX.", "INBOX/", '"INBOX"', "'inbox'", '"INBOX."', "Inbox//")]
                          + [" inbox ", "inbox", "INBOX", ""])
 def test_inbox_variants_refused_before_any_fetch(tmp_path, name):
     env = Env(tmp_path, imap_mailbox=name)

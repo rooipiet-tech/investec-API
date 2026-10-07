@@ -77,6 +77,18 @@ def _fresh(received: datetime | None, when: datetime, cfg) -> bool:
     return received is not None and cfg.max_age_hours > 0 and when - received <= cfg.max_age
 
 
+def _normalised_mailbox(name: object) -> str:
+    """RS3A-5: lower-cased mailbox name without surrounding whitespace/quotes and trailing ``.`` / ``/`` delimiters,
+    so ``INBOX.``, ``INBOX/`` and ``"INBOX"`` equal ``inbox``. A dedicated sub-label (``INBOX.Payments``) is NOT
+    stripped to ``inbox`` and stays allowed (the SAFER reading: only exact inbox spellings are the shared inbox)."""
+    text = str(name or "")
+    while True:
+        stripped = text.strip().strip("\"'").rstrip("./").strip()
+        if stripped == text:
+            return text.lower()
+        text = stripped
+
+
 def _preflight(settings, cfg, store, audit, allow_non_durable: bool) -> None:
     def fail(code: str):
         audit.append("preflight_failed", {"reason": code})
@@ -84,7 +96,7 @@ def _preflight(settings, cfg, store, audit, allow_non_durable: bool) -> None:
 
     if not getattr(store, "durable", False) and not allow_non_durable:
         fail("v2_requires_durable_store")
-    if cfg.mailbox.strip().lower() in ("", "inbox"):
+    if _normalised_mailbox(cfg.mailbox) in ("", "inbox"):
         fail("mailbox_not_dedicated")
     if not sender_auth.strict_address_parser_available():
         fail("strict_parser_unavailable")
