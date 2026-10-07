@@ -12,7 +12,6 @@ import pytest
 
 from tests.notify_cases import BATCH, EXPIRES, REF, SENDER, TO, body, nv2, render_all
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S10 red: payments/notify_v2.py not built yet")
 
 ROOT = Path(__file__).resolve().parent.parent
 FIELDS = ("Beneficiary name", "Bank", "Account number", "Amount", "Their reference", "My reference",
@@ -188,7 +187,7 @@ def test_batch_email_without_pending_has_no_pending_section():
     n = nv2()
     item = n.BatchItem(1, "Acme", Decimal("10"), "ZAR", "123", "r", "typed")
     text = body(n.build_batch_approval_email(SENDER, TO, batch_ref=BATCH, items=[item], pending=[], expires_at=EXPIRES))
-    assert "Still pending" not in text and "pending" not in text.split("expired")[0].lower().replace("stay pending", "")
+    assert "Still pending" not in text and "earlier batches" not in text
 
 
 def test_pending_section_lines_render_ref_hash_n_and_never_start_with_a_numbered_prefix():

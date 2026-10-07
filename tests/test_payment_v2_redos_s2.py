@@ -73,3 +73,14 @@ def test_image_validation_is_linear(data):
         "images.validate_extraction({'payee_name': data, 'amount': data, 'account_number': data, 'currency': data, data: data}); "
         "images.sniff_mime(data.encode()); images.image_ref_from_bytes(data.encode())",
     )
+
+
+@pytest.mark.parametrize("data", TEXT + HTML)
+def test_notify_third_party_value_cleaning_is_linear(data):
+    assert_fast(
+        "from decimal import Decimal\nfrom invespend.payments import notify_v2 as n\n"
+        f"data = {data}\n"
+        "item = n.BatchItem(1, data, Decimal('1'), 'ZAR', data, data, 'typed')",
+        "n.build_batch_approval_email('a@example.com', 'b@example.com', batch_ref='B-1007-ab12', items=[item], "
+        "pending=[], expires_at=__import__('datetime').datetime(2026, 10, 8))",
+    )

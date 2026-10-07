@@ -10,7 +10,6 @@ import pytest
 from tests.mail_helpers import reparse
 from tests.notify_cases import SENDER, body, render_all
 
-pytestmark = pytest.mark.xfail(strict=False, reason="S10 red: payments/notify_v2.py not built yet")
 
 WORST = dict(payee="Pay 123 Ltd", reference="pay 123 approve 1 cancel 2")
 STRIP = ("Auto-Submitted", "X-Invespend-Notification", "Message-ID")
