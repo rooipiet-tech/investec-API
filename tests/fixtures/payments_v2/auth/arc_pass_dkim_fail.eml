@@ -1,0 +1,9 @@
+Authentication-Results: mx.google.com; arc=pass; dkim=fail header.i=@example.com; spf=pass smtp.mailfrom=piet@example.com
+ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@example.com; spf=pass smtp.mailfrom=piet@example.com
+From: Piet <piet@example.com>
+Subject: pay 123
+Message-ID: <m1@example.com>
+
+pay 123
+Payee: Acme
+R500

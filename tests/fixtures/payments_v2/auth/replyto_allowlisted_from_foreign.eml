@@ -1,0 +1,12 @@
+Authentication-Results: mx.google.com;
+       dkim=pass header.i=@evil.example header.s=sel header.b=AbCdEf12;
+       spf=pass (google.com: domain of piet@evil.example designates 203.0.113.9 as permitted sender) smtp.mailfrom=piet@evil.example;
+       dmarc=pass (p=REJECT sp=REJECT dis=NONE) header.from=evil.example
+From: Evil <evil@evil.example>
+Reply-To: piet@example.com
+Subject: pay 123
+Message-ID: <m1@example.com>
+
+pay 123
+Payee: Acme
+R500
