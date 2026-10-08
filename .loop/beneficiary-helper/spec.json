@@ -1,0 +1,260 @@
+{
+  "spec_version": "0.1.0-draft",
+  "run": "beneficiary-helper",
+  "frozen": false,
+  "status": "DRAFT - awaiting human approval; no planning/building before approval",
+  "inputs": [
+    ".loop/beneficiary-helper/GOAL.md",
+    ".loop/beneficiary-helper/research.md",
+    ".loop/beneficiary-helper/domain.md"
+  ],
+  "baseline": {
+    "pytest_floor": "CURRENT baseline at the branch base commit, measured by the builder before any diff (pytest absent in researcher sandbox; CLAUDE.md '62' is stale, email-payment-v2 recorded 330). Floor = that measured number, plus all new tests, 0 failed, 0 errors.",
+    "note": "Do not touch .loop/spec.json or other runs' files; email-payment-v2 is mid-build, so zero edits to src/invespend/payments/*."
+  },
+  "weights": { "Must": 3, "Should": 2, "Nice": 1 },
+  "recommended_defaults": {
+    "mode": "Option B: headed browser, user logs in + 2FA manually, helper fills form, user clicks final submit. Default invocation (no flag) is print-only dry-run (Option A behaviour).",
+    "entry_point": "Separate module + python -m invespend.beneficiary_helper (NOT a new invespend subcommand), so the frozen CLI surface is untouched.",
+    "field_order": "Q6 order (decisions.md) is binding; branch code is a reference-only line."
+  },
+  "acceptance_criteria": [
+    {
+      "id": "F1",
+      "text": "PRECONDITION: before any code change, record the baseline: `invespend --help` and every `invespend <sub> --help` captured from the unmodified base commit (SHA recorded) plus the measured pytest pass count. All later comparisons use these.",
+      "priority": "Must",
+      "measure": "Baseline files exist with recorded base SHA; pytest count recorded; refresh precedes first source diff."
+    },
+    {
+      "id": "F2",
+      "text": "Existing behaviour frozen: no change to ingest, report, statements, backup, backfill-hashes, approve-payments, pay-selftest, src/invespend/payments/*, db/migrations/*, views or schema. The helper is an isolated new package (e.g. src/invespend/beneficiary_helper/) that only reads BankDetails / BENEFICIARY_FIELD_ORDER read-only (or keeps its own copy asserted equal by a test).",
+      "priority": "Must",
+      "measure": "`git diff --stat <base>` shows no modified files under src/invespend/payments/, db/, src/invespend/cli.py (unless F20 decision says otherwise); no new migration."
+    },
+    {
+      "id": "F3",
+      "text": "Test-suite floor: the full pytest suite stays green on a base install (WITHOUT playwright installed): >= measured baseline passing plus new tests, 0 failures, 0 errors. Pre-existing tests are not edited, EXCEPT none are expected (test_payment_docs.py is preserved, see F18).",
+      "priority": "Must",
+      "measure": "`pytest -q` in a venv with `pip install -e .[dev]` only: >= baseline + new, 0 failed, 0 errors; `git diff` of pre-existing tests/ files is empty."
+    },
+    {
+      "id": "F4",
+      "text": "Input source is user-supplied only. The full account number is never stored (instruction rows hold only account_hmac), so the helper takes details from: (a) interactive prompt, or (b) a user-controlled local file (mode 0600, refuse otherwise) containing the pasted 'Add this beneficiary' email lines, parsed with the existing bankdetails-style labelled-line rules. It never reads the payments DB, mailbox/IMAP, Investec API, or Settings/.env payment credentials. Details are NOT accepted on argv (visible in ps). Clipboard is not used by default.",
+      "priority": "Must",
+      "measure": "pytest: argv-supplied account number rejected/absent from parser; helper module has no import of payments store/db/client/Settings (grep/AST test); file with mode wider than 0600 refused; prompt and file paths both yield same parsed object."
+    },
+    {
+      "id": "F5",
+      "text": "Mandatory verification gate: before any fill the helper prints a masked summary (account shown as last3 only) and requires the user to type an explicit confirmation that details were verified against an independent channel (invoice-fraud mitigation). No confirmation -> exit non-zero, nothing opened.",
+      "priority": "Must",
+      "measure": "pytest with scripted stdin: no/blank answer -> fake driver never launched, exit != 0; yes -> proceeds. Printed summary contains no full account number."
+    },
+    {
+      "id": "F6",
+      "text": "Field order: the helper presents and fills fields in the Q6 order: 1 Beneficiary name, 2 Bank, 3 Account number, 4 Amount, 5 Their reference, 6 My reference, 7 Payment notification, 8 Beneficiary email address, 9 Beneficiary mobile number. Branch code is rendered only as a separate 'reference only' line, never as an ordered/filled field. This resolves the Q6 vs runbook (name, bank, account, reference) vs domain.md:55 conflict in favour of Q6; the runbook text is flagged for a later doc fix, not edited here.",
+      "priority": "Must",
+      "measure": "pytest: ordered field labels == notify_v2.BENEFICIARY_FIELD_ORDER (or pinned literal Q6 list) and branch code absent from it; fake-page fill log shows fields in that order."
+    },
+    {
+      "id": "F7",
+      "text": "Amount is never pre-filled or submitted by the helper (it is a payment-time field). Default: field 4 shown as 'skip / leave blank'; Payment-notification, email and mobile filled only if supplied by the user, otherwise skipped (not typed as '(not provided)').",
+      "priority": "Must",
+      "measure": "pytest with fake page: amount input value stays empty; '(not provided)' placeholder never typed into any field."
+    },
+    {
+      "id": "F8",
+      "text": "Advisory validation fails closed, never silently alters data: name non-empty/no control chars; account digits-only (6-20), kept as string (leading zeros preserved, never int/float cast, never truncated); email single ASCII address; cell SA format; references length/charset checked and rejected (not truncated). Invalid -> error naming the field (no value echoed for account/cell/email), nothing filled.",
+      "priority": "Must",
+      "measure": "pytest parametrised: leading-zero account preserved byte-for-byte; 5-digit and 25-digit rejected; control chars rejected; over-length reference rejected; error text contains none of the input values."
+    },
+    {
+      "id": "F9",
+      "text": "Mode: default invocation (no browser flag) is a dry-run that prints the ordered, masked plan and opens nothing. Browser mode requires an explicit flag (e.g. --browser). Playwright is imported lazily only in browser mode.",
+      "priority": "Must",
+      "measure": "pytest: default run with playwright import blocked (sys.modules sentinel) succeeds and launches nothing; --browser without playwright installed -> clear install hint, exit != 0, no traceback leaking details."
+    },
+    {
+      "id": "F10",
+      "text": "Browser mode (recommended default, Option B): headed (never headless), fresh ephemeral non-persistent context (no launch_persistent_context, no user profile, no CDP attach to a live session, no storage_state load/save), human-paced, no stealth plugins. The helper starts typing only after the user signals 'logged in' at a terminal prompt.",
+      "priority": "Must",
+      "measure": "pytest/AST+fake: launch called with headless=False; no call to launch_persistent_context / connect_over_cdp / storage_state / tracing.start / record_video / record_har / screenshot / page.pdf anywhere in package (grep test); fill not called before the logged-in prompt answered."
+    },
+    {
+      "id": "F11",
+      "text": "NO automation of banking login or 2FA: the helper never fills username/password/PIN/OTP fields, never clicks login, never waits-and-forwards OTP, never interacts with approval prompts. No credentials or OTPs are read, stored, logged, prompted for, or put in env/config.",
+      "priority": "Must",
+      "measure": "grep/AST test: no selectors or strings for password/pin/otp/login/username in package; no new env vars added to config.py/.env.example; fake-page test records zero interactions with login/OTP elements."
+    },
+    {
+      "id": "F12",
+      "text": "FINAL SUBMIT IS ALWAYS MANUAL: the helper never clicks Submit/Confirm/Approve/Pay/Add/Save-style buttons, never presses Enter in a form, never dismisses the app's own confirmation or account-verification (AVS) warnings. After fill it stops and tells the user to review and submit themselves.",
+      "priority": "Must",
+      "measure": "pytest with recording fake page: the only permitted actions are fill/select on whitelisted field locators and read-back; click()/press('Enter')/submit() call count == 0 on any button; fake page with AVS warning -> helper only reports it."
+    },
+    {
+      "id": "F13",
+      "text": "Origin allowlist: helper refuses to fill unless the current page origin exactly matches a hard-coded Investec Online allowlist (https scheme, exact host; not from mail/config/env); re-checked immediately before each fill and after any navigation; off-origin or redirect -> abort without typing. The helper never navigates to a URL taken from details/mail.",
+      "priority": "Must",
+      "measure": "pytest parametrised on fake page URLs: lookalike hosts (investec.com.evil.tld, http://, subdomain tricks, data: URLs) -> abort with zero fills; exact allowlisted host -> proceeds."
+    },
+    {
+      "id": "F14",
+      "text": "Selector drift fails closed: if an expected field/label is not found uniquely, the helper aborts with a message naming the missing field, rather than guessing. Read-back after fill shows the values as the page holds them (account masked to last3 in output) for user comparison; mismatch between intended and page value is flagged.",
+      "priority": "Must",
+      "measure": "pytest fake page missing/duplicated field -> abort, no later fields filled; fake page that mangles a value -> mismatch reported; read-back output has no full account number."
+    },
+    {
+      "id": "F15",
+      "text": "No secrets or beneficiary data persisted or leaked: no full account numbers, cell numbers, emails, payee names in logs, stdout (beyond the pre-fill masked summary), stderr, exceptions/tracebacks, audit rows, DB, temp files, or Playwright artifacts. Exceptions are redacted (6+ digit runs, known values) before printing. Temp input files are not created by the helper; the user's input file is untouched or optionally shredded only on explicit flag. Artifact dirs (traces, downloads, screenshots) added to .gitignore.",
+      "priority": "Must",
+      "measure": "pytest canary test: run full flow (success, validation failure, selector drift, off-origin, driver exception) with canary values (e.g. account 5550001111) and assert canary absent from captured stdout/stderr/caplog/exception strings/tmp dir listing; `git check-ignore` for artifact patterns."
+    },
+    {
+      "id": "F16",
+      "text": "No network calls to Investec from code: the package makes no HTTP requests (no requests/urllib/httpx/socket use, no Investec API client import). The only Investec traffic is the user's headed browser. Not run in GitHub Actions or any workflow: no workflow file is added or modified, tests.yml gains no `playwright install` step.",
+      "priority": "Must",
+      "measure": "grep/AST test: no import of requests/urllib/http.client/httpx/socket or invespend.payments.client in package; `git diff --stat` shows no .github/workflows changes; tests that monkeypatch socket.socket to raise still pass."
+    },
+    {
+      "id": "F17",
+      "text": "Playwright is an OPTIONAL extra only: pyproject.toml gains `[project.optional-dependencies] browser = [\"playwright>=1.40\"]` (version floor builder to confirm); core `dependencies` unchanged; no playwright import at module top level anywhere; browser binaries are installed separately by the user (`playwright install chromium`, documented, not automated).",
+      "priority": "Must",
+      "measure": "pyproject diff shows only the new extra; `dependencies` list byte-identical; test imports every helper module with playwright absent and succeeds; base-install pytest per F3 green."
+    },
+    {
+      "id": "F18",
+      "text": "tests/test_payment_docs.py is unmodified and still green; docs/PAYMENTS_RUNBOOK.md lines asserted by it (words 'Playwright', 'separate later project') are not removed or reworded. Any doc about the helper goes in a NEW file (e.g. docs/BENEFICIARY_HELPER.md); runbook cross-reference, if wanted, is additive only and re-verified against that test.",
+      "priority": "Must",
+      "measure": "`git diff <base> -- tests/test_payment_docs.py` empty; test_payment_docs.py passes; `git diff docs/PAYMENTS_RUNBOOK.md` empty or additive-only with the asserted words still present."
+    },
+    {
+      "id": "F19",
+      "text": "Tests use a fake page / local fixture only: a recording FakePage driver injected through a driver interface (helper logic depends on a small Protocol, not directly on playwright), plus optionally a local static HTML fixture guarded by pytest.importorskip('playwright'). No real banking site, no network, no real credentials, fake obviously-synthetic data only. New tests contain no real account numbers.",
+      "priority": "Must",
+      "measure": "New tests pass with playwright absent (fake-page ones) and are skipped, not failed, for importorskip ones; grep of tests/ new files for the research's real-looking data patterns finds only the documented canaries."
+    },
+    {
+      "id": "F20",
+      "text": "DECISION FLAG - CLI surface: adding an `invespend` subcommand changes the frozen observable surface (build_parser, `invespend --help`, test_cli.py / test_payment_frozen_surface.py). Recommended default: do NOT add a subcommand; ship as `python -m invespend.beneficiary_helper` (and optionally a second console script entry) so `invespend --help` and all subcommand --help output stay byte-identical. If the human instead approves a subcommand (e.g. `invespend add-beneficiary`), this criterion is replaced by: only that one addition in cli.py, all other help output byte-identical, and frozen-surface tests amended in exactly the minimal way.",
+      "priority": "Must",
+      "measure": "Default path: `invespend --help` and each `<sub> --help` byte-identical to F1 baseline; cli.py diff empty; `python -m invespend.beneficiary_helper --help` works."
+    },
+    {
+      "id": "F21",
+      "text": "Security review (own, separate from the payments one) is a gate: risk-security reviewer must sign off on a checklist covering (1) no login/2FA automation, (2) manual final submit, (3) origin allowlist, (4) ephemeral context + no artifacts, (5) no secrets/PII in logs or git, (6) no argv/clipboard/persistent exposure of details, (7) no network/LLM egress of page content, (8) lazy optional dependency, (9) ToS position acknowledged by human, (10) no use as a payment path (no paymultiple/payments import).",
+      "priority": "Must",
+      "measure": "risk-security output file lists all 10 items with pass/fail and zero unresolved HIGH; AST test asserts package has no import from invespend.payments except read-only BankDetails/constants."
+    },
+    {
+      "id": "F22",
+      "text": "No page content, DOM, screenshots or beneficiary details are sent to Claude or any LLM or third-party at runtime; helper is deterministic code with no AI client import.",
+      "priority": "Must",
+      "measure": "grep/AST: no anthropic/openai/images_claude/content imports in package; socket-blocked test run passes."
+    },
+    {
+      "id": "F23",
+      "text": "Helper never becomes a payment path and never tries to bypass new-beneficiary cooling-off or 'pay once in Online first' rules.",
+      "priority": "Must",
+      "measure": "grep: no 'paymultiple' / payments client symbol in package; fake-page recording shows no navigation to pay/transfer routes."
+    },
+    {
+      "id": "F24",
+      "text": "Usability: clear numbered terminal instructions for each human stop (verify details, log in + 2FA, open Add Beneficiary yourself, review summary, review read-back, click submit yourself, approve 2FA yourself); helper closes the browser context on exit including on Ctrl-C/exception.",
+      "priority": "Should",
+      "measure": "pytest: stdout contains the ordered stop prompts; fake context.close() called in success, exception and KeyboardInterrupt paths."
+    },
+    {
+      "id": "F25",
+      "text": "Add-beneficiary page navigation: by default the USER navigates to the Add Beneficiary screen after login and signals ready; helper does not auto-navigate (avoids hard-coding unverified routes).",
+      "priority": "Should",
+      "measure": "pytest: fake page records zero goto() calls in default mode."
+    },
+    {
+      "id": "F26",
+      "text": "Name hygiene: NFKC normalisation check and warning on mixed-script/lookalike characters in beneficiary name, user's exact text kept unless they confirm; branch-code mismatch warning if the page shows a bank/branch different from the supplied bank.",
+      "priority": "Should",
+      "measure": "pytest: Cyrillic-lookalike name -> warning emitted, value unchanged; fake page showing different bank -> warning."
+    },
+    {
+      "id": "F27",
+      "text": "Documentation: docs/BENEFICIARY_HELPER.md (new) describes the install (`pip install -e .[browser]`, `playwright install chromium`), the human-in-the-loop steps, the ToS caveat, what is never stored, and that the runbook paste-order text is superseded by Q6.",
+      "priority": "Should",
+      "measure": "File exists; contains the strings 'headed', 'final submit', 'two-factor' or '2FA', 'browser' extra name; no real data."
+    },
+    {
+      "id": "F28",
+      "text": "Scoring/triage per CLAUDE.md: S = sum(earned)/sum(max) with weights Must 3 / Should 2 / Nice 1; ship only if all Musts pass, pytest green, migrations/views/schema unchanged, no secrets committed, no behaviour change beyond this spec.",
+      "priority": "Must",
+      "measure": "state.json for this run records pass_rate and S with arithmetic; ship gate satisfied."
+    },
+    {
+      "id": "F29",
+      "text": "Optional input convenience: accept the full text of the 'Add this beneficiary in Investec' email on stdin (piped from the user's own clipboard tool) in addition to prompt/file, reusing the labelled-line parser, with the same verification gate.",
+      "priority": "Nice",
+      "measure": "pytest: sample paste-email body (fake data) on stdin parses to the same object as the file path; verification gate still required."
+    },
+    {
+      "id": "F30",
+      "text": "Optional: a small `--check-fixture` self-test that runs the full flow against a bundled local static HTML form via real Playwright (headed not required, headless allowed ONLY for this fixture self-test), skipped when playwright is absent.",
+      "priority": "Nice",
+      "measure": "pytest.importorskip-guarded test passes where playwright+chromium present, skipped otherwise; headless path unreachable for non-fixture origins."
+    }
+  ],
+  "options_considered": {
+    "A": "Present-only: print/email ordered details, no browser. Lowest risk; still the default dry-run output.",
+    "B": "RECOMMENDED: headed browser; user logs in + 2FA manually; helper fills only whitelisted fields on allowlisted origin; user confirms and clicks final submit.",
+    "C": "Attach to the user's live logged-in session via CDP. NOT recommended: exposes the full banking session to the script."
+  },
+  "open_questions": [
+    {
+      "id": "Q1",
+      "question": "Which mode: A present-only, B headed browser fill, or C attach to live session?",
+      "recommended_default": "B, with A as the no-flag dry-run output. C rejected."
+    },
+    {
+      "id": "Q2",
+      "question": "Field order: Q6 (decisions.md) vs runbook:55-56 (name, bank, account, reference) vs domain.md:55.",
+      "recommended_default": "Q6 order binding; branch code as reference-only line; runbook text flagged for later doc fix (not edited here, protects test_payment_docs.py)."
+    },
+    {
+      "id": "Q3",
+      "question": "Does Investec Online's add-beneficiary screen actually have Amount / Their reference / My reference / Payment notification, and in what order and with what labels? Unverified in repo.",
+      "recommended_default": "Human does one real walkthrough (screenshots NOT committed) to confirm the label map before the builder hard-codes selectors; until then selectors live in one small replaceable mapping and unknown fields abort (F14). Amount is skipped (F7)."
+    },
+    {
+      "id": "Q4",
+      "question": "Does the human accept the Investec Online ToS / bot-detection risk of any scripted form fill?",
+      "recommended_default": "Accept only for Option B (human-driven, one form, human submits, no scraping of other pages); otherwise fall back to Option A."
+    },
+    {
+      "id": "Q5",
+      "question": "CLI surface: new `invespend` subcommand (touches frozen surface) or separate `python -m` entry?",
+      "recommended_default": "Separate `python -m invespend.beneficiary_helper`; no cli.py change (F20)."
+    },
+    {
+      "id": "Q6",
+      "question": "Input channel: prompt, 0600 file, stdin, clipboard?",
+      "recommended_default": "Prompt and 0600 file; stdin as Nice; no argv; no clipboard by default."
+    },
+    {
+      "id": "Q7",
+      "question": "Should the existing paste email (notify_v2, frozen payments code) also carry the Q6 order with the branch-code reference line or a helper hint?",
+      "recommended_default": "No; out of scope for this run (touches email-payment-v2 frozen code); separate decision later."
+    },
+    {
+      "id": "Q8",
+      "question": "Hard-coded origin allowlist value(s) for Investec Online (exact hosts)?",
+      "recommended_default": "Human supplies the exact production host(s) at approval; stored as a code constant, not config/env."
+    },
+    {
+      "id": "Q9",
+      "question": "Playwright version floor and whether to also declare it in a lock/uv.lock.",
+      "recommended_default": "playwright>=1.40 in extra `browser` only; lock file untouched (git checkout uv.lock if it changes)."
+    },
+    {
+      "id": "Q10",
+      "question": "Should Amount be skipped, or should the helper support a payment-form mode?",
+      "recommended_default": "Skip; payment-form mode is out of scope (would be a payment path)."
+    }
+  ]
+}
