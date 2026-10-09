@@ -189,16 +189,18 @@ def test_dry_run_builds_client_with_read_credential_live_uses_payment_credential
 
 
 def test_cli_main_f26_summary_and_exit_codes_for_ignore_offer_approve_cancel_execute(monkeypatch, capsys):
+    from datetime import datetime, timedelta, timezone
     from tests.v2_harness import make_mail, body_for
     ctx = stub_cli_env(monkeypatch, v2_settings(live=True))
     s = ctx.cli
+    recent = datetime.now(timezone.utc) - timedelta(minutes=5)   # main() uses the real clock, so the age gate needs a fresh mail
     # ignore
-    ctx.inbox.queue(make_mail("no trigger here"))
+    ctx.inbox.queue(make_mail("no trigger here", internaldate=recent))
     assert s.main(["approve-payments", "--once"]) == 0
     first = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert first["messages"] == 1 and first["offered"] == 0
     # offer
-    ctx.inbox.queue(make_mail(body_for()))
+    ctx.inbox.queue(make_mail(body_for(), internaldate=recent))
     assert s.main(["approve-payments", "--once"]) == 0
     second = json.loads(capsys.readouterr().out.strip().splitlines()[-1])
     assert second["offered"] == 1 and second["live_enabled"] is True and second["credential_set"] in ("write", "main")

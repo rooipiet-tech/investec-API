@@ -134,7 +134,7 @@ job has `contents: read` only and no `pull_request` trigger. The workflow keeps 
 | `PAYMENTS_ALLOWED_SENDERS` | repo variable | Comma-separated allowlisted sender addresses |
 | `PAYMENTS_AUTHSERV_ID` | repo variable | Trusted authserv-id (Gmail: `mx.google.com`) |
 | `PAYMENTS_FINGERPRINT_KEY` | secret | HMAC key for beneficiary and account fingerprints |
-| `IMAP_MAILBOX` | repo variable | Dedicated mailbox label to read |
+| `IMAP_MAILBOX` | repo variable | Dedicated mailbox label to read (never INBOX) |
 | `PER_PAYMENT_CAP` | repo variable | Rand, intended 20000; fail-closed when unset |
 | `DAILY_AGGREGATE_CAP` | repo variable | Rand, intended 50000; fail-closed when unset |
 | `PAYMENTS_HOLD_HOURS` | repo variable | New-beneficiary hold, default 0 |
@@ -159,8 +159,15 @@ job has `contents: read` only and no `pull_request` trigger. The workflow keeps 
   direction; check the day's total before G3 or wait for the next SAST day.
 - `needs_review` emails say the payment MAY HAVE BEEN PAID.
 - Run `init-db` before enabling v2; `PAYMENTS_STATE_BACKEND=postgres` is required.
-- Use a dedicated mailbox or label: the IMAP fetch marks mail as read, and the bot must never read
-  a mailbox it also sends to.
+- Dedicated mailbox label: the owner chose to run the bot on their own Gmail account (IMAP user = the account that
+  receives instructions and sends the approval batches), reading ONLY a dedicated mailbox label
+  (for example `payments-in`, with Show in IMAP ticked), never INBOX (the preflight refuses INBOX).
+  A Gmail filter applies the label to mail from the allowed senders and skips the Inbox. The IMAP
+  fetch marks mail as read (only the labelled mail), and nothing else is touched. The filter also labels the
+  bot's own approval batches (same From address); the loop guard ignores them. Mail you send to
+  yourself may lack `dkim=pass`/`spf=pass` in `Authentication-Results`, in which case it is
+  ignored (fail closed): verify with "Show original" at G1 and send from another allowed address
+  if so. Keep the account below its 15 GB storage limit, or approval emails will bounce.
 - Cap parsing blocks on bad values (value 0) rather than crashing or accepting them.
 - Scheduling: GitHub cron is best effort and scheduled workflows pause after 60 days of repository
   inactivity; windows and expiry tolerate late runs (an approved item executes in the next cycle
