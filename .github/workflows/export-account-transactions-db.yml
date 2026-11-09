@@ -1,0 +1,43 @@
+name: export-account-transactions-db
+
+# One-off, read-only export of one account's transactions from the Postgres
+# database (works for closed accounts that were ingested while open).
+# Run from the Actions tab → Run workflow, then download the CSV artifact.
+# The artifact holds financial data: it is kept for 1 day only.
+on:
+  workflow_dispatch:
+    inputs:
+      account_number:
+        description: "Investec account number"
+        required: true
+        default: "10012256399"
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Export transactions from database
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          ACCOUNT_NUMBER: ${{ github.event.inputs.account_number }}
+        run: python scripts/export_account_transactions_db.py "$ACCOUNT_NUMBER" "transactions_db_${ACCOUNT_NUMBER}.csv"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transactions-db-${{ github.event.inputs.account_number }}
+          path: transactions_db_*.csv
+          retention-days: 1
+          if-no-files-found: error
