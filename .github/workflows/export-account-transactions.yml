@@ -1,0 +1,51 @@
+name: export-account-transactions
+
+# One-off, read-only export of every transaction for a single account, straight
+# from the Investec API (no database writes). Run from the Actions tab → Run
+# workflow, then download the CSV from the run's Artifacts section.
+# The artifact holds financial data: it is kept for 1 day only.
+on:
+  workflow_dispatch:
+    inputs:
+      account_number:
+        description: "Investec account number"
+        required: true
+        default: "10012256399"
+      from_date:
+        description: "Start date YYYY-MM-DD (blank = 25 years ago, i.e. full history)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - run: pip install -e .
+
+      - name: Export transactions
+        env:
+          INVESTEC_CLIENT_ID: ${{ secrets.INVESTEC_CLIENT_ID }}
+          INVESTEC_CLIENT_SECRET: ${{ secrets.INVESTEC_CLIENT_SECRET }}
+          INVESTEC_API_KEY: ${{ secrets.INVESTEC_API_KEY }}
+          INVESTEC_BASE_URL: ${{ secrets.INVESTEC_BASE_URL }}
+          ACCOUNT_NUMBER: ${{ github.event.inputs.account_number }}
+          FROM_DATE: ${{ github.event.inputs.from_date }}
+        run: python scripts/export_account_transactions.py "$ACCOUNT_NUMBER" "transactions_${ACCOUNT_NUMBER}.csv" "$FROM_DATE"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: transactions-${{ github.event.inputs.account_number }}
+          path: transactions_*.csv
+          retention-days: 1
+          if-no-files-found: error
