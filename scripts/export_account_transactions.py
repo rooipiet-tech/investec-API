@@ -41,9 +41,21 @@ def main(argv: list[str]) -> int:
         base_url=(os.environ.get("INVESTEC_BASE_URL") or "https://openapi.investec.com").strip(),
     )
 
-    matches = [a for a in client.get_accounts() if str(a.get("accountNumber", "")).strip() == account_number]
+    def _norm(v: object) -> str:
+        return "".join(ch for ch in str(v or "") if ch.isalnum()).lstrip("0")
+
+    accounts = client.get_accounts()
+    matches = [a for a in accounts if _norm(a.get("accountNumber")) == _norm(account_number)]
     if not matches:
-        print(f"Account {account_number} not found among the credential's accounts.", file=sys.stderr)
+        # Diagnostic only: last 4 digits + product, never full numbers or names
+        # (Actions logs may be visible to others).
+        print(
+            f"Account {account_number} not found among the {len(accounts)} account(s) "
+            "visible to this API credential. Accounts seen (last 4 / product):",
+            file=sys.stderr,
+        )
+        for a in accounts:
+            print(f"  ...{str(a.get('accountNumber', ''))[-4:]}  {a.get('productName')}", file=sys.stderr)
         return 1
     account = matches[0]
     account_id = account["accountId"]
